@@ -24,6 +24,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Detect high-confidence credential and dangerous-sink patterns on added lines before model review
 - Persist bounded, repository-scoped review memory locally for future context
 - Accept signed GitHub pull-request webhooks for automatic review runs
+- Emit a reproducible SHA-256 attestation for each decision and evidence set
 - Three-state decision model: ready, needs evidence, needs owner decision
 - Provenance metrics for fetched sources, cited sources, unsupported claims, model, and latency
 

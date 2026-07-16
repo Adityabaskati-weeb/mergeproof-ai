@@ -17,7 +17,8 @@ export async function publishPullRequestCheck(prUrl: string, analysis: Analysis)
   const octokit = await createGithubClient(true);
   try {
     const securityText = (analysis.securityFindings ?? []).map((finding) => `- **SECURITY ${finding.severity.toUpperCase()}** ${finding.path}:${finding.line}: ${finding.title}`).join("\n");
-    const response = await octokit.rest.checks.create({ owner: ref.owner, repo: ref.repo, name: "MergeProof evidence gate", head_sha: context.headSha, status: "completed", conclusion, details_url: ref.url, output: { title: `MergeProof: ${analysis.decision}`, summary: `${analysis.rows.length} criteria evaluated. ${analysis.trace.citedSources} citations verified. ${analysis.securityFindings?.length ?? 0} deterministic security findings.`, text: [securityText, ...analysis.rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}: ${row.evidence}`)].filter(Boolean).join("\n"), annotations } });
+    const attestationText = analysis.trace.attestation ? `\n\nAttestation: ${analysis.trace.attestation.algorithm}:${analysis.trace.attestation.digest}` : "";
+    const response = await octokit.rest.checks.create({ owner: ref.owner, repo: ref.repo, name: "MergeProof evidence gate", head_sha: context.headSha, status: "completed", conclusion, details_url: ref.url, output: { title: `MergeProof: ${analysis.decision}`, summary: `${analysis.rows.length} criteria evaluated. ${analysis.trace.citedSources} citations verified. ${analysis.securityFindings?.length ?? 0} deterministic security findings.${attestationText}`, text: [securityText, ...analysis.rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}: ${row.evidence}`), attestationText].filter(Boolean).join("\n"), annotations } });
     return response.data.html_url ?? undefined;
   } catch (error) {
     if (!(error instanceof Error) || !/403|forbidden|check/i.test(error.message)) throw error;

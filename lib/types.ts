@@ -58,5 +58,6 @@ export type Analysis = {
     linkedIssues?: number;
     securityFindings?: number;
     memory?: { enabled: boolean; matchedEntries: number; stored: boolean };
+    attestation?: { algorithm: "sha256"; digest: string };
   };
 };

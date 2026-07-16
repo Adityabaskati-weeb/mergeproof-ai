@@ -37,6 +37,7 @@ function printAnalysis(analysis: Analysis) {
     for (const finding of analysis.securityFindings) console.log(`    [${finding.severity}] ${finding.path}:${finding.line} ${finding.title}`);
   }
   if (analysis.trace.memory?.enabled) console.log(`Review memory: ${analysis.trace.memory.matchedEntries} matched | stored: ${analysis.trace.memory.stored ? "yes" : "no"}`);
+  if (analysis.trace.attestation) console.log(`Attestation: ${analysis.trace.attestation.algorithm}:${analysis.trace.attestation.digest}`);
   console.log();
 }
 

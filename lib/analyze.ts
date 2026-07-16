@@ -7,6 +7,7 @@ import { retrieveRepositoryEvidence } from "./retrieval";
 import { readReviewMemory, recordReviewMemory } from "./memory";
 import { scanPullRequestSecurity } from "./security";
 import { validateAnalysis } from "./validator";
+import { attestAnalysis } from "./attestation";
 import type { Analysis } from "./types";
 
 export type AnalyzeOptions = { provider?: string; repoPath?: string; retrievalTopK?: number; remember?: boolean; memoryRoot?: string; memoryLimit?: number };
@@ -32,9 +33,11 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const retrievalTrace = { enabled: Boolean(options.repoPath), indexedChunks: retrieval.indexedChunks, selectedChunks: retrieval.chunks.length, ...(retrieval.indexCommitSha ? { indexCommitSha: retrieval.indexCommitSha } : {}) };
   const memoryTrace = { enabled: Boolean(memoryRoot), matchedEntries: reviewMemory.length, stored: false };
   const persist = async (analysis: Analysis): Promise<Analysis> => {
-    if (!options.remember || !memoryRoot) return { ...analysis, trace: { ...analysis.trace, memory: memoryTrace } };
-    await recordReviewMemory(memoryRoot, ref, prUrl, fetchedContext.title, criteria, analysis);
-    return { ...analysis, trace: { ...analysis.trace, memory: { ...memoryTrace, stored: true } } };
+    const attestation = attestAnalysis(analysis);
+    const withAttestation = { ...analysis, trace: { ...analysis.trace, memory: memoryTrace, attestation } };
+    if (!options.remember || !memoryRoot) return withAttestation;
+    await recordReviewMemory(memoryRoot, ref, prUrl, fetchedContext.title, criteria, withAttestation);
+    return { ...withAttestation, trace: { ...withAttestation.trace, memory: { ...memoryTrace, stored: true } } };
   };
   if (!criteria.length) {
     return persist({

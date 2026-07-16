@@ -29,6 +29,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 3. Missing evidence produces an explicit abstention state instead of a confident approval.
 4. Deterministic security findings cannot be removed by model output and are included in every publication path.
 5. Review memory is local, bounded, redacted, and inspectable rather than silently retained by a hosted service.
+6. Every completed analysis emits a reproducible SHA-256 attestation over the decision, evidence rows, security findings, and PR head SHA.
 
 ## Remaining Deliberate Gaps
 
