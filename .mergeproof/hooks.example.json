@@ -1,0 +1,5 @@
+{
+  "enabled": true,
+  "beforeReview": ["npm-typecheck"],
+  "afterReview": ["npm-test"]
+}

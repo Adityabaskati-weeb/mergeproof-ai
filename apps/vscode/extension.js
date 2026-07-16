@@ -4,7 +4,7 @@ const { execFile } = require("node:child_process");
 function runMergeProof(command, url, cwd) {
   const configuredPath = vscode.workspace.getConfiguration("mergeproof").get("cliPath");
   const executable = configuredPath || (process.platform === "win32" ? "npm.cmd" : "npm");
-  const repoArgs = command === "analyze" || command === "fix" || command === "tests" ? ["--repo", cwd] : [];
+  const repoArgs = command === "analyze" || command === "fix" || command === "tests" || command === "autofix" ? ["--repo", cwd] : [];
   const args = configuredPath ? [command, url, "--json", ...repoArgs] : ["run", "cli", "--", command, url, "--", "--json", ...repoArgs];
   return new Promise((resolve, reject) => execFile(executable, args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
     const jsonStart = stdout.indexOf("{");
@@ -68,6 +68,7 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generatePlan", () => analyze("plan")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.suggestFix", () => analyze("fix")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generateTests", () => analyze("tests")));
+  context.subscriptions.push(vscode.commands.registerCommand("mergeproof.autofix", () => analyze("autofix")));
 }
 
 module.exports = { activate, deactivate() {} };

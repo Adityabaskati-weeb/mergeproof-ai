@@ -1,0 +1,10 @@
+{
+  "name": "mergeproof",
+  "displayName": "MergeProof Evidence Review",
+  "version": "0.1.0",
+  "description": "Evidence-backed review, safe autofix, and sandbox verification for change requests.",
+  "author": { "name": "MergeProof" },
+  "license": "MIT",
+  "repository": "https://github.com/Adityabaskati-weeb/mergeproof-ai",
+  "skills": ["skills/mergeproof-review/SKILL.md"]
+}

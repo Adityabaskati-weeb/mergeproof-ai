@@ -1,0 +1,81 @@
+name: MergeProof scheduled autofix
+
+on:
+  schedule:
+    - cron: "43 * * * *"
+  workflow_dispatch:
+    inputs:
+      max_prs:
+        description: Maximum number of open pull requests to inspect
+        required: false
+        default: "3"
+        type: string
+      create_pr:
+        description: Push verified fixes as new pull requests
+        required: true
+        default: false
+        type: boolean
+
+# Opt-in twice: the repository variable enables scheduling, and the create-pr
+# variable enables remote mutation. The original PR branch is never changed.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  scheduled-autofix:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.MERGEPROOF_AUTOFIX_SCHEDULE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ vars.MERGEPROOF_MODEL || 'gpt-5.6' }}
+      GITHUB_TOKEN: ${{ github.token }}
+      MAX_PRS: ${{ inputs.max_prs || vars.MERGEPROOF_AUTOFIX_MAX_PRS || '3' }}
+      CREATE_PR: ${{ inputs.create_pr || vars.MERGEPROOF_AUTOFIX_CREATE_PR == 'true' }}
+    steps:
+      - name: Checkout MergeProof engine
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install MergeProof dependencies
+        run: npm ci --ignore-scripts
+      - name: Inspect open pull requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          gh pr list --state open --limit "$MAX_PRS" --json url,headRefOid > open-prs.json
+          jq -r '.[].url' open-prs.json > urls.txt
+      - name: Run isolated review-thread autofix
+        shell: bash
+        run: |
+          set -u
+          : > autofix-results.jsonl
+          while IFS= read -r pr_url; do
+            [ -n "$pr_url" ] || continue
+            repo_dir="target-$(echo "$pr_url" | sha256sum | cut -c1-12)"
+            repo=$(gh pr view "$pr_url" --json headRepository --jq '.headRepository.nameWithOwner') || { echo "Skipped $pr_url: metadata failed" >&2; continue; }
+            sha=$(gh pr view "$pr_url" --json headRefOid --jq '.headRefOid') || { echo "Skipped $pr_url: SHA lookup failed" >&2; continue; }
+            gh repo clone "$repo" "$repo_dir" -- --filter=blob:none 2>/dev/null || { echo "Skipped $pr_url: clone failed" >&2; continue; }
+            git -C "$repo_dir" fetch origin "$sha" && git -C "$repo_dir" checkout --detach "$sha" || { echo "Skipped $pr_url: checkout failed" >&2; continue; }
+            args=(run cli -- autofix "$pr_url" --repo "$repo_dir" --verify "npm test" --re-review --json)
+            if [ "$CREATE_PR" = "true" ]; then args+=(--create-pr); fi
+            set +e
+            result=$(npm "${args[@]}" 2>/dev/null)
+            status=$?
+            set -e
+            printf '%s\n' "$result" | jq --arg url "$pr_url" --argjson status "$status" '{url:$url, exitCode:$status, result:.}' >> autofix-results.jsonl || echo "Invalid result for $pr_url" >&2
+          done < urls.txt
+      - name: Upload autofix audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: mergeproof-scheduled-autofix
+          path: |
+            open-prs.json
+            autofix-results.jsonl
+          if-no-files-found: error

@@ -9,7 +9,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | GitHub PR review | Yes | Yes | Yes |
 | GitLab / Bitbucket / Azure DevOps ingestion | Yes: normalized read-only analysis | Azure DevOps and broader provider support | GitLab, Bitbucket, and Azure DevOps support |
 | Local uncommitted review | Yes: staged, unstaged, and untracked changes | IDE and CLI surfaces | IDE and CLI surfaces |
-| Agent handoff / fix verification | Yes: local ephemeral Git worktree, optional one-pass re-review, plus manual ephemeral GitHub Actions runner with artifact/comment output and explicit new-PR handoff | Cloud-agent handoff | Agent handoff, Autofix, and autonomous fix/review cycles |
+| Agent handoff / fix verification | Yes: local ephemeral Git worktree, optional one-pass re-review, manual ephemeral GitHub Actions runner, and review-thread autofix with explicit new-PR handoff | Cloud-agent handoff | Agent handoff, Autofix, and autonomous fix/review cycles |
 | Automatic review trigger | GitHub Actions, signed webhook, and opt-in hourly scheduled review | Yes | Yes: GitHub, GitLab, Bitbucket, and Azure DevOps signed receivers plus Actions |
 | Full PR context | Files, commits, checks, discussion, Jira/Linear, local and explicitly linked repositories, opt-in read-only MCP tools, and labeled web search | Full changeset, repository, and MCP context | PR, issue, repository, knowledge base context |
 | Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files, and named custom-agent profiles | Custom instructions, custom agents, skills, MCP | Repository and path-based instructions |
@@ -17,12 +17,12 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Durable memory | Local bounded review JSONL, explicit approved knowledge JSONL, plus bounded Slack thread reference state | Copilot Memory | Knowledge Base and learnings |
 | Review effort / scope | Low, medium, or high effort; local `--dir` scopes | Low/medium effort; IDE and repository scope | Directory-scoped CLI review |
 | Security gate | Deterministic scanner plus optional npm audit, Semgrep, and CodeQL database creation/SARIF adapters | Security risk review and GitHub security ecosystem | Security Agent and built-in checks |
-| Safe fixes | Unified-diff suggestion; explicit checked apply | Suggested multi-line fixes and cloud-agent handoff | Autofix and agent handoff |
+| Safe fixes | Unified-diff suggestion; explicit checked apply; unresolved-thread autofix in a detached worktree with optional verification, re-review, and new PR | Suggested multi-line fixes and cloud-agent handoff | Autofix and agent handoff |
 | Test generation | Test-only unified-diff suggestion | Agent/code generation workflows | Generate unit tests |
 | Issue creation | GitHub, Jira, and Linear | GitHub task workflows | GitHub, GitLab, Jira, Linear |
 | Slack | Signed slash commands, Events API mentions, bounded thread follow-ups, and governed message automations | GitHub ecosystem integrations | Conversational Slack agent and automations |
 | Model choice | OpenAI, OpenAI-compatible, Anthropic | GitHub-managed model controls | Product-managed model controls |
-| Client surfaces | CLI, native Windows desktop, VS Code, CI, Cursor rule, JetBrains External Tool recipe, installable agent skill | GitHub, IDE, CLI, cloud agent | Git platforms, IDE, CLI, Slack |
+| Client surfaces | CLI, native Windows desktop, VS Code, Cursor plugin metadata/rule, JetBrains plugin source, CI, and installable agent skill | GitHub, IDE, CLI, cloud agent | Git platforms, IDE, CLI, Slack |
 
 ## Differentiation
 
@@ -38,4 +38,4 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 
 ## Remaining Deliberate Gaps
 
-MergeProof is not yet a complete replacement for the surrounding GitHub platform or CodeRabbit product. Dedicated native JetBrains/Cursor marketplace plugins, Copilot-specific cloud hooks/custom-agent hosting, hosted knowledge administration, and automatic remote code-mutating agent scheduling remain separate implementation tracks. MergeProof now supports bounded Slack thread follow-ups, explicit approved local knowledge, explicitly linked local repositories, one-pass sandbox re-review, and opt-in scheduled read-only reviews; it does not silently schedule code-mutating agents.
+MergeProof is not a complete replacement for the surrounding GitHub platform or CodeRabbit product. It does not reproduce GitHub's hosted Copilot cloud-agent service, CodeRabbit's hosted knowledge administration, or their managed billing/tenant controls. Its differentiator is an inspectable evidence ledger and conservative mutation boundary: review-thread autofix, lifecycle hooks, and scheduled remote autofix are opt-in, allowlisted, sandboxed, and never silently modify the original branch.

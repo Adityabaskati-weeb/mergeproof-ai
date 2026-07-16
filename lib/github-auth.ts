@@ -1,4 +1,5 @@
 import { createSign } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { Octokit } from "@octokit/rest";
 
 let cachedInstallationToken: { value: string; expiresAt: number } | undefined;
@@ -17,8 +18,17 @@ function appJwt(appId: string, privateKey: string): string {
   return `${unsigned}.${base64Url(signer.sign(privateKey))}`;
 }
 
-export async function resolveGithubToken(required = false): Promise<string | undefined> {
+export async function resolveGithubToken(required = false, allowGhCli = false): Promise<string | undefined> {
   if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
+  if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
+  try {
+    if (!allowGhCli) throw new Error("gh auth fallback disabled");
+    if (process.env.MERGEPROOF_DISABLE_GH_AUTH === "1") throw new Error("gh auth disabled");
+    const token = execFileSync("gh", ["auth", "token"], { encoding: "utf8", timeout: 3_000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (token) return token;
+  } catch {
+    // Public GitHub REST requests can still work without a local CLI token.
+  }
   const appId = process.env.GITHUB_APP_ID;
   const installationId = process.env.GITHUB_APP_INSTALLATION_ID;
   const privateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, "\n");
@@ -39,6 +49,6 @@ export async function resolveGithubToken(required = false): Promise<string | und
 }
 
 export async function createGithubClient(required = false): Promise<Octokit> {
-  const token = await resolveGithubToken(required);
+  const token = await resolveGithubToken(required, true);
   return new Octokit({ ...(token ? { auth: token } : {}), request: { timeout: 15_000 } });
 }

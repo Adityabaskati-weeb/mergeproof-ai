@@ -1,0 +1,11 @@
+<idea-plugin>
+    <id>ai.mergeproof.jetbrains</id>
+    <name>MergeProof</name>
+    <vendor email="support@mergeproof.ai">MergeProof</vendor>
+    <description>Evidence-backed review and safe autofix through the MergeProof CLI.</description>
+    <depends>com.intellij.modules.platform</depends>
+    <actions>
+        <action id="MergeProof.AnalyzePullRequest" class="ai.mergeproof.jetbrains.AnalyzePullRequestAction" text="MergeProof: Analyze Pull Request" description="Analyze a GitHub pull request with MergeProof" />
+        <action id="MergeProof.ReviewWorkingTree" class="ai.mergeproof.jetbrains.ReviewWorkingTreeAction" text="MergeProof: Review Working Tree" description="Review local changes with MergeProof" />
+    </actions>
+</idea-plugin>

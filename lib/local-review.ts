@@ -13,6 +13,7 @@ import { attestAnalysis } from "./attestation";
 import { readKnowledge } from "./knowledge";
 import { normalizeReviewEffort, retrievalTopKForEffort } from "./effort";
 import { combineInstructions, loadAgentProfile } from "./agents";
+import { runHooks, type HookReport } from "./hooks";
 import type { PullRequestContext } from "./github";
 import type { Analysis } from "./types";
 
@@ -21,7 +22,7 @@ const MAX_DIFF_BYTES = 20 * 1024 * 1024;
 const MAX_UNTRACKED_BYTES = 250_000;
 
 export type WorkingTreeFile = PullRequestContext["files"][number];
-export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string };
+export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; hooks?: boolean };
 
 function runGit(root: string, args: string[]): string {
   try {
@@ -123,11 +124,13 @@ export type WorkingTreeReviewContext = {
   scopePaths: string[];
   securityFindings: ReturnType<typeof scanPullRequestSecurity>;
   externalSecurity: ExternalSecurityReport;
+  hooksBefore: HookReport;
 };
 
 export async function buildWorkingTreeReviewContext(options: LocalReviewOptions = {}): Promise<WorkingTreeReviewContext> {
   const repositoryRoot = resolve(options.repoPath || process.cwd());
   const policy = await loadPolicy(repositoryRoot);
+  const hooksBefore = await runHooks(repositoryRoot, "beforeReview", options.hooks);
   const agentProfile = await loadAgentProfile(repositoryRoot, options.agent);
   const effort = normalizeReviewEffort(options.effort || policy.effort || process.env.MERGEPROOF_REVIEW_EFFORT);
   const changes = await collectWorkingTreeChanges(repositoryRoot, options.directories);
@@ -142,19 +145,22 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const externalSecurity = options.externalSecurity || options.codeqlDatabase ? await scanExternalSecurity({ repoPath: repositoryRoot, commitSha: reviewSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery }) : { findings: [], tools: [], unavailable: [] };
   const securityFindings = [...baseSecurityFindings, ...externalSecurity.findings];
   context.securityFindings = securityFindings;
-  return { repositoryRoot, context, changes, criteria, policy, retrieval, knowledge, scopePaths: (options.directories ?? []).map((directory) => directory.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean), securityFindings, externalSecurity };
+  return { repositoryRoot, context, changes, criteria, policy, retrieval, knowledge, scopePaths: (options.directories ?? []).map((directory) => directory.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean), securityFindings, externalSecurity, hooksBefore };
 }
 
 export async function reviewWorkingTree(model?: string, options: LocalReviewOptions = {}): Promise<Analysis> {
   const started = Date.now();
   const workingTree = await buildWorkingTreeReviewContext(options);
-  const { context, criteria, policy, retrieval, changes, knowledge, scopePaths, securityFindings, externalSecurity } = workingTree;
+  const { context, criteria, policy, retrieval, changes, knowledge, scopePaths, securityFindings, externalSecurity, hooksBefore } = workingTree;
   const providerName = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (providerName === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const provider = createModelProvider(selectedModel, providerName as Parameters<typeof createModelProvider>[1]);
   const retrievalTrace = { enabled: true, indexedChunks: retrieval.indexedChunks, selectedChunks: retrieval.chunks.length, ...(retrieval.indexCommitSha ? { indexCommitSha: retrieval.indexCommitSha } : {}) };
   const result = await provider.analyze(context, criteria, AbortSignal.timeout(45_000));
   const analysis = validateAnalysis(result, context, criteria, provider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings);
-  const withScope = { ...analysis, trace: { ...analysis.trace, scope: "working-tree" as const, workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: context.reviewEffort, reviewPaths: scopePaths, agent: options.agent } };
+  const hooksAfter = await runHooks(workingTree.repositoryRoot, "afterReview", options.hooks);
+  const hooks = { enabled: hooksBefore.enabled || hooksAfter.enabled, before: hooksBefore.before, after: hooksAfter.after, failed: [...hooksBefore.failed, ...hooksAfter.failed] };
+  const gated = hooks.failed.length ? { ...analysis, decision: analysis.decision === "ready" ? "needs-evidence" as const : analysis.decision } : analysis;
+  const withScope = { ...gated, trace: { ...gated.trace, scope: "working-tree" as const, workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: context.reviewEffort, reviewPaths: scopePaths, agent: options.agent, hooks } };
   return { ...withScope, trace: { ...withScope.trace, attestation: attestAnalysis(withScope) } };
 }

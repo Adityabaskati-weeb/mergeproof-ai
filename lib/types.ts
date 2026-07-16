@@ -30,6 +30,17 @@ export type SecurityFinding = {
   citation: { path: string; commitSha: string; url: string };
 };
 
+export type ReviewThread = {
+  id: string;
+  path: string;
+  line?: number;
+  originalLine?: number;
+  isResolved: boolean;
+  isOutdated: boolean;
+  comments: Array<{ author: string; body: string; url: string; createdAt?: string }>;
+  url: string;
+};
+
 export type ReviewMemoryEntry = {
   repository: string;
   prUrl: string;
@@ -70,5 +81,8 @@ export type Analysis = {
     reviewPaths?: string[];
     agent?: string;
     relatedRepositories?: number;
+    unresolvedReviewThreads?: number;
+    reviewThreadsUnavailable?: string;
+    hooks?: { enabled: boolean; before: string[]; after: string[]; failed: string[] };
   };
 };

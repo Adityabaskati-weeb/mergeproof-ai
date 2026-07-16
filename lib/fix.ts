@@ -42,7 +42,7 @@ export async function fixPullRequest(prUrl: string, model?: string, options: Fix
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);
   const result = await modelProvider.fix({ ...context, issues, repositoryEvidence: retrieval.chunks, customInstructions: combineInstructions(policy.instructions, agentProfile) }, criteria, AbortSignal.timeout(45_000));
   const patch = result.patch.replace(/^```(?:diff|patch)?\s*/i, "").replace(/\s*```$/, "").trim();
-  const changedPaths = extractPatchPaths(patch);
+  const changedPaths = patch ? extractPatchPaths(patch) : [];
   let applied = false;
   if (options.apply) {
     if (!options.repoPath) throw new Error("--apply requires --repo so the target checkout is explicit.");

@@ -7,10 +7,12 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof analyze <change-request-url>` CLI workflow for GitHub, GitLab, Bitbucket, and Azure DevOps
 - `mergeproof review [repo-path]` pre-commit workflow for staged, unstaged, and untracked changes
 - `mergeproof agent [repo-path]` sandboxed fix generation with optional verification
+- `mergeproof autofix <github-pr-url> --repo <checkout>` review-thread autofix with optional verification, re-review, and explicit new-PR handoff
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
 - Paste a public GitHub pull request URL into the CLI or native desktop client
 - Fetch real PR metadata, changed files, commits, and checks with Octokit
+- Fetch unresolved GitHub review threads through GraphQL and treat their comment URLs as evidence sources
 - Extract acceptance criteria from the PR description
 - Analyze the change with a configurable OpenAI model (GPT-5.6 by default)
 - Route analysis through OpenAI, OpenAI-compatible endpoints, or Anthropic
@@ -42,8 +44,10 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Run an explicit allowlisted verification command inside that sandbox before reporting success
 - Run the same sandbox agent in an ephemeral GitHub Actions runner through manual `workflow_dispatch`
 - Run safe, read-only scheduled reviews for open pull requests through an opt-in GitHub Actions workflow
+- Run a separately gated scheduled autofix workflow that never changes the original PR branch
+- Run named lifecycle hooks from `.mergeproof/hooks.json` without permitting arbitrary shell commands
 - Reuse the evidence contract from compatible agent surfaces through `skills/mergeproof-review/SKILL.md`
-- Use the same engine from Cursor through `.cursor/rules/mergeproof-review.mdc` or JetBrains through `docs/jetbrains.md`
+- Use the same engine from Cursor through `.cursor/rules/mergeproof-review.mdc`, VS Code, or the native IntelliJ plugin source in `apps/jetbrains`
 - Three-state decision model: ready, needs evidence, needs owner decision
 - Provenance metrics for fetched sources, cited sources, unsupported claims, model, and latency
 
@@ -80,6 +84,18 @@ npm run desktop:dev
 ```
 
 The CLI also loads values from `.env`. Never commit the real `.env` file. `GITHUB_TOKEN` is optional for public repositories but helps avoid API rate limits. The model is configurable per command, so teams can choose their preferred provider-compatible model name. `analyze` accepts GitHub PR, GitLab MR, Bitbucket PR, and Azure DevOps PR URLs. Set `GITLAB_TOKEN`, `BITBUCKET_TOKEN` or Bitbucket app-password fields, and `AZURE_DEVOPS_TOKEN` only when private-provider access or publication is required. CodeQL creation is opt-in and requires the CodeQL CLI; specify `--codeql-languages` and a query suite when the repository is not covered by the defaults.
+
+For GitHub review-thread access, `GITHUB_TOKEN`, `GH_TOKEN`, a GitHub App installation, or a local `gh auth login` session is used. If thread access is unavailable, MergeProof records that provenance instead of treating the PR as thread-clean.
+
+To use the safe autofix path, check out the exact PR head SHA and run:
+
+```powershell
+npm run cli -- autofix https://github.com/owner/repo/pull/123 --repo . --verify "npm test" --re-review
+```
+
+Add `--create-pr` only when you want MergeProof to push a new branch and open a separate PR after verification. The original branch is never modified by this command.
+
+Lifecycle hooks are opt-in and use the allowlisted command IDs in `.mergeproof/hooks.example.json`; pass `--hooks` to `analyze` to run configured before/after hooks. Arbitrary shell commands are rejected.
 
 ### Read-only MCP context
 

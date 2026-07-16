@@ -1,6 +1,8 @@
 # JetBrains Integration
 
-MergeProof is available in JetBrains IDEs through the built-in Terminal or External Tools feature. From the project root, use:
+MergeProof includes a small native IntelliJ Platform plugin source under `apps/jetbrains`. Build it with `./gradlew buildPlugin` from that directory and install the generated ZIP through **Settings > Plugins > Install Plugin from Disk**. The actions invoke the same CLI and preserve the evidence engine and safety gates rather than maintaining a second analyzer implementation.
+
+MergeProof is available in JetBrains IDEs through the native plugin source in `apps/jetbrains`, the built-in Terminal, or External Tools. From the project root, use:
 
 ```text
 npm run cli -- review . -- --json
@@ -14,4 +16,4 @@ Configure an IntelliJ External Tool with:
 - Arguments: `run cli -- review $ProjectFileDir$ -- --json`
 - Working directory: `$ProjectFileDir$`
 
-This uses the same engine as the desktop client, VS Code extension, CI workflow, and Cursor rule. A dedicated JetBrains plugin is not bundled; this integration intentionally avoids maintaining a second analyzer implementation.
+This uses the same engine as the desktop client, VS Code extension, CI workflow, and Cursor rule. The External Tool recipe remains useful when you do not want to build a plugin; autofix remains an explicit CLI command because it can create a branch and PR only after sandbox verification.

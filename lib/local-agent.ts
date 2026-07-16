@@ -38,7 +38,7 @@ function runGit(root: string, args: string[], input?: string): string {
   return execFileSync("git", args, { cwd: root, input, encoding: "utf8", maxBuffer: MAX_OUTPUT_BYTES, stdio: input === undefined ? ["ignore", "pipe", "pipe"] : ["pipe", "pipe", "pipe"] }).toString();
 }
 
-function runVerification(root: string, command: VerificationCommand): string {
+export function runVerificationCommand(root: string, command: VerificationCommand): string {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const [executable, args] = command === "npm test" ? [npm, ["test"]] : command === "npm run build" ? [npm, ["run", "build"]] : command === "npm run typecheck" ? [npm, ["run", "typecheck"]] : command === "pytest" ? ["pytest", []] : command === "cargo test" ? ["cargo", ["test"]] : ["go", ["test", "./..."]];
   const environment = { ...process.env };
@@ -71,7 +71,7 @@ export async function runLocalAgent(model?: string, options: LocalAgentOptions =
     runGit(sandbox, ["apply", "--whitespace=error"], patch);
     if (options.verify) {
       try {
-        verificationOutput = runVerification(sandbox, options.verify);
+        verificationOutput = runVerificationCommand(sandbox, options.verify);
         verified = true;
       } catch (error) {
         verificationOutput = error instanceof Error ? error.message : "Verification failed.";
