@@ -4,11 +4,13 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 
 ## Current vertical slice
 
-- Responsive GitHub-first dashboard
-- Evidence matrix with source citations
+- Paste a public GitHub pull request URL into the dashboard
+- Fetch real PR metadata, changed files, commits, and checks with Octokit
+- Extract acceptance criteria from the PR description
+- Analyze the change with a configurable OpenAI model (GPT-5.6 by default)
+- Validate model citations against the fetched GitHub sources
 - Three-state decision model: ready, needs evidence, needs owner decision
-- RAG provenance surface showing retrieved repository context
-- Typed analysis API seam ready for the OpenAI and GitHub integrations
+- Provenance metrics for fetched sources, cited sources, unsupported claims, model, and latency
 
 ## Run locally
 
@@ -18,6 +20,8 @@ npm run dev
 ```
 
 Open `http://localhost:3000`.
+
+Set `OPENAI_API_KEY` in `.env.local` before running a live analysis. `GITHUB_TOKEN` is optional for public repositories but helps avoid GitHub API rate limits.
 
 ## Planned integrations
 
