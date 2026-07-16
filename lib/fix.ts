@@ -9,6 +9,7 @@ import { combineInstructions, loadAgentProfile } from "./agents";
 
 export type FixOptions = { provider?: string; repoPath?: string; apply?: boolean; agent?: string; threadIds?: string[] };
 export type FixSuggestion = ModelFix & { trace: { model: string; headSha: string; changedPaths: string[]; applied: boolean } };
+export type SimplifySuggestion = ModelFix & { trace: { model: string; headSha: string; changedPaths: string[]; applied: boolean } };
 
 export function extractPatchPaths(patch: string): string[] {
   return [...patch.matchAll(/^(?:---|\+\+\+) (?:[ab]\/)?([^\s]+)$/gm)].map((match) => match[1]).filter((path) => path !== "/dev/null");
@@ -28,6 +29,14 @@ function applyPatch(repoPath: string, patch: string): void {
 }
 
 export async function fixPullRequest(prUrl: string, model?: string, options: FixOptions = {}): Promise<FixSuggestion> {
+  return generatePatch(prUrl, model, options, "fix");
+}
+
+export async function simplifyPullRequest(prUrl: string, model?: string, options: FixOptions = {}): Promise<SimplifySuggestion> {
+  return generatePatch(prUrl, model, options, "simplify");
+}
+
+async function generatePatch(prUrl: string, model: string | undefined, options: FixOptions, operation: "fix" | "simplify"): Promise<FixSuggestion> {
   const target = parseChangeRequestUrl(prUrl);
   const ref = target.ref;
   const policy = await loadPolicy(options.repoPath || process.cwd());
@@ -41,7 +50,7 @@ export async function fixPullRequest(prUrl: string, model?: string, options: Fix
   const provider = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (provider === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);
-  const result = await modelProvider.fix({ ...context, issues, repositoryEvidence: retrieval.chunks, customInstructions: combineInstructions(policy.instructions, agentProfile) }, criteria, AbortSignal.timeout(45_000));
+  const result = await modelProvider[operation]({ ...context, issues, repositoryEvidence: retrieval.chunks, customInstructions: combineInstructions(policy.instructions, agentProfile) }, criteria, AbortSignal.timeout(45_000));
   const patch = result.patch.replace(/^```(?:diff|patch)?\s*/i, "").replace(/\s*```$/, "").trim();
   const changedPaths = patch ? extractPatchPaths(patch) : [];
   let applied = false;

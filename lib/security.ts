@@ -15,7 +15,7 @@ const PATTERNS: Pattern[] = [
   { id: "install-script", title: "Dependency install script changed", severity: "medium", detail: "Install-time scripts execute with developer or CI privileges.", pattern: /["'](?:preinstall|install|postinstall)["']\s*:/i },
 ];
 
-function addedLines(patch: string): Array<{ line: number; text: string }> {
+export function addedLines(patch: string): Array<{ line: number; text: string }> {
   const result: Array<{ line: number; text: string }> = [];
   let nextLine = 1;
   for (const line of patch.split(/\r?\n/)) {
@@ -49,6 +49,7 @@ export function scanPullRequestSecurity(context: PullRequestContext): SecurityFi
           line: added.line,
           detail: pattern.detail,
           citation: { path: file.path, commitSha: context.headSha, url: `${file.url}#L${added.line}` },
+          category: "security",
         });
       }
     }

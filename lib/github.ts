@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createGithubClient } from "./github-auth";
 import type { EvidenceChunk, LinkedIssue, ReviewMemoryEntry, SecurityFinding, ReviewThread } from "./types";
 import type { KnowledgeFact } from "./knowledge";
-import type { ReviewEffort } from "./types";
+import type { ReviewEffort, ReviewProfile } from "./types";
 import { fetchGithubReviewThreads } from "./github-threads";
 
 const pullRequestUrlSchema = z.string().url().regex(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i, "Expected a GitHub pull request URL");
@@ -26,9 +26,12 @@ export type PullRequestContext = {
   issues?: LinkedIssue[];
   customInstructions?: string;
   securityFindings?: SecurityFinding[];
+  qualitySignals?: SecurityFinding[];
+  suggestedReviewers?: string[];
   reviewMemory?: ReviewMemoryEntry[];
   knowledge?: KnowledgeFact[];
   reviewEffort?: ReviewEffort;
+  reviewProfile?: ReviewProfile;
   sourceCommits?: Set<string>;
 };
 

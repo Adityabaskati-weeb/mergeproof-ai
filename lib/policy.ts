@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import type { ReviewEffort } from "./types";
+import type { ReviewEffort, ReviewProfile } from "./types";
 
-export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string };
+export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; profile?: ReviewProfile; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string };
 
 async function collectInstructionFiles(root: string, directory: string, suffix: string, output: Array<[string, string]> = [], depth = 0): Promise<Array<[string, string]>> {
   if (depth > 4 || output.length >= 20) return output;

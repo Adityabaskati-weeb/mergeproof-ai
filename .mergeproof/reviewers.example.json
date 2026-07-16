@@ -1,0 +1,6 @@
+{
+  "rules": [
+    { "paths": ["src/payments/**"], "reviewers": ["@payments-team"] },
+    { "paths": ["infra/**"], "reviewers": ["@platform-team", "alice"] }
+  ]
+}

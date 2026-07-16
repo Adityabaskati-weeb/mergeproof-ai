@@ -3,7 +3,7 @@ import { analyzePullRequest } from "./analyze";
 import { createGithubIssueFromAnalysis } from "./github-issues";
 import { planPullRequest } from "./plan";
 import { parseChangeRequestUrl } from "./change-request";
-import { fixPullRequest } from "./fix";
+import { fixPullRequest, simplifyPullRequest } from "./fix";
 import { generateTestsPullRequest } from "./tests";
 import { readSlackThread, recordSlackThread } from "./slack-memory";
 import { loadSlackAutomations, matchSlackAutomation } from "./slack-automations";
@@ -12,9 +12,10 @@ import { createGithubClient } from "./github-auth";
 import { autofixPullRequest } from "./autofix";
 import { VERIFICATION_COMMANDS, type VerificationCommand } from "./local-agent";
 import { parseIssueUrl, planIssue } from "./issue-plan";
+import { runConsensus } from "./consensus";
 
 export type SlackAgentOptions = { signingSecret: string; botToken?: string; repoPath?: string; model?: string; provider?: string; log?: (message: string) => void };
-export type SlackCommand = { action: "review" | "investigate" | "plan" | "fix" | "tests" | "issue" | "learn" | "rate" | "autofix"; prUrl?: string; fact?: string };
+export type SlackCommand = { action: "review" | "investigate" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "issue" | "learn" | "rate" | "autofix"; prUrl?: string; fact?: string };
 
 export function verifySlackRequestSignature(body: string, timestamp: string | undefined, signature: string | undefined, secret: string, now = Date.now()): boolean {
   if (!timestamp || !signature || !secret || Math.abs(now - Number(timestamp) * 1000) > 5 * 60 * 1000) return false;
@@ -26,7 +27,7 @@ export function verifySlackRequestSignature(body: string, timestamp: string | un
 
 export function parseSlackCommand(text: string, fallbackPrUrl?: string): SlackCommand | undefined {
   const normalized = text.trim().replace(/^<@[^>]+>\s*/, "");
-  const actionMatch = normalized.match(/\b(review|investigate|plan|fix|tests|issue|learn|rate(?:\s+limit)?|autofix)\b/i);
+  const actionMatch = normalized.match(/\b(review|investigate|plan|fix|simplify|tests|consensus|issue|learn|rate(?:\s+limit)?|autofix)\b/i);
   const urlMatch = normalized.match(/https:\/\/\S+/i);
   const action = actionMatch?.[1]?.toLowerCase() ?? (urlMatch ? "investigate" : undefined);
   if (!action) return undefined;
@@ -47,15 +48,19 @@ export function parseSlackCommand(text: string, fallbackPrUrl?: string): SlackCo
   return { action: action as Exclude<SlackCommand["action"], "learn" | "rate">, prUrl };
 }
 
-function resultText(action: SlackCommand["action"], prUrl: string, value: Awaited<ReturnType<typeof analyzePullRequest>> | Awaited<ReturnType<typeof planPullRequest>> | Awaited<ReturnType<typeof fixPullRequest>> | Awaited<ReturnType<typeof generateTestsPullRequest>> | string): string {
+function resultText(action: SlackCommand["action"], prUrl: string, value: Awaited<ReturnType<typeof analyzePullRequest>> | Awaited<ReturnType<typeof planPullRequest>> | Awaited<ReturnType<typeof fixPullRequest>> | Awaited<ReturnType<typeof generateTestsPullRequest>> | Awaited<ReturnType<typeof runConsensus>> | string): string {
   if (typeof value === "string") return `MergeProof created a follow-up issue: ${value}`;
   if (action === "plan") {
     const plan = value as Awaited<ReturnType<typeof planPullRequest>>;
     return `MergeProof plan for ${prUrl}\n${plan.summary}\n${plan.steps.map((step, index) => `${index + 1}. ${step.title}`).join("\n")}`;
   }
-  if (action === "fix" || action === "tests") {
+  if (action === "fix" || action === "simplify" || action === "tests") {
     const suggestion = value as Awaited<ReturnType<typeof fixPullRequest>> | Awaited<ReturnType<typeof generateTestsPullRequest>>;
     return `MergeProof ${action} suggestion for ${prUrl}\n${suggestion.summary}\nChanged paths: ${suggestion.trace.changedPaths.join(", ") || "none"}\n\n${suggestion.patch.slice(0, 6000) || "No patch was proposed."}`;
+  }
+  if (action === "consensus") {
+    const consensus = value as Awaited<ReturnType<typeof runConsensus>>;
+    return `MergeProof consensus *${consensus.decision}* for ${prUrl}\nAgents: ${consensus.trace.agents} | Agreement: ${Math.round(consensus.trace.agreement * 100)}%\n${consensus.rows.map((row) => `${row.agreement >= 0.67 ? ":white_check_mark:" : ":warning:"} ${row.criterion} (${Math.round(row.agreement * 100)}%)`).join("\n")}`;
   }
   const analysis = value as Awaited<ReturnType<typeof analyzePullRequest>>;
   const security = (analysis.securityFindings ?? []).map((finding) => `:rotating_light: ${finding.severity} ${finding.path}:${finding.line} ${finding.title}`).join("\n");
@@ -89,7 +94,9 @@ export async function runSlackCommand(command: SlackCommand, options: SlackAgent
     try { parseIssueUrl(prUrl); } catch { return resultText(command.action, prUrl, await planPullRequest(prUrl, options.model, options.provider)); }
     return resultText(command.action, prUrl, await planIssue(prUrl, options.model, options.provider, { repoPath: options.repoPath }));
   }
+  if (command.action === "consensus") return resultText(command.action, prUrl, await runConsensus(prUrl, { models: options.model ? [options.model, options.model] : undefined, provider: options.provider, providers: options.provider ? [options.provider, options.provider] : undefined, repoPath: options.repoPath }));
   if (command.action === "fix") return resultText(command.action, prUrl, await fixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath }));
+  if (command.action === "simplify") return resultText(command.action, prUrl, await simplifyPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath }));
   if (command.action === "tests") return resultText(command.action, prUrl, await generateTestsPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath }));
   const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
   if (command.action === "issue") {
@@ -102,7 +109,7 @@ export async function runSlackCommand(command: SlackCommand, options: SlackAgent
 export async function processSlackCommand(body: string, options: SlackAgentOptions): Promise<{ text: string; responseUrl?: string }> {
   const params = new URLSearchParams(body);
   const command = parseSlackCommand(params.get("text") ?? "");
-  if (!command) return { text: "Usage: `review|investigate|plan|fix|tests|autofix <change-request URL>`, `learn <fact> <change-request URL>`, `rate`, or `issue <GitHub PR URL>`." };
+  if (!command) return { text: "Usage: `review|investigate|plan|fix|simplify|tests|consensus|autofix <change-request URL>`, `learn <fact> <change-request URL>`, `rate`, or `issue <GitHub PR URL>`." };
   const responseUrl = params.get("response_url") ?? undefined;
   try {
     const text = await runSlackCommand(command, options);
@@ -125,7 +132,7 @@ export async function processSlackEvent(payload: unknown, options: SlackAgentOpt
   const previous = threadKey ? await readSlackThread(options.repoPath || process.cwd(), threadKey) : undefined;
   const automation = matchSlackAutomation(await loadSlackAutomations(options.repoPath || process.cwd()), event);
   const command = parseSlackCommand(event.text ?? "", previous?.prUrl) ?? (automation ? parseSlackCommand(`${automation.action} ${event.text ?? ""}`, previous?.prUrl) : undefined);
-  if (!command) return { accepted: true, ignored: true, text: "Mention MergeProof with `review`, `investigate`, `plan`, `fix`, `tests`, `autofix`, `learn`, or `rate`." };
+  if (!command) return { accepted: true, ignored: true, text: "Mention MergeProof with `review`, `investigate`, `plan`, `fix`, `simplify`, `tests`, `consensus`, `autofix`, `learn`, or `rate`." };
   const text = await runSlackCommand(command, options);
   if (threadKey && command.prUrl) await recordSlackThread(options.repoPath || process.cwd(), threadKey, command.prUrl);
   if (options.botToken && event.channel) {

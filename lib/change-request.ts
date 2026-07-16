@@ -99,8 +99,16 @@ async function fetchGitLab(target: ChangeRequestTarget): Promise<PullRequestCont
   const checks = (Array.isArray(pipelines) ? pipelines : []).map((pipeline) => ({ name: `pipeline-${pipeline.id ?? "unknown"}`, status: String(pipeline.status ?? "unknown"), conclusion: pipeline.status ? String(pipeline.status) : null, url: addSource(sources, pipeline.web_url, ref.url) }));
   const commitData = (Array.isArray(commits) ? commits : []).slice(0, 100).map((commit) => ({ sha: String(commit.id ?? "unknown"), message: String(commit.title ?? commit.message ?? "").slice(0, 2000), url: addSource(sources, commit.web_url, ref.url) }));
   const discussion = (Array.isArray(discussions) ? discussions : []).flatMap((thread) => Array.isArray(thread.notes) ? thread.notes.map((note) => ({ author: String(note.author?.username ?? "unknown"), body: String(note.body ?? "").slice(0, 4000), url: addSource(sources, note.noteable_web_url ?? note.web_url, ref.url) })) : []).slice(0, 100);
+  const reviewThreads = (Array.isArray(discussions) ? discussions : []).flatMap((thread) => {
+    const notes = Array.isArray(thread.notes) ? thread.notes : [];
+    if (!notes.length) return [];
+    const position = (notes[0].position ?? {}) as JsonRecord;
+    const path = String(position.new_path ?? position.old_path ?? "unknown");
+    const lineValue = Number(position.new_line ?? position.old_line ?? 1);
+    return [{ id: String(thread.id ?? `gitlab-thread-${path}-${lineValue}`), path, line: Number.isFinite(lineValue) ? lineValue : 1, isResolved: Boolean(thread.resolved) || notes.every((note) => Boolean(note.resolved)), isOutdated: false, comments: notes.map((note) => ({ author: String(note.author?.username ?? "unknown"), body: String(note.body ?? "").slice(0, 4000), url: addSource(sources, note.noteable_web_url ?? note.web_url, ref.url) })), url: addSource(sources, notes[0].noteable_web_url ?? notes[0].web_url, ref.url) }];
+  }).slice(0, 100);
   const diffRefs = pull.diff_refs as JsonRecord | undefined;
-  return { ref, title: String(pull.title ?? "GitLab merge request"), body: String(pull.description ?? ""), headSha: sha, baseSha: String(diffRefs?.base_sha ?? "unknown"), files, checks, commits: commitData, discussion, sources, repositoryEvidence: [], issues: [] };
+  return { ref, title: String(pull.title ?? "GitLab merge request"), body: String(pull.description ?? ""), headSha: sha, baseSha: String(diffRefs?.base_sha ?? "unknown"), baseBranch: String(pull.target_branch ?? "main"), files, checks, commits: commitData, discussion, reviewThreads, sources, repositoryEvidence: [], issues: [] };
 }
 
 async function fetchBitbucket(target: ChangeRequestTarget): Promise<PullRequestContext> {

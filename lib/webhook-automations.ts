@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { parseChangeRequestUrl } from "./change-request";
 import { runSlackCommand, type SlackCommand } from "./slack-agent";
 
-export type WebhookAutomationAction = Exclude<SlackCommand["action"], "issue" | "rate" | "learn">;
+export type WebhookAutomationAction = Exclude<SlackCommand["action"], "issue" | "rate" | "learn" | "autofix">;
 export type WebhookAutomation = {
   id: string;
   action: WebhookAutomationAction;
@@ -19,7 +19,7 @@ const MAX_AUTOMATIONS = 50;
 const URL_PATTERN = /https:\/\/(?:github\.com\/[^\s/]+\/[^\s/]+\/pull\/\d+|gitlab\.com\/[^\s/]+\/[^\s/]+\/-\/merge_requests\/\d+|bitbucket\.org\/[^\s/]+\/[^\s/]+\/pull-requests\/\d+|dev\.azure\.com\/[^\s/]+\/[^\s/]+\/_git\/[^\s/]+\/pullrequest\/\d+)/i;
 
 function validAction(value: unknown): value is WebhookAutomationAction {
-  return value === "review" || value === "investigate" || value === "plan" || value === "fix" || value === "tests";
+  return value === "review" || value === "investigate" || value === "plan" || value === "fix" || value === "simplify" || value === "tests" || value === "consensus";
 }
 
 function valueAt(payload: unknown, field?: string): unknown {

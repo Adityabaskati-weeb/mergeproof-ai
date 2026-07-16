@@ -41,10 +41,20 @@ function ownerFromRemote(root: string, fallback: string): string {
   }
 }
 
+async function createGitlabMergeRequest(target: Awaited<ReturnType<typeof parseChangeRequestUrl>>, context: Awaited<ReturnType<typeof fetchChangeRequest>>, branch: string, body: string): Promise<string> {
+  const url = new URL(target.ref.url);
+  const base = (process.env.GITLAB_API_URL || `${url.origin}/api/v4`).replace(/\/$/, "");
+  const project = encodeURIComponent(`${target.ref.owner}/${target.ref.repo}`);
+  const response = await fetch(`${base}/projects/${project}/merge_requests`, { method: "POST", headers: { "content-type": "application/json", ...(process.env.GITLAB_TOKEN ? { "PRIVATE-TOKEN": process.env.GITLAB_TOKEN } : {}) }, body: JSON.stringify({ source_branch: branch, target_branch: context.baseBranch ?? "main", title: `MergeProof autofix: ${context.title}`, description: body }) });
+  if (!response.ok) throw new Error(`GitLab autofix merge-request creation failed with HTTP ${response.status}.`);
+  const payload = await response.json() as { web_url?: string };
+  return payload.web_url ?? target.ref.url;
+}
+
 export async function autofixPullRequest(prUrl: string, model?: string, options: AutofixOptions = {}): Promise<AutofixResult> {
   if (!options.repoPath) throw new Error("Autofix requires --repo so the target checkout is explicit.");
   const target = parseChangeRequestUrl(prUrl);
-  if (target.provider !== "github") throw new Error("Review-thread autofix currently requires a GitHub pull request.");
+  if (target.provider !== "github" && target.provider !== "gitlab") throw new Error("Review-thread autofix currently supports GitHub pull requests and GitLab merge requests.");
   const context = await fetchChangeRequest(target);
   const localHead = git(options.repoPath, ["rev-parse", "HEAD"]);
   if (localHead !== context.headSha) throw new Error(`Checkout SHA ${localHead} does not match pull-request head ${context.headSha}. Refusing to autofix the wrong revision.`);
@@ -97,11 +107,15 @@ export async function autofixPullRequest(prUrl: string, model?: string, options:
       git(sandbox, ["config", "user.email", "mergeproof-autofix@users.noreply.github.com"]);
       git(sandbox, ["commit", "-m", "Apply verified MergeProof review-thread autofix"]);
       git(sandbox, ["push", "--set-upstream", "origin", branch!]);
-      const client = await createGithubClient(true);
-      const owner = ownerFromRemote(options.repoPath, target.ref.owner);
       const body = [`This pull request was created by an explicit MergeProof autofix request.`, ``, `- Verified against ${context.headSha}`, `- Unresolved review threads addressed: ${baseTrace.unresolvedThreads}`, `- Verification: ${options.verify ?? "patch application only"}`, options.reReview ? `- Re-review: ${reReviewDecision}` : "", ``, `The original pull request branch was not modified.`].filter(Boolean).join("\n");
-      const created = await client.rest.pulls.create({ owner: target.ref.owner, repo: target.ref.repo, title: `MergeProof autofix: ${context.title}`, head: owner === target.ref.owner ? branch! : `${owner}:${branch!}`, base: context.baseBranch ?? "main", body });
-      pullRequestUrl = created.data.html_url;
+      if (target.provider === "github") {
+        const client = await createGithubClient(true);
+        const owner = ownerFromRemote(options.repoPath, target.ref.owner);
+        const created = await client.rest.pulls.create({ owner: target.ref.owner, repo: target.ref.repo, title: `MergeProof autofix: ${context.title}`, head: owner === target.ref.owner ? branch! : `${owner}:${branch!}`, base: context.baseBranch ?? "main", body });
+        pullRequestUrl = created.data.html_url;
+      } else {
+        pullRequestUrl = await createGitlabMergeRequest(target, context, branch!, body);
+      }
     }
   } finally {
     try { git(options.repoPath, ["worktree", "remove", "--force", sandbox]); } catch { /* cleanup is best effort */ }

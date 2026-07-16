@@ -13,7 +13,7 @@ function canonicalizeUrl(value: string): string {
   }
 }
 
-export function validateAnalysis(result: ModelAnalysis, context: PullRequestContext, criteria: string[], model: string, elapsedMs: number, retrieval?: Analysis["trace"]["retrieval"], minCitationsPerCriterion = 1, securityFindings: SecurityFinding[] = []): Analysis {
+export function validateAnalysis(result: ModelAnalysis, context: PullRequestContext, criteria: string[], model: string, elapsedMs: number, retrieval?: Analysis["trace"]["retrieval"], minCitationsPerCriterion = 1, securityFindings: SecurityFinding[] = [], qualitySignals: SecurityFinding[] = []): Analysis {
   const validRows = result.rows.filter((row) => criteria.some((criterion) => criterion.toLowerCase() === row.criterion.toLowerCase()));
   const unsupportedClaims = result.rows.length - validRows.length;
   const fetchedSources = new Set([...context.sources].map(canonicalizeUrl));
@@ -25,6 +25,7 @@ export function validateAnalysis(result: ModelAnalysis, context: PullRequestCont
   });
   const citedSources = rows.reduce((count, row) => count + row.citations.length, 0);
   const securityBlocksMerge = securityFindings.some((finding) => finding.severity === "high" || finding.severity === "medium");
-  const decision = securityBlocksMerge || unsupportedClaims || rows.some((row) => row.state === "fail" || row.citations.length < minCitationsPerCriterion) ? "needs-evidence" : rows.some((row) => row.state === "warn") ? "needs-evidence" : "ready";
-  return { decision, contract: result.contract, rows, securityFindings, trace: { fetchedSources: context.sources.size, citedSources, unsupportedClaims, model, elapsedMs, headSha: context.headSha, retrieval, linkedIssues: context.issues?.length ?? 0, securityFindings: securityFindings.length } };
+  const qualityBlocksMerge = qualitySignals.some((finding) => finding.severity === "high" || finding.severity === "medium");
+  const decision = securityBlocksMerge || qualityBlocksMerge || unsupportedClaims || rows.some((row) => row.state === "fail" || row.citations.length < minCitationsPerCriterion) ? "needs-evidence" : rows.some((row) => row.state === "warn") ? "needs-evidence" : "ready";
+  return { decision, contract: result.contract, rows, securityFindings, qualitySignals, trace: { fetchedSources: context.sources.size, citedSources, unsupportedClaims, model, elapsedMs, headSha: context.headSha, retrieval, linkedIssues: context.issues?.length ?? 0, securityFindings: securityFindings.length } };
 }

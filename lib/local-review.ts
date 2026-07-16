@@ -7,13 +7,18 @@ import { createModelProvider } from "./models";
 import { loadPolicy } from "./policy";
 import { retrieveLocalEvidence } from "./retrieval";
 import { scanPullRequestSecurity } from "./security";
+import { scanPullRequestPrivacy } from "./privacy";
+import { scanSlopSignals } from "./slop";
 import { scanExternalSecurity, type ExternalSecurityReport } from "./external-security";
 import { validateAnalysis } from "./validator";
 import { attestAnalysis } from "./attestation";
 import { readKnowledge } from "./knowledge";
 import { normalizeReviewEffort, retrievalTopKForEffort } from "./effort";
+import { normalizeReviewProfile } from "./profile";
 import { combineInstructions, loadAgentProfile } from "./agents";
 import { runHooks, type HookReport } from "./hooks";
+import { suggestReviewers } from "./reviewers";
+import { recordAuditEvent } from "./audit";
 import type { PullRequestContext } from "./github";
 import type { Analysis } from "./types";
 
@@ -22,7 +27,7 @@ const MAX_DIFF_BYTES = 20 * 1024 * 1024;
 const MAX_UNTRACKED_BYTES = 250_000;
 
 export type WorkingTreeFile = PullRequestContext["files"][number];
-export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; hooks?: boolean };
+export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; hooks?: boolean };
 
 function runGit(root: string, args: string[]): string {
   try {
@@ -123,6 +128,7 @@ export type WorkingTreeReviewContext = {
   knowledge: Awaited<ReturnType<typeof readKnowledge>>;
   scopePaths: string[];
   securityFindings: ReturnType<typeof scanPullRequestSecurity>;
+  qualitySignals: ReturnType<typeof scanSlopSignals>;
   externalSecurity: ExternalSecurityReport;
   hooksBefore: HookReport;
 };
@@ -133,6 +139,7 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const hooksBefore = await runHooks(repositoryRoot, "beforeReview", options.hooks);
   const agentProfile = await loadAgentProfile(repositoryRoot, options.agent);
   const effort = normalizeReviewEffort(options.effort || policy.effort || process.env.MERGEPROOF_REVIEW_EFFORT);
+  const profile = normalizeReviewProfile(options.profile || policy.profile || process.env.MERGEPROOF_REVIEW_PROFILE);
   const changes = await collectWorkingTreeChanges(repositoryRoot, options.directories);
   const reviewSha = `working-tree:${changes.digest}`;
   const ref = { owner: "local", repo: basename(repositoryRoot), number: 0, url: pathToFileURL(repositoryRoot).toString() };
@@ -140,27 +147,38 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const knowledge = await readKnowledge(repositoryRoot, ref, changes.files.map((file) => file.path), basename(repositoryRoot), 12);
   const criteria = uniqueCriteria(options.criteria);
   if (!criteria.length) criteria.push(DEFAULT_CRITERION);
-  const context: PullRequestContext = { ref, title: `Working-tree review: ${basename(repositoryRoot)}`, body: criteria.join("\n"), headSha: reviewSha, baseSha: changes.gitHeadSha, files: changes.files, checks: [], commits: [], discussion: [], sources: new Set([ref.url, ...changes.files.map((file) => file.url), ...retrieval.chunks.map((chunk) => chunk.url)]), repositoryEvidence: retrieval.chunks, issues: [], customInstructions: combineInstructions(policy.instructions, agentProfile), knowledge, reviewEffort: effort };
+  const context: PullRequestContext = { ref, title: `Working-tree review: ${basename(repositoryRoot)}`, body: criteria.join("\n"), headSha: reviewSha, baseSha: changes.gitHeadSha, files: changes.files, checks: [], commits: [], discussion: [], sources: new Set([ref.url, ...changes.files.map((file) => file.url), ...retrieval.chunks.map((chunk) => chunk.url)]), repositoryEvidence: retrieval.chunks, issues: [], customInstructions: combineInstructions(policy.instructions, agentProfile), knowledge, reviewEffort: effort, reviewProfile: profile };
   const baseSecurityFindings = scanPullRequestSecurity(context);
+  const privacyFindings = scanPullRequestPrivacy(context);
+  const qualitySignals = scanSlopSignals(context);
+  const suggestedReviewers = await suggestReviewers(repositoryRoot, changes.files.map((file) => file.path));
   const externalSecurity = options.externalSecurity || options.codeqlDatabase ? await scanExternalSecurity({ repoPath: repositoryRoot, commitSha: reviewSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery }) : { findings: [], tools: [], unavailable: [] };
-  const securityFindings = [...baseSecurityFindings, ...externalSecurity.findings];
+  const securityFindings = [...baseSecurityFindings, ...privacyFindings, ...externalSecurity.findings];
   context.securityFindings = securityFindings;
-  return { repositoryRoot, context, changes, criteria, policy, retrieval, knowledge, scopePaths: (options.directories ?? []).map((directory) => directory.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean), securityFindings, externalSecurity, hooksBefore };
+  context.qualitySignals = qualitySignals;
+  context.suggestedReviewers = suggestedReviewers;
+  return { repositoryRoot, context, changes, criteria, policy, retrieval, knowledge, scopePaths: (options.directories ?? []).map((directory) => directory.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean), securityFindings, qualitySignals, externalSecurity, hooksBefore };
 }
 
 export async function reviewWorkingTree(model?: string, options: LocalReviewOptions = {}): Promise<Analysis> {
   const started = Date.now();
   const workingTree = await buildWorkingTreeReviewContext(options);
-  const { context, criteria, policy, retrieval, changes, knowledge, scopePaths, securityFindings, externalSecurity, hooksBefore } = workingTree;
+  const { context, criteria, policy, retrieval, changes, knowledge, scopePaths, securityFindings, qualitySignals, externalSecurity, hooksBefore } = workingTree;
   const providerName = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (providerName === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const provider = createModelProvider(selectedModel, providerName as Parameters<typeof createModelProvider>[1]);
   const retrievalTrace = { enabled: true, indexedChunks: retrieval.indexedChunks, selectedChunks: retrieval.chunks.length, ...(retrieval.indexCommitSha ? { indexCommitSha: retrieval.indexCommitSha } : {}) };
   const result = await provider.analyze(context, criteria, AbortSignal.timeout(45_000));
-  const analysis = validateAnalysis(result, context, criteria, provider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings);
+  const analysis = validateAnalysis(result, context, criteria, provider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings, qualitySignals);
   const hooksAfter = await runHooks(workingTree.repositoryRoot, "afterReview", options.hooks);
   const hooks = { enabled: hooksBefore.enabled || hooksAfter.enabled, before: hooksBefore.before, after: hooksAfter.after, failed: [...hooksBefore.failed, ...hooksAfter.failed] };
   const gated = hooks.failed.length ? { ...analysis, decision: analysis.decision === "ready" ? "needs-evidence" as const : analysis.decision } : analysis;
-  const withScope = { ...gated, trace: { ...gated.trace, scope: "working-tree" as const, workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: context.reviewEffort, reviewPaths: scopePaths, agent: options.agent, hooks } };
-  return { ...withScope, trace: { ...withScope.trace, attestation: attestAnalysis(withScope) } };
+  const withScope = { ...gated, suggestedReviewers: context.suggestedReviewers, trace: { ...gated.trace, scope: "working-tree" as const, workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: context.reviewEffort, reviewProfile: context.reviewProfile, suggestedReviewers: context.suggestedReviewers?.length, reviewPaths: scopePaths, agent: options.agent, hooks } };
+  const completed = { ...withScope, trace: { ...withScope.trace, attestation: attestAnalysis(withScope) } };
+  try {
+    await recordAuditEvent(workingTree.repositoryRoot, { action: "review", target: context.ref.url, decision: completed.decision, model: completed.trace.model, headSha: completed.trace.headSha, attestation: completed.trace.attestation?.digest });
+  } catch {
+    // Audit persistence must not turn a completed review into a runtime failure.
+  }
+  return completed;
 }

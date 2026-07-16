@@ -14,6 +14,7 @@ fn cli_args(
     model: Option<String>,
     provider: Option<String>,
     effort: Option<String>,
+    profile: Option<String>,
     agent: Option<String>,
     directories: Option<String>,
     related_repos: Option<String>,
@@ -28,7 +29,7 @@ fn cli_args(
     remember: bool,
     re_review: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "plan" | "fix" | "tests" | "review" | "agent" | "autofix") {
+    if !matches!(command, "analyze" | "consensus" | "plan" | "fix" | "simplify" | "tests" | "review" | "agent" | "autofix") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -42,6 +43,9 @@ fn cli_args(
         }
         if let Some(effort) = effort.clone().filter(|value| !value.trim().is_empty()) {
             args.extend(["--effort".to_string(), effort]);
+        }
+        if let Some(profile) = profile.clone().filter(|value| !value.trim().is_empty()) {
+            args.extend(["--profile".to_string(), profile]);
         }
         if let Some(agent) = agent.clone().filter(|value| !value.trim().is_empty()) {
             args.extend(["--agent".to_string(), agent]);
@@ -81,21 +85,34 @@ fn cli_args(
         return Ok(args);
     }
     let mut args = vec![command.to_string(), pr_url];
-    if let Some(model) = model.as_deref().filter(|value| !value.trim().is_empty()) {
+    if command == "consensus" {
+        if let Some(model) = model.as_deref().filter(|value| !value.trim().is_empty()) {
+            args.push("--model".to_string());
+            args.extend(model.split(',').map(|value| value.trim().to_string()).filter(|value| !value.is_empty()));
+        }
+    } else if let Some(model) = model.as_deref().filter(|value| !value.trim().is_empty()) {
         args.extend(["--model".to_string(), model.to_string()]);
     }
-    if let Some(provider) = provider.as_deref().filter(|value| !value.trim().is_empty()) {
+    if command == "consensus" {
+        if let Some(provider) = provider.as_deref().filter(|value| !value.trim().is_empty()) {
+            args.push("--provider".to_string());
+            args.extend(provider.split(',').map(|value| value.trim().to_string()).filter(|value| !value.is_empty()));
+        }
+    } else if let Some(provider) = provider.as_deref().filter(|value| !value.trim().is_empty()) {
         args.extend(["--provider".to_string(), provider.to_string()]);
     }
-    if command == "analyze" {
+    if matches!(command, "analyze" | "consensus") {
         if let Some(effort) = effort.as_deref().filter(|value| !value.trim().is_empty()) {
-        args.extend(["--effort".to_string(), effort.to_string()]);
+            args.extend(["--effort".to_string(), effort.to_string()]);
+        }
+        if let Some(profile) = profile.as_deref().filter(|value| !value.trim().is_empty()) {
+            args.extend(["--profile".to_string(), profile.to_string()]);
         }
     }
     if let Some(agent) = agent.as_deref().filter(|value| !value.trim().is_empty()) {
         args.extend(["--agent".to_string(), agent.to_string()]);
     }
-    if command == "analyze" {
+    if matches!(command, "analyze" | "consensus") {
         if let Some(related_repos) = related_repos.as_deref().filter(|value| !value.trim().is_empty()) {
             args.push(String::from("--related-repo"));
             args.extend(related_repos.split(',').map(|value| value.trim().to_string()).filter(|value| !value.is_empty()));
@@ -104,10 +121,10 @@ fn cli_args(
     if command == "analyze" && external_security {
         args.push(String::from("--external-security"));
     }
-    if command == "analyze" && mcp {
+    if matches!(command, "analyze" | "consensus") && mcp {
         args.push(String::from("--mcp"));
     }
-    if command == "analyze" && web_search {
+    if matches!(command, "analyze" | "consensus") && web_search {
         args.push(String::from("--web-search"));
     }
     if let Some(database) = codeql_database
@@ -132,8 +149,8 @@ fn cli_args(
         }
     }
     if apply {
-        if command != "fix" {
-            return Err(String::from("--apply is only valid for the fix command."));
+        if !matches!(command, "fix" | "simplify") {
+            return Err(String::from("--apply is only valid for fix or simplify."));
         }
         args.push(String::from("--apply"));
     }
@@ -157,6 +174,7 @@ async fn run_cli(
     model: Option<String>,
     provider: Option<String>,
     effort: Option<String>,
+    profile: Option<String>,
     agent: Option<String>,
     directories: Option<String>,
     related_repos: Option<String>,
@@ -177,6 +195,7 @@ async fn run_cli(
         model,
         provider,
         effort,
+        profile,
         agent,
         directories,
         related_repos,

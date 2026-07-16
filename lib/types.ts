@@ -1,5 +1,6 @@
 export type EvidenceState = "pass" | "warn" | "fail";
 export type ReviewEffort = "low" | "medium" | "high";
+export type ReviewProfile = "quiet" | "chill" | "assertive";
 
 export type EvidenceChunk = {
   path: string;
@@ -28,6 +29,7 @@ export type SecurityFinding = {
   line: number;
   detail: string;
   citation: { path: string; commitSha: string; url: string };
+  category?: "security" | "privacy" | "quality";
 };
 
 export type ReviewThread = {
@@ -59,6 +61,8 @@ export type Analysis = {
   contract: { promise: string; code: string; tests: string; release: string };
   rows: Array<{ criterion: string; evidence: string; state: EvidenceState; citations: Array<{ path: string; commitSha: string; url: string }>; stateLabel?: string }>;
   securityFindings?: SecurityFinding[];
+  qualitySignals?: SecurityFinding[];
+  suggestedReviewers?: string[];
   trace: {
     fetchedSources: number;
     citedSources: number;
@@ -78,6 +82,8 @@ export type Analysis = {
     webSearch?: { provider?: string; resultCount: number; unavailable?: string };
     knowledge?: { enabled: boolean; matchedFacts: number };
     reviewEffort?: ReviewEffort;
+    reviewProfile?: ReviewProfile;
+    suggestedReviewers?: number;
     reviewPaths?: string[];
     agent?: string;
     relatedRepositories?: number;

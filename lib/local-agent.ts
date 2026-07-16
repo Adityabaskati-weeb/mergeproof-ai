@@ -83,7 +83,7 @@ export async function runLocalAgent(model?: string, options: LocalAgentOptions =
         reReviewError = "Skipped re-review because the requested verification command failed.";
       } else {
         try {
-          const rereview = await reviewWorkingTree(model, { repoPath: sandbox, provider: options.provider, criteria: workingTree.criteria, retrievalTopK: options.retrievalTopK, effort: options.effort, agent: options.agent, directories: options.directories, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery });
+          const rereview = await reviewWorkingTree(model, { repoPath: sandbox, provider: options.provider, criteria: workingTree.criteria, retrievalTopK: options.retrievalTopK, effort: options.effort, profile: options.profile, agent: options.agent, directories: options.directories, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery });
           reReviewDecision = rereview.decision;
           reReviewPassed = rereview.decision === "ready";
           reReviewUnsupportedClaims = rereview.trace.unsupportedClaims;

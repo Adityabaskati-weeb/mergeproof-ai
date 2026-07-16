@@ -7,7 +7,9 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof analyze <change-request-url>` CLI workflow for GitHub, GitLab, Bitbucket, and Azure DevOps
 - `mergeproof review [repo-path]` pre-commit workflow for staged, unstaged, and untracked changes
 - `mergeproof agent [repo-path]` sandboxed fix generation with optional verification
-- `mergeproof autofix <github-pr-url> --repo <checkout>` review-thread autofix with optional verification, re-review, and explicit new-PR handoff
+- `mergeproof autofix <github-or-gitlab-url> --repo <checkout>` review-thread autofix with optional verification, re-review, and explicit new-PR/MR handoff
+- `mergeproof simplify <change-request-url>` behavior-preserving simplification suggestions
+- `mergeproof consensus <change-request-url> --model <model...>` independent model evidence consensus
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
 - Paste a public GitHub pull request URL into the CLI or native desktop client
@@ -15,6 +17,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Fetch unresolved GitHub review threads through GraphQL and treat their comment URLs as evidence sources
 - Extract acceptance criteria from the PR description
 - Analyze the change with a configurable OpenAI model (GPT-5.6 by default)
+- Choose quiet, chill, or assertive review profiles
 - Route analysis through OpenAI, OpenAI-compatible endpoints, or Anthropic
 - Retrieve evidence from an indexed local checkout at the exact PR head commit
 - Import linked Jira or Linear issue descriptions and acceptance criteria when credentials are configured
@@ -30,16 +33,19 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Re-review a verified sandbox patch once before reporting the result
 - Apply a proposed fix only with an explicit local checkout and `git apply --check`
 - Detect high-confidence credential and dangerous-sink patterns on added lines before model review
+- Detect high-confidence privacy literals and AI-slop quality signals before model review
 - Optionally run `npm audit`, Semgrep, and an existing or explicitly created CodeQL database with normalized findings
 - Optionally call explicitly configured read-only MCP tools and include their responses as cited review context
 - Optionally add Brave or Tavily web-search snippets as clearly labeled external context
 - Add explicitly selected local related repositories as separately committed, citation-validated context
 - Persist bounded, repository-scoped review memory locally for future context
 - Store explicitly approved, repository- and path-scoped knowledge facts locally
+- Suggest reviewers from `.github/CODEOWNERS` and `.mergeproof/reviewers.json`
 - Accept signed GitHub pull-request webhooks for automatic review runs
 - Run governed Slack message automations configured by channel, author, and text match
 - Accept signed custom automation webhooks with event, nested-field, and change-request URL matching
 - Emit a reproducible SHA-256 attestation for each decision and evidence set
+- Record a bounded local audit trail inspectable with `mergeproof audit`
 - Give local reviews a working-tree digest so citations and decisions are tied to the exact uncommitted snapshot
 - Generate a proposed fix inside an ephemeral Git worktree without mutating the developer checkout
 - Run an explicit allowlisted verification command inside that sandbox before reporting success
@@ -140,10 +146,13 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --save analysis
 npm run cli -- evaluate analysis.json
 npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json
 npm run cli -- plan https://acme.atlassian.net/browse/PLAT-42 -- --save plan.json
+npm run cli -- simplify https://github.com/owner/repo/pull/123 -- --repo . --patch simplify.patch
+npm run cli -- consensus https://github.com/owner/repo/pull/123 -- --model gpt-5.6 claude-sonnet-4-20250514 --provider openai anthropic --repo .
 npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --patch proposed-fix.patch
 npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --apply
 npm run cli -- tests https://github.com/owner/repo/pull/123 -- --repo . --patch proposed-tests.patch
 npm run cli -- memory owner/repo -- --repo . --query retry
+npm run cli -- audit --repo .
 npm run cli -- knowledge owner/repo --repo . --add "Generated API clients must be changed through the schema" --path src/api
 npm run cli -- knowledge owner/repo --repo . --query schema
 npm run cli -- serve -- --secret your-webhook-secret --repo . --publish-review
@@ -153,7 +162,7 @@ Replace the example PR URL with a real pull request. `https://github.com/owner/r
 
 Exit codes are `0` for a ready decision, `2` when human evidence or ownership is required, and `1` for an invalid request or runtime failure. This keeps the CLI useful in CI without treating uncertainty as a successful merge gate.
 
-The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, local review, sandbox agent, plan, and safe-fix workflows through the same bundled CLI.
+The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, consensus, local review, sandbox agent, plan, safe-fix, simplify, and test workflows through the same bundled CLI.
 
 The desktop shell invokes the same CLI engine through the local `tsx` runner during development. `npm run desktop:build` bundles the CLI into a Windows sidecar and produces MSI and NSIS installers. Set `MERGEPROOF_CLI` only when using a separately installed executable during development.
 
