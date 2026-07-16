@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import { analyzePullRequest } from "../lib/analyze";
 import { evaluateAnalysis } from "../lib/evaluation";
+import { fixPullRequest } from "../lib/fix";
 import { publishPullRequestCheck } from "../lib/github-publish";
 import { publishPullRequestReview } from "../lib/github-review";
 import { createJiraIssue } from "../lib/issues";
@@ -12,6 +13,7 @@ import { planPullRequest } from "../lib/plan";
 import { publishSlackSummary } from "../lib/slack";
 import type { Analysis } from "../lib/types";
 import type { ReviewPlan } from "../lib/models";
+import type { FixSuggestion } from "../lib/fix";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -36,6 +38,12 @@ function printPlan(plan: ReviewPlan) {
   console.log(`\nCitations verified: ${plan.trace.citedSources}/${plan.trace.fetchedSources}\n`);
 }
 
+function printFix(fix: FixSuggestion) {
+  console.log(`\nMERGEPROOF FIX (${fix.trace.model})\n\n${fix.summary}\n`);
+  console.log(fix.patch || "No patch was proposed.");
+  console.log(`\nApplied: ${fix.trace.applied ? "yes" : "no"}\n`);
+}
+
 const program = new Command();
 program.name("mergeproof").description("Evidence-backed merge decisions for GitHub pull requests").version("0.3.0");
 
@@ -57,6 +65,19 @@ program.command("plan").description("Generate a citation-aware implementation pl
     else printPlan(plan);
   } catch (error) {
     console.error(`MergeProof plan error: ${error instanceof Error ? error.message : "Planning failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("fix").description("Suggest or explicitly apply a validated unified diff").argument("<pr-url>", "Public GitHub pull request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the fix JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to validate").option("--apply", "Apply only after git apply --check succeeds").action(async (prUrl, options) => {
+  try {
+    const fix = await fixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, apply: options.apply });
+    if (options.patch) await writeFile(options.patch, fix.patch, "utf8");
+    if (options.save) await writeFile(options.save, JSON.stringify(fix, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(fix, null, 2));
+    else printFix(fix);
+  } catch (error) {
+    console.error(`MergeProof fix error: ${error instanceof Error ? error.message : "Fix generation failed."}`);
     process.exitCode = 1;
   }
 });

@@ -18,6 +18,8 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Publish a MergeProof GitHub Check with annotations and a merge decision
 - Optionally notify a Slack incoming webhook
 - Generate citation-aware implementation plans from a PR
+- Suggest minimal unified-diff fixes from the same evidence context
+- Apply a proposed fix only with an explicit local checkout and `git apply --check`
 - Three-state decision model: ready, needs evidence, needs owner decision
 - Provenance metrics for fetched sources, cited sources, unsupported claims, model, and latency
 
@@ -65,13 +67,15 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --prov
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --save analysis.json
 npm run cli -- evaluate analysis.json
 npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json
+npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --patch proposed-fix.patch
+npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --apply
 ```
 
 Replace the example PR URL with a real pull request. `https://github.com/owner/repo/pull/123` is only a placeholder.
 
 Exit codes are `0` for a ready decision, `2` when human evidence or ownership is required, and `1` for an invalid request or runtime failure. This keeps the CLI useful in CI without treating uncertainty as a successful merge gate.
 
-The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers.
+The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, plan, and safe-fix workflows through the same bundled CLI.
 
 The desktop shell invokes the same CLI engine through the local `tsx` runner during development. `npm run desktop:build` bundles the CLI into a Windows sidecar and produces MSI and NSIS installers. Set `MERGEPROOF_CLI` only when using a separately installed executable during development.
 
@@ -89,7 +93,9 @@ For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` 
 
 Mutation actions are explicit: `--publish-review` posts a GitHub review or fallback PR comment, and `--create-jira` creates a Jira follow-up using `JIRA_PROJECT_KEY`. These flags are never enabled by default.
 
-The VS Code extension exposes the same `analyze` and `plan` commands from the command palette. It is intentionally a thin client over the CLI so desktop, terminal, CI, and editor results share the same validator.
+The VS Code extension exposes the same `analyze`, `plan`, and `fix` commands from the command palette. It is intentionally a thin client over the CLI so desktop, terminal, CI, and editor results share the same validator.
+
+Fix suggestions are not silently committed, pushed, or posted to GitHub. Without `--apply`, MergeProof only emits a patch. With `--apply`, it rejects absolute or traversal paths and requires Git to accept the patch with whitespace errors treated as failures.
 
 ## Planned integrations
 

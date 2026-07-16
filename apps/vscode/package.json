@@ -7,11 +7,12 @@
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Linters", "Other"],
   "main": "extension.js",
-  "activationEvents": ["onCommand:mergeproof.analyzePullRequest", "onCommand:mergeproof.generatePlan"],
+  "activationEvents": ["onCommand:mergeproof.analyzePullRequest", "onCommand:mergeproof.generatePlan", "onCommand:mergeproof.suggestFix"],
   "contributes": {
     "commands": [
       { "command": "mergeproof.analyzePullRequest", "title": "MergeProof: Analyze Pull Request" },
-      { "command": "mergeproof.generatePlan", "title": "MergeProof: Generate Evidence Plan" }
+      { "command": "mergeproof.generatePlan", "title": "MergeProof: Generate Evidence Plan" },
+      { "command": "mergeproof.suggestFix", "title": "MergeProof: Suggest Safe Fix" }
     ],
     "configuration": {
       "title": "MergeProof",

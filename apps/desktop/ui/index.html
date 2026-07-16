@@ -10,8 +10,8 @@
     <aside class="rail">
       <div class="logo">merge<span>proof</span></div>
       <div class="rail-label">Workspace</div>
-      <button class="nav active">Analyze PR</button>
-      <button class="nav">History</button>
+      <button class="nav active">Review PR</button>
+      <button class="nav">Plan and fix</button>
       <button class="nav">Model policy</button>
       <div class="rail-footer">Local-first<br />Human approval required</div>
     </aside>
@@ -19,8 +19,9 @@
       <header><div class="kicker">Desktop analysis workspace</div><h1>Prove the change<br /><em>before</em> you merge.</h1><p>MergeProof traces pull-request intent to implementation evidence, tests, and release readiness.</p></header>
       <section class="input-card">
         <label for="pr-url">GitHub pull request</label>
-        <div class="input-row"><input id="pr-url" placeholder="https://github.com/owner/repo/pull/123" /><button id="analyze">Analyze change <span>&rarr;</span></button></div>
-        <div class="settings-row"><label for="provider">Provider</label><select id="provider"><option value="openai">OpenAI</option><option value="openai-compatible">OpenAI-compatible endpoint</option><option value="anthropic">Anthropic</option></select><label for="model">Model</label><input id="model" value="gpt-5.6" placeholder="provider model name" /></div>
+        <div class="input-row"><input id="pr-url" placeholder="https://github.com/owner/repo/pull/123" /><button id="run">Analyze change <span>&rarr;</span></button></div>
+        <div class="settings-row"><label for="action">Action</label><select id="action"><option value="analyze">Analyze and gate</option><option value="plan">Generate plan</option><option value="fix">Suggest safe fix</option></select><label for="provider">Provider</label><select id="provider"><option value="openai">OpenAI</option><option value="openai-compatible">OpenAI-compatible endpoint</option><option value="anthropic">Anthropic</option></select><label for="model">Model</label><input id="model" value="gpt-5.6" placeholder="provider model name" /></div>
+        <div class="settings-row"><label for="repo">Local repo (optional)</label><input id="repo" class="repo" placeholder="C:\\path\\to\\checkout" /><label class="apply-label"><input id="apply" type="checkbox" /> Apply fix after validation</label></div>
         <small>Runs locally through the shared MergeProof engine. No code is uploaded to a hosted dashboard.</small>
       </section>
       <section id="result" class="result hidden"></section>
