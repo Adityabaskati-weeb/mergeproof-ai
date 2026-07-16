@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config";
 import { Command } from "commander";
 import { analyzePullRequest } from "../lib/analyze";
 import type { Analysis } from "../lib/types";
