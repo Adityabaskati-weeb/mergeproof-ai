@@ -1,5 +1,5 @@
-import { Octokit } from "@octokit/rest";
 import { z } from "zod";
+import { createGithubClient } from "./github-auth";
 import type { EvidenceChunk, LinkedIssue, ReviewMemoryEntry, SecurityFinding } from "./types";
 
 const pullRequestUrlSchema = z.string().url().regex(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i, "Expected a GitHub pull request URL");
@@ -31,10 +31,7 @@ export function parsePullRequestUrl(value: string): PullRequestRef {
 }
 
 export async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequestContext> {
-  const octokit = new Octokit({
-    ...(process.env.GITHUB_TOKEN ? { auth: process.env.GITHUB_TOKEN } : {}),
-    request: { timeout: 15_000 },
-  });
+  const octokit = await createGithubClient();
   const pull = await octokit.rest.pulls.get({ owner: ref.owner, repo: ref.repo, pull_number: ref.number });
   const [files, checks, commits, issueComments, reviewComments] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listFiles, { owner: ref.owner, repo: ref.repo, pull_number: ref.number, per_page: 100 }),

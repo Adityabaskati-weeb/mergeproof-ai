@@ -1,11 +1,10 @@
-import { Octokit } from "@octokit/rest";
 import { fetchPullRequest, parsePullRequestUrl } from "./github";
+import { createGithubClient } from "./github-auth";
 import type { Analysis } from "./types";
 
 type CheckAnnotation = { path: string; start_line: number; end_line: number; annotation_level: "warning" | "failure"; title: string; message: string };
 
 export async function publishPullRequestCheck(prUrl: string, analysis: Analysis): Promise<string | undefined> {
-  if (!process.env.GITHUB_TOKEN) throw new Error("GITHUB_TOKEN is required to publish a GitHub Check.");
   const ref = parsePullRequestUrl(prUrl);
   const context = await fetchPullRequest(ref);
   const conclusion = analysis.decision === "ready" ? "success" : analysis.decision === "needs-owner" ? "neutral" : "failure";
@@ -15,7 +14,7 @@ export async function publishPullRequestCheck(prUrl: string, analysis: Analysis)
   }));
   const securityAnnotations: CheckAnnotation[] = (analysis.securityFindings ?? []).map((finding) => ({ path: finding.path, start_line: finding.line, end_line: finding.line, annotation_level: finding.severity === "high" ? "failure" : "warning", title: `MergeProof security: ${finding.severity}`, message: `${finding.title}: ${finding.detail}` }));
   const annotations = [...securityAnnotations, ...rowAnnotations].slice(0, 50);
-  const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+  const octokit = await createGithubClient(true);
   try {
     const securityText = (analysis.securityFindings ?? []).map((finding) => `- **SECURITY ${finding.severity.toUpperCase()}** ${finding.path}:${finding.line}: ${finding.title}`).join("\n");
     const response = await octokit.rest.checks.create({ owner: ref.owner, repo: ref.repo, name: "MergeProof evidence gate", head_sha: context.headSha, status: "completed", conclusion, details_url: ref.url, output: { title: `MergeProof: ${analysis.decision}`, summary: `${analysis.rows.length} criteria evaluated. ${analysis.trace.citedSources} citations verified. ${analysis.securityFindings?.length ?? 0} deterministic security findings.`, text: [securityText, ...analysis.rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}: ${row.evidence}`)].filter(Boolean).join("\n"), annotations } });
