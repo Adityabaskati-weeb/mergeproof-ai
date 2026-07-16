@@ -14,7 +14,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Full PR context | Files, commits, checks, discussion, Jira/Linear, local repository, opt-in read-only MCP tools, and labeled web search | Full changeset, repository, and MCP context | PR, issue, repository, knowledge base context |
 | Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files | Custom instructions, skills, MCP | Repository and path-based instructions |
 | Citation-backed decision | Exact head-SHA citations and source validation | Actionable suggestions | Review findings and summaries |
-| Durable memory | Local bounded JSONL, opt-in | Copilot Memory | Knowledge Base and learnings |
+| Durable memory | Local bounded review JSONL plus bounded Slack thread reference state, opt-in | Copilot Memory | Knowledge Base and learnings |
 | Security gate | Deterministic scanner plus optional npm audit, Semgrep, and CodeQL database creation/SARIF adapters | Security risk review and GitHub security ecosystem | Security Agent and built-in checks |
 | Safe fixes | Unified-diff suggestion; explicit checked apply | Suggested multi-line fixes and cloud-agent handoff | Autofix and agent handoff |
 | Test generation | Test-only unified-diff suggestion | Agent/code generation workflows | Generate unit tests |
@@ -37,4 +37,4 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 
 ## Remaining Deliberate Gaps
 
-MergeProof is not yet a complete replacement for the surrounding GitHub platform or CodeRabbit product. Dedicated native JetBrains/Cursor UI plugins and automatic remote agent scheduling remain separate implementation tracks. Slack now supports conversational entry points, but it does not yet provide governed multi-turn knowledge or automation scheduling.
+MergeProof is not yet a complete replacement for the surrounding GitHub platform or CodeRabbit product. Dedicated native JetBrains/Cursor UI plugins and automatic remote agent scheduling remain separate implementation tracks. Slack now supports bounded thread follow-ups, but it does not yet provide a full governed knowledge base or automation scheduling.

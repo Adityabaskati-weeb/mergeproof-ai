@@ -5,6 +5,7 @@ import { planPullRequest } from "./plan";
 import { parseChangeRequestUrl } from "./change-request";
 import { fixPullRequest } from "./fix";
 import { generateTestsPullRequest } from "./tests";
+import { readSlackThread, recordSlackThread } from "./slack-memory";
 
 export type SlackAgentOptions = { signingSecret: string; botToken?: string; repoPath?: string; model?: string; provider?: string; log?: (message: string) => void };
 export type SlackCommand = { action: "review" | "investigate" | "plan" | "fix" | "tests" | "issue"; prUrl: string };
@@ -17,11 +18,12 @@ export function verifySlackRequestSignature(body: string, timestamp: string | un
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
-export function parseSlackCommand(text: string): SlackCommand | undefined {
+export function parseSlackCommand(text: string, fallbackPrUrl?: string): SlackCommand | undefined {
   const normalized = text.trim().replace(/^<@[^>]+>\s*/, "");
-  const match = normalized.match(/^(review|investigate|plan|fix|tests|issue)\s+(https:\/\/\S+)(?:\s|$)/i);
+  const match = normalized.match(/^(review|investigate|plan|fix|tests|issue)(?:\s+(https:\/\/\S+))?(?:\s|$)/i);
   if (!match) return undefined;
-  const prUrl = match[2].replace(/\/$/, "");
+  const prUrl = (match[2] ?? fallbackPrUrl)?.replace(/\/$/, "");
+  if (!prUrl) return undefined;
   try {
     parseChangeRequestUrl(prUrl);
   } catch {
@@ -79,9 +81,12 @@ export async function processSlackEvent(payload: unknown, options: SlackAgentOpt
   const value = payload as { event?: { type?: string; bot_id?: string; text?: string; channel?: string; thread_ts?: string; ts?: string } };
   const event = value.event;
   if (!event || !["app_mention", "message"].includes(event.type ?? "") || event.bot_id) return { accepted: true, ignored: true };
-  const command = parseSlackCommand(event.text ?? "");
+  const threadKey = event.channel ? `${event.channel}:${event.thread_ts ?? event.ts ?? "root"}` : undefined;
+  const previous = threadKey ? await readSlackThread(options.repoPath || process.cwd(), threadKey) : undefined;
+  const command = parseSlackCommand(event.text ?? "", previous?.prUrl);
   if (!command) return { accepted: true, ignored: true, text: "Mention MergeProof with `review`, `investigate`, `plan`, `fix`, or `tests` followed by a change-request URL." };
   const text = await runSlackCommand(command, options);
+  if (threadKey) await recordSlackThread(options.repoPath || process.cwd(), threadKey, command.prUrl);
   if (options.botToken && event.channel) {
     const response = await fetch("https://slack.com/api/chat.postMessage", { method: "POST", headers: { authorization: `Bearer ${options.botToken}`, "content-type": "application/json" }, body: JSON.stringify({ channel: event.channel, thread_ts: event.thread_ts ?? event.ts, text }) });
     if (!response.ok) throw new Error(`Slack message publication failed with HTTP ${response.status}.`);
