@@ -31,8 +31,40 @@ async function analyze(command) {
   }
 }
 
+async function reviewWorkingTree() {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) return vscode.window.showErrorMessage("Open a repository folder before running MergeProof.");
+  const channel = vscode.window.createOutputChannel("MergeProof");
+  channel.show(true);
+  try {
+    const result = await runMergeProof("review", folder, folder);
+    channel.appendLine(JSON.stringify(result, null, 2));
+    vscode.window.showInformationMessage(`MergeProof: ${result.decision || "review generated"}`);
+  } catch (error) {
+    channel.appendLine(String(error));
+    vscode.window.showErrorMessage(`MergeProof failed: ${error.message}`);
+  }
+}
+
+async function runSandboxAgent() {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) return vscode.window.showErrorMessage("Open a repository folder before running MergeProof.");
+  const channel = vscode.window.createOutputChannel("MergeProof");
+  channel.show(true);
+  try {
+    const result = await runMergeProof("agent", folder, folder);
+    channel.appendLine(JSON.stringify(result, null, 2));
+    vscode.window.showInformationMessage(`MergeProof agent: ${result.trace?.verified ? "verification passed" : "sandbox run complete"}`);
+  } catch (error) {
+    channel.appendLine(String(error));
+    vscode.window.showErrorMessage(`MergeProof agent failed: ${error.message}`);
+  }
+}
+
 function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.analyzePullRequest", () => analyze("analyze")));
+  context.subscriptions.push(vscode.commands.registerCommand("mergeproof.reviewWorkingTree", reviewWorkingTree));
+  context.subscriptions.push(vscode.commands.registerCommand("mergeproof.runSandboxAgent", runSandboxAgent));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generatePlan", () => analyze("plan")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.suggestFix", () => analyze("fix")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generateTests", () => analyze("tests")));

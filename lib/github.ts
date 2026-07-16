@@ -4,7 +4,7 @@ import type { EvidenceChunk, LinkedIssue, ReviewMemoryEntry, SecurityFinding } f
 
 const pullRequestUrlSchema = z.string().url().regex(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i, "Expected a GitHub pull request URL");
 
-export type PullRequestRef = { owner: string; repo: string; number: number; url: string };
+export type PullRequestRef = { owner: string; repo: string; number: number; url: string; provider?: "github" | "gitlab" | "bitbucket" | "azure-devops" };
 export type PullRequestContext = {
   ref: PullRequestRef;
   title: string;

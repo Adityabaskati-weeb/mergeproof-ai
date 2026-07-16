@@ -7,6 +7,9 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Capability | MergeProof | Copilot Code Review | CodeRabbit |
 | --- | --- | --- | --- |
 | GitHub PR review | Yes | Yes | Yes |
+| GitLab / Bitbucket / Azure DevOps ingestion | Yes: normalized read-only analysis | Azure DevOps and broader provider support | GitLab, Bitbucket, and Azure DevOps support |
+| Local uncommitted review | Yes: staged, unstaged, and untracked changes | IDE and CLI surfaces | IDE and CLI surfaces |
+| Agent handoff / fix verification | Yes: ephemeral Git worktree with explicit verification | Cloud-agent handoff | Agent handoff and Autofix |
 | Automatic review trigger | GitHub Actions and signed webhook | Yes | Yes |
 | Full PR context | Files, commits, checks, discussion, Jira, local repository | Full changeset and repository context | PR, issue, repository, knowledge base context |
 | Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files | Custom instructions, skills, MCP | Repository and path-based instructions |
@@ -15,7 +18,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Security gate | Deterministic added-line scanner | Security risk review and GitHub security ecosystem | Security Agent and built-in checks |
 | Safe fixes | Unified-diff suggestion; explicit checked apply | Suggested multi-line fixes and cloud-agent handoff | Autofix and agent handoff |
 | Test generation | Test-only unified-diff suggestion | Agent/code generation workflows | Generate unit tests |
-| Issue creation | GitHub and Jira | GitHub task workflows | GitHub, GitLab, Jira, Linear |
+| Issue creation | GitHub, Jira, and Linear | GitHub task workflows | GitHub, GitLab, Jira, Linear |
 | Slack | Signed slash commands for review, plan, issue | GitHub ecosystem integrations | Conversational Slack agent |
 | Model choice | OpenAI, OpenAI-compatible, Anthropic | GitHub-managed model controls | Product-managed model controls |
 | Client surfaces | CLI, native Windows desktop, VS Code, CI | GitHub, IDE, CLI, cloud agent | Git platforms, IDE, CLI, Slack |
@@ -24,13 +27,14 @@ This document keeps the product claim honest. The comparison is against GitHub C
 
 MergeProof's primary novelty is a **merge evidence ledger**, not another ungrounded review chatbot:
 
-1. Every model citation must resolve to a fetched PR source and the exact PR head SHA.
+1. Every model citation must resolve to a fetched PR source and the exact PR head SHA or working-tree digest.
 2. Local repository retrieval is rejected when its index is stale or belongs to another GitHub remote.
 3. Missing evidence produces an explicit abstention state instead of a confident approval.
 4. Deterministic security findings cannot be removed by model output and are included in every publication path.
 5. Review memory is local, bounded, redacted, and inspectable rather than silently retained by a hosted service.
-6. Every completed analysis emits a reproducible SHA-256 attestation over the decision, evidence rows, security findings, and PR head SHA.
+6. Fixes are tested in an ephemeral Git worktree before they can be reported as verified; the developer checkout is not mutated.
+7. Every completed analysis emits a reproducible SHA-256 attestation over the decision, evidence rows, security findings, and PR head SHA or working-tree digest.
 
 ## Remaining Deliberate Gaps
 
-MergeProof is not yet a complete replacement for the surrounding GitHub platform or CodeRabbit product. GitLab, Bitbucket, Azure DevOps, Linear, JetBrains/Cursor-native clients, CodeQL-class analysis, cloud sandbox execution, and full Slack conversational tool orchestration remain separate implementation tracks. The product should claim “evidence-backed, provider-neutral merge control” rather than “all competitor features” until those tracks are shipped and independently tested.
+MergeProof is not yet a complete replacement for the surrounding GitHub platform or CodeRabbit product. Non-GitHub publication and automatic triggers are still less complete than GitHub, and Linear, JetBrains/Cursor-native clients, CodeQL-class analysis, remote cloud execution, MCP/web-search context, and full Slack conversational tool orchestration remain separate implementation tracks. The product should claim "evidence-backed, provider-neutral merge control" rather than "all competitor features" until those tracks are shipped and independently tested.

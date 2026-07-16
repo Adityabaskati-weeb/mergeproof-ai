@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, extname, join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { PullRequestRef } from "./github";
 import type { EvidenceChunk } from "./types";
 
@@ -97,5 +98,26 @@ export async function retrieveRepositoryEvidence(root: string, ref: PullRequestR
     indexedChunks: index.chunks.length,
     indexCommitSha: index.commitSha,
     chunks: ranked.map(({ chunk }) => ({ ...chunk, path: chunk.path.replace(/\\/g, "/"), commitSha: headSha, url: `${urlBase}/${chunk.path.replace(/\\/g, "/")}#L${chunk.startLine}-L${chunk.endLine}` })),
+  };
+}
+
+export async function retrieveLocalEvidence(root: string, reviewSha: string, query: string, topK = 8): Promise<RetrievalResult> {
+  const indexed = (await indexRepository(root)).index;
+  const queryTokens = new Set(tokenize(query));
+  const ranked = indexed.chunks.map((chunk) => {
+    const contentTokens = tokenize(`${chunk.path} ${chunk.content}`);
+    const score = contentTokens.reduce((total, token) => total + (queryTokens.has(token) ? 1 : 0), 0);
+    return { chunk, score };
+  }).filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score || a.chunk.path.localeCompare(b.chunk.path)).slice(0, Math.max(1, topK));
+  const repositoryRoot = resolve(root);
+  return {
+    indexedChunks: indexed.chunks.length,
+    indexCommitSha: indexed.commitSha,
+    chunks: ranked.map(({ chunk }) => ({
+      ...chunk,
+      path: chunk.path.replace(/\\/g, "/"),
+      commitSha: reviewSha,
+      url: `${pathToFileURL(join(repositoryRoot, chunk.path)).toString()}#L${chunk.startLine}-L${chunk.endLine}`,
+    })),
   };
 }

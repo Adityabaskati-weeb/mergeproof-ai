@@ -10,6 +10,8 @@ export function attestAnalysis(analysis: Analysis): AnalysisAttestation {
     rows: analysis.rows,
     securityFindings: analysis.securityFindings ?? [],
     headSha: analysis.trace.headSha ?? "unknown",
+    scope: analysis.trace.scope ?? "pull-request",
+    workingTreeDigest: analysis.trace.workingTreeDigest ?? null,
   });
   return { algorithm: "sha256", digest: createHash("sha256").update(payload).digest("hex") };
 }

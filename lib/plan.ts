@@ -1,5 +1,5 @@
 import { extractAcceptanceCriteria } from "./criteria";
-import { fetchPullRequest, parsePullRequestUrl } from "./github";
+import { fetchChangeRequest, parseChangeRequestUrl } from "./change-request";
 import { fetchLinkedIssues } from "./issues";
 import { createModelProvider, type ReviewPlan } from "./models";
 import { loadPolicy } from "./policy";
@@ -15,8 +15,9 @@ function canonicalize(value: string): string {
 }
 
 export async function planPullRequest(prUrl: string, model?: string, providerName?: string): Promise<ReviewPlan> {
-  const ref = parsePullRequestUrl(prUrl);
-  const context = await fetchPullRequest(ref);
+  const target = parseChangeRequestUrl(prUrl);
+  const ref = target.ref;
+  const context = await fetchChangeRequest(target);
   const issues = await fetchLinkedIssues(context.body);
   const criteria = [...extractAcceptanceCriteria(context.body).criteria, ...issues.flatMap((issue) => issue.acceptanceCriteria)].filter((criterion, index, values) => values.findIndex((candidate) => candidate.toLowerCase() === criterion.toLowerCase()) === index);
   if (!criteria.length) throw new Error("Cannot create a plan because the PR and linked issues contain no acceptance criteria.");

@@ -18,4 +18,15 @@ describe("loadPolicy", () => {
     await fs.writeFile(join(root, ".mergeproof", "instructions.md"), "Prefer explicit rollback evidence.", "utf8");
     await expect(loadPolicy(root)).resolves.toEqual({ provider: "anthropic", minCitationsPerCriterion: 1, instructions: "## .mergeproof/instructions.md\nPrefer explicit rollback evidence." });
   });
+
+  it("loads path-specific instructions and repository skills", async () => {
+    const root = await fs.mkdtemp(join(process.env.TEMP ?? ".", "mergeproof-policy-discovered-"));
+    temporaryDirectories.push(root);
+    await fs.mkdir(join(root, ".github", "instructions"), { recursive: true });
+    await fs.mkdir(join(root, ".github", "skills", "review"), { recursive: true });
+    await fs.writeFile(join(root, ".github", "instructions", "typescript.instructions.md"), "Use strict TypeScript.", "utf8");
+    await fs.writeFile(join(root, ".github", "skills", "review", "SKILL.md"), "Review error paths.", "utf8");
+    await expect(loadPolicy(root)).resolves.toMatchObject({ instructions: expect.stringContaining(".github/instructions/typescript.instructions.md") });
+    await expect(loadPolicy(root)).resolves.toMatchObject({ instructions: expect.stringContaining("Review error paths.") });
+  });
 });

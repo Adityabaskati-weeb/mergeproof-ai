@@ -14,11 +14,31 @@ fn cli_args(
     model: Option<String>,
     provider: Option<String>,
     repo_path: Option<String>,
+    criteria: Option<String>,
+    verify: Option<String>,
     apply: bool,
     remember: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "plan" | "fix" | "tests") {
+    if !matches!(command, "analyze" | "plan" | "fix" | "tests" | "review" | "agent") {
         return Err(String::from("Unsupported MergeProof command."));
+    }
+    if command == "review" || command == "agent" {
+        let target = if !pr_url.trim().is_empty() { pr_url } else { repo_path.unwrap_or_default() };
+        let mut args = vec![command.to_string(), target];
+        if let Some(model) = model.filter(|value| !value.trim().is_empty()) {
+            args.extend(["--model".to_string(), model]);
+        }
+        if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) {
+            args.extend(["--provider".to_string(), provider]);
+        }
+        if let Some(criteria) = criteria.filter(|value| !value.trim().is_empty()) {
+            args.extend(["--criteria".to_string(), criteria]);
+        }
+        if let Some(verify) = verify.filter(|value| !value.trim().is_empty()) {
+            args.extend(["--verify".to_string(), verify]);
+        }
+        args.push(String::from("--json"));
+        return Ok(args);
     }
     let mut args = vec![command.to_string(), pr_url];
     if let Some(model) = model.as_deref().filter(|value| !value.trim().is_empty()) {
@@ -59,6 +79,8 @@ async fn run_cli(
     model: Option<String>,
     provider: Option<String>,
     repo_path: Option<String>,
+    criteria: Option<String>,
+    verify: Option<String>,
     apply: bool,
     remember: bool,
 ) -> Result<serde_json::Value, String> {
@@ -68,6 +90,8 @@ async fn run_cli(
         model,
         provider,
         repo_path,
+        criteria,
+        verify,
         apply,
         remember,
     )?;

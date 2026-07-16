@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { extractAcceptanceCriteria } from "./criteria";
-import { fetchPullRequest, parsePullRequestUrl } from "./github";
+import { fetchChangeRequest, parseChangeRequestUrl } from "./change-request";
 import { fetchLinkedIssues } from "./issues";
 import { createModelProvider, type ModelFix } from "./models";
 import { loadPolicy } from "./policy";
@@ -27,13 +27,14 @@ function applyPatch(repoPath: string, patch: string): void {
 }
 
 export async function fixPullRequest(prUrl: string, model?: string, options: FixOptions = {}): Promise<FixSuggestion> {
-  const ref = parsePullRequestUrl(prUrl);
+  const target = parseChangeRequestUrl(prUrl);
+  const ref = target.ref;
   const policy = await loadPolicy(options.repoPath || process.cwd());
-  const context = await fetchPullRequest(ref);
+  const context = await fetchChangeRequest(target);
   const issues = await fetchLinkedIssues(context.body);
   const criteria = [...extractAcceptanceCriteria(context.body).criteria, ...issues.flatMap((issue) => issue.acceptanceCriteria)].filter((criterion, index, values) => values.findIndex((candidate) => candidate.toLowerCase() === criterion.toLowerCase()) === index);
   if (!criteria.length) throw new Error("Cannot suggest a fix because no acceptance criteria were found.");
-  const retrieval = options.repoPath ? await retrieveRepositoryEvidence(options.repoPath, ref, context.headSha, `${context.title} ${context.body}`, policy.retrievalTopK ?? 8) : { chunks: [], indexedChunks: 0 };
+  const retrieval = options.repoPath && target.provider === "github" ? await retrieveRepositoryEvidence(options.repoPath, ref, context.headSha, `${context.title} ${context.body}`, policy.retrievalTopK ?? 8) : { chunks: [], indexedChunks: 0 };
   const provider = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (provider === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);

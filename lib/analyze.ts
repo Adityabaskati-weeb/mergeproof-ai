@@ -1,5 +1,5 @@
 import { extractAcceptanceCriteria } from "./criteria";
-import { fetchPullRequest, parsePullRequestUrl } from "./github";
+import { fetchChangeRequest, parseChangeRequestUrl } from "./change-request";
 import { fetchLinkedIssues } from "./issues";
 import { createModelProvider } from "./models";
 import { loadPolicy } from "./policy";
@@ -14,11 +14,12 @@ export type AnalyzeOptions = { provider?: string; repoPath?: string; retrievalTo
 
 export async function analyzePullRequest(prUrl: string, model?: string, options: AnalyzeOptions = {}): Promise<Analysis> {
   const started = Date.now();
-  const ref = parsePullRequestUrl(prUrl);
+  const target = parseChangeRequestUrl(prUrl);
+  const ref = target.ref;
   const policy = await loadPolicy(options.repoPath || process.cwd());
-  const fetchedContext = await fetchPullRequest(ref);
+  const fetchedContext = await fetchChangeRequest(target);
   const issues = await fetchLinkedIssues(fetchedContext.body);
-  const retrieval = options.repoPath ? await retrieveRepositoryEvidence(options.repoPath, ref, fetchedContext.headSha, `${fetchedContext.title} ${fetchedContext.body}`, options.retrievalTopK ?? policy.retrievalTopK ?? 8) : { chunks: [], indexedChunks: 0 };
+  const retrieval = options.repoPath && target.provider === "github" ? await retrieveRepositoryEvidence(options.repoPath, ref, fetchedContext.headSha, `${fetchedContext.title} ${fetchedContext.body}`, options.retrievalTopK ?? policy.retrievalTopK ?? 8) : { chunks: [], indexedChunks: 0 };
   const memoryRoot = options.memoryRoot || options.repoPath || (options.remember ? process.cwd() : undefined);
   const reviewMemory = memoryRoot ? await readReviewMemory(memoryRoot, ref, `${fetchedContext.title} ${fetchedContext.body}`, options.memoryLimit ?? 5) : [];
   const securityFindings = scanPullRequestSecurity(fetchedContext);
@@ -34,7 +35,7 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const memoryTrace = { enabled: Boolean(memoryRoot), matchedEntries: reviewMemory.length, stored: false };
   const persist = async (analysis: Analysis): Promise<Analysis> => {
     const attestation = attestAnalysis(analysis);
-    const withAttestation = { ...analysis, trace: { ...analysis.trace, memory: memoryTrace, attestation } };
+    const withAttestation = { ...analysis, trace: { ...analysis.trace, scope: analysis.trace.scope ?? "pull-request", memory: memoryTrace, attestation } };
     if (!options.remember || !memoryRoot) return withAttestation;
     await recordReviewMemory(memoryRoot, ref, prUrl, fetchedContext.title, criteria, withAttestation);
     return { ...withAttestation, trace: { ...withAttestation.trace, memory: { ...memoryTrace, stored: true } } };
@@ -45,7 +46,7 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
       contract: { promise: context.title, code: "Not specified", tests: "Not specified", release: "Not specified" },
       rows: [],
       securityFindings,
-      trace: { fetchedSources: context.sources.size, citedSources: 0, unsupportedClaims: 0, model: `${provider}:${selectedModel}`, elapsedMs: Date.now() - started, headSha: context.headSha, retrieval: retrievalTrace, linkedIssues: issues.length, securityFindings: securityFindings.length },
+      trace: { fetchedSources: context.sources.size, citedSources: 0, unsupportedClaims: 0, model: `${provider}:${selectedModel}`, elapsedMs: Date.now() - started, headSha: context.headSha, retrieval: retrievalTrace, linkedIssues: issues.length, securityFindings: securityFindings.length, scope: "pull-request" },
     });
   }
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);

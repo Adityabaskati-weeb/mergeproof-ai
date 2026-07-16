@@ -1,7 +1,9 @@
 # MergeProof VS Code Extension
 
-This thin extension provides four commands while reusing the repository CLI:
+This thin extension provides six commands while reusing the repository CLI:
 
+- `MergeProof: Review Working Tree`
+- `MergeProof: Run Sandbox Agent`
 - `MergeProof: Analyze Pull Request`
 - `MergeProof: Generate Evidence Plan`
 - `MergeProof: Suggest Safe Fix`

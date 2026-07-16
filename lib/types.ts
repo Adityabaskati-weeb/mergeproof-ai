@@ -10,7 +10,7 @@ export type EvidenceChunk = {
 };
 
 export type LinkedIssue = {
-  provider: "jira";
+  provider: "jira" | "linear";
   key: string;
   url: string;
   summary: string;
@@ -59,5 +59,7 @@ export type Analysis = {
     securityFindings?: number;
     memory?: { enabled: boolean; matchedEntries: number; stored: boolean };
     attestation?: { algorithm: "sha256"; digest: string };
+    scope?: "pull-request" | "working-tree";
+    workingTreeDigest?: string;
   };
 };

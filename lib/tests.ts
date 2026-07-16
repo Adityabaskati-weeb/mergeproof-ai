@@ -1,5 +1,5 @@
 import { extractAcceptanceCriteria } from "./criteria";
-import { fetchPullRequest, parsePullRequestUrl } from "./github";
+import { fetchChangeRequest, parseChangeRequestUrl } from "./change-request";
 import { fetchLinkedIssues } from "./issues";
 import { createModelProvider } from "./models";
 import { loadPolicy } from "./policy";
@@ -14,13 +14,14 @@ export function isTestPath(path: string): boolean {
 }
 
 export async function generateTestsPullRequest(prUrl: string, model?: string, options: { provider?: string; repoPath?: string } = {}): Promise<TestSuggestion> {
-  const ref = parsePullRequestUrl(prUrl);
+  const target = parseChangeRequestUrl(prUrl);
+  const ref = target.ref;
   const policy = await loadPolicy(options.repoPath || process.cwd());
-  const context = await fetchPullRequest(ref);
+  const context = await fetchChangeRequest(target);
   const issues = await fetchLinkedIssues(context.body);
   const criteria = [...extractAcceptanceCriteria(context.body).criteria, ...issues.flatMap((issue) => issue.acceptanceCriteria)].filter((criterion, index, values) => values.findIndex((candidate) => candidate.toLowerCase() === criterion.toLowerCase()) === index);
   if (!criteria.length) throw new Error("Cannot generate tests because no acceptance criteria were found.");
-  const retrieval = options.repoPath ? await retrieveRepositoryEvidence(options.repoPath, ref, context.headSha, `${context.title} ${context.body}`, policy.retrievalTopK ?? 8) : { chunks: [], indexedChunks: 0 };
+  const retrieval = options.repoPath && target.provider === "github" ? await retrieveRepositoryEvidence(options.repoPath, ref, context.headSha, `${context.title} ${context.body}`, policy.retrievalTopK ?? 8) : { chunks: [], indexedChunks: 0 };
   const providerName = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (providerName === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const provider = createModelProvider(selectedModel, providerName as Parameters<typeof createModelProvider>[1]);

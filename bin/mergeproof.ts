@@ -5,9 +5,8 @@ import { Command } from "commander";
 import { analyzePullRequest } from "../lib/analyze";
 import { evaluateAnalysis } from "../lib/evaluation";
 import { fixPullRequest } from "../lib/fix";
-import { publishPullRequestCheck } from "../lib/github-publish";
-import { publishPullRequestReview } from "../lib/github-review";
-import { createJiraIssue } from "../lib/issues";
+import { publishChangeRequestCheck, publishChangeRequestReview } from "../lib/change-publish";
+import { createJiraIssue, createLinearIssue } from "../lib/issues";
 import { indexRepository } from "../lib/retrieval";
 import { planPullRequest } from "../lib/plan";
 import { publishSlackSummary } from "../lib/slack";
@@ -15,6 +14,8 @@ import { readRepositoryMemory } from "../lib/memory";
 import { startGithubWebhookServer } from "../lib/webhook";
 import { createGithubIssueFromAnalysis } from "../lib/github-issues";
 import { generateTestsPullRequest, type TestSuggestion } from "../lib/tests";
+import { reviewWorkingTree } from "../lib/local-review";
+import { runLocalAgent, VERIFICATION_COMMANDS, type LocalAgentRun, type VerificationCommand } from "../lib/local-agent";
 import type { Analysis } from "../lib/types";
 import type { ReviewPlan } from "../lib/models";
 import type { FixSuggestion } from "../lib/fix";
@@ -60,8 +61,27 @@ function printTests(suggestion: TestSuggestion) {
   console.log(`\nChanged test paths: ${suggestion.trace.changedPaths.join(", ") || "none"}\n`);
 }
 
+function printAgent(run: LocalAgentRun) {
+  console.log(`\nMERGEPROOF SANDBOX AGENT (${run.trace.model})\n\n${run.summary}\n`);
+  console.log(run.patch || "No patch was proposed.");
+  console.log(`\nSandbox applied: ${run.trace.appliedToSandbox ? "yes" : "no"}`);
+  console.log(`Verification: ${run.trace.verificationCommand ? `${run.trace.verificationCommand} (${run.trace.verified ? "passed" : "failed"})` : "not requested"}`);
+  if (run.trace.verificationOutput) console.log(`\nVerification output:\n${run.trace.verificationOutput}`);
+}
+
+function parseCriteria(value?: string): string[] | undefined {
+  if (!value) return undefined;
+  return value.split("|").map((criterion) => criterion.trim()).filter(Boolean);
+}
+
+function parseVerificationCommand(value?: string): VerificationCommand | undefined {
+  if (!value) return undefined;
+  if (!VERIFICATION_COMMANDS.includes(value as VerificationCommand)) throw new Error(`Unsupported verification command. Choose one of: ${VERIFICATION_COMMANDS.join(", ")}.`);
+  return value as VerificationCommand;
+}
+
 const program = new Command();
-program.name("mergeproof").description("Evidence-backed merge decisions for GitHub pull requests").version("0.3.0");
+program.name("mergeproof").description("Evidence-backed merge decisions for software change requests").version("0.4.0");
 
 program.command("index").description("Build a local repository evidence index").argument("[repo-path]", "Repository path", process.cwd()).action(async (repoPath) => {
   const result = await indexRepository(repoPath);
@@ -95,7 +115,7 @@ program.command("serve").description("Run GitHub and optional Slack webhook rece
   }
 });
 
-program.command("plan").description("Generate a citation-aware implementation plan for a pull request").argument("<pr-url>", "Public GitHub pull request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").action(async (prUrl, options) => {
+program.command("plan").description("Generate a citation-aware implementation plan for a change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").action(async (prUrl, options) => {
   try {
     const plan = await planPullRequest(prUrl, options.model, options.provider);
     if (options.save) await writeFile(options.save, JSON.stringify(plan, null, 2), "utf8");
@@ -107,7 +127,7 @@ program.command("plan").description("Generate a citation-aware implementation pl
   }
 });
 
-program.command("fix").description("Suggest or explicitly apply a validated unified diff").argument("<pr-url>", "Public GitHub pull request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the fix JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to validate").option("--apply", "Apply only after git apply --check succeeds").action(async (prUrl, options) => {
+program.command("fix").description("Suggest or explicitly apply a validated unified diff").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the fix JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to validate").option("--apply", "Apply only after git apply --check succeeds").action(async (prUrl, options) => {
   try {
     const fix = await fixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, apply: options.apply });
     if (options.patch) await writeFile(options.patch, fix.patch, "utf8");
@@ -120,7 +140,7 @@ program.command("fix").description("Suggest or explicitly apply a validated unif
   }
 });
 
-program.command("tests").description("Generate a test-only unified diff suggestion").argument("<pr-url>", "Public GitHub pull request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the test suggestion JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout for repository retrieval").action(async (prUrl, options) => {
+program.command("tests").description("Generate a test-only unified diff suggestion").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the test suggestion JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout for repository retrieval").action(async (prUrl, options) => {
   try {
     const suggestion = await generateTestsPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo });
     if (options.patch) await writeFile(options.patch, suggestion.patch, "utf8");
@@ -133,15 +153,45 @@ program.command("tests").description("Generate a test-only unified diff suggesti
   }
 });
 
-program.command("analyze").description("Analyze a GitHub pull request").argument("<pr-url>", "Public GitHub pull request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the JSON analysis to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--remember", "Persist this review in repository-scoped memory").option("--memory-root <path>", "Memory repository root").option("--memory-limit <number>", "Prior memory entries to provide", "5").option("--publish-check", "Publish the result as a GitHub Check").option("--publish-review", "Publish a pull-request review or fallback comment").option("--slack-webhook <url>", "Post a summary to a Slack incoming webhook").option("--create-jira", "Create a Jira follow-up for non-passing criteria").option("--create-github-issue", "Create one GitHub follow-up issue from unresolved findings").option("--github-issue-title <title>", "Title for the created GitHub issue").action(async (prUrl, options) => {
+program.command("review").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").action(async (repoPath, options) => {
+  try {
+    const analysis = await reviewWorkingTree(options.model, { repoPath, provider: options.provider, criteria: parseCriteria(options.criteria), retrievalTopK: Number(options.retrievalTopK) });
+    if (options.save) await writeFile(options.save, JSON.stringify(analysis, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(analysis, null, 2));
+    else printAnalysis(analysis);
+    process.exitCode = analysis.decision === "ready" ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof review error: ${error instanceof Error ? error.message : "Working-tree review failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("agent").description("Generate and verify a fix inside an ephemeral Git worktree").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the agent run JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--verify <command>", "Sandbox verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").action(async (repoPath, options) => {
+  try {
+    const run = await runLocalAgent(options.model, { repoPath, provider: options.provider, criteria: parseCriteria(options.criteria), retrievalTopK: Number(options.retrievalTopK), verify: parseVerificationCommand(options.verify) });
+    if (options.save) await writeFile(options.save, JSON.stringify(run, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(run, null, 2));
+    else printAgent(run);
+    process.exitCode = run.trace.verified || !options.verify ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof agent error: ${error instanceof Error ? error.message : "Sandbox agent failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("analyze").description("Analyze a GitHub, GitLab, Bitbucket, or Azure DevOps change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the JSON analysis to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--remember", "Persist this review in repository-scoped memory").option("--memory-root <path>", "Memory repository root").option("--memory-limit <number>", "Prior memory entries to provide", "5").option("--publish-check", "Publish the result as a GitHub Check").option("--publish-review", "Publish a pull-request review or fallback comment").option("--slack-webhook <url>", "Post a summary to a Slack incoming webhook").option("--create-jira", "Create a Jira follow-up for non-passing criteria").option("--create-linear", "Create a Linear follow-up for non-passing criteria").option("--create-github-issue", "Create one GitHub follow-up issue from unresolved findings").option("--github-issue-title <title>", "Title for the created GitHub issue").action(async (prUrl, options) => {
   try {
     const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, retrievalTopK: Number(options.retrievalTopK), remember: options.remember, memoryRoot: options.memoryRoot, memoryLimit: Number(options.memoryLimit) });
-    if (options.publishCheck) console.error(`GitHub Check: ${await publishPullRequestCheck(prUrl, analysis)}`);
-    if (options.publishReview) console.error(`GitHub Review: ${await publishPullRequestReview(prUrl, analysis)}`);
+    if (options.publishCheck) console.error(`Change Check: ${await publishChangeRequestCheck(prUrl, analysis)}`);
+    if (options.publishReview) console.error(`Change Review: ${await publishChangeRequestReview(prUrl, analysis)}`);
     if (options.slackWebhook) await publishSlackSummary(options.slackWebhook, prUrl, analysis);
     if (options.createJira) {
       const findings = analysis.rows.filter((row) => row.state !== "pass").map((row) => `${row.state.toUpperCase()}: ${row.criterion}\n${row.evidence}`).join("\n\n") || "MergeProof found no failing criteria; review the analysis trace.";
       console.error(`Jira issue: ${await createJiraIssue(`MergeProof follow-up for ${prUrl}`, findings)}`);
+    }
+    if (options.createLinear) {
+      const findings = analysis.rows.filter((row) => row.state !== "pass").map((row) => `${row.state.toUpperCase()}: ${row.criterion}\n${row.evidence}`).join("\n\n") || "MergeProof found no failing criteria; review the analysis trace.";
+      console.error(`Linear issue: ${await createLinearIssue(`MergeProof follow-up for ${prUrl}`, findings)}`);
     }
     if (options.createGithubIssue) console.error(`GitHub issue: ${await createGithubIssueFromAnalysis(prUrl, analysis, options.githubIssueTitle)}`);
     if (options.save) {

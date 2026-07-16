@@ -4,7 +4,9 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 
 ## Current vertical slice
 
-- `mergeproof analyze <public-pr-url>` CLI workflow
+- `mergeproof analyze <change-request-url>` CLI workflow for GitHub, GitLab, Bitbucket, and Azure DevOps
+- `mergeproof review [repo-path]` pre-commit workflow for staged, unstaged, and untracked changes
+- `mergeproof agent [repo-path]` sandboxed fix generation with optional verification
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
 - Paste a public GitHub pull request URL into the CLI or native desktop client
@@ -13,7 +15,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Analyze the change with a configurable OpenAI model (GPT-5.6 by default)
 - Route analysis through OpenAI, OpenAI-compatible endpoints, or Anthropic
 - Retrieve evidence from an indexed local checkout at the exact PR head commit
-- Import linked Jira issue descriptions and acceptance criteria when credentials are configured
+- Import linked Jira or Linear issue descriptions and acceptance criteria when credentials are configured
 - Validate model citations against the fetched GitHub sources
 - Publish a MergeProof GitHub Check with annotations and a merge decision
 - Optionally notify a Slack incoming webhook
@@ -25,6 +27,9 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Persist bounded, repository-scoped review memory locally for future context
 - Accept signed GitHub pull-request webhooks for automatic review runs
 - Emit a reproducible SHA-256 attestation for each decision and evidence set
+- Give local reviews a working-tree digest so citations and decisions are tied to the exact uncommitted snapshot
+- Generate a proposed fix inside an ephemeral Git worktree without mutating the developer checkout
+- Run an explicit allowlisted verification command inside that sandbox before reporting success
 - Three-state decision model: ready, needs evidence, needs owner decision
 - Provenance metrics for fetched sources, cited sources, unsupported claims, model, and latency
 
@@ -60,12 +65,14 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123
 npm run desktop:dev
 ```
 
-The CLI also loads values from `.env`. Never commit the real `.env` file. `GITHUB_TOKEN` is optional for public repositories but helps avoid API rate limits. The model is configurable per command, so teams can choose their preferred provider-compatible model name.
+The CLI also loads values from `.env`. Never commit the real `.env` file. `GITHUB_TOKEN` is optional for public repositories but helps avoid API rate limits. The model is configurable per command, so teams can choose their preferred provider-compatible model name. `analyze` accepts GitHub PR, GitLab MR, Bitbucket PR, and Azure DevOps PR URLs. Set `GITLAB_TOKEN`, `BITBUCKET_TOKEN` or Bitbucket app-password fields, and `AZURE_DEVOPS_TOKEN` only when private-provider access or publication is required.
 
 Run the CLI directly during development:
 
 ```text
 npm run cli -- analyze https://github.com/owner/repo/pull/123
+npm run cli -- review . -- --criteria "API behavior is preserved|New behavior has focused tests"
+npm run cli -- agent . -- --verify "npm test"
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --json
 npm run cli -- index .
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --provider openai-compatible --model your-model
@@ -83,7 +90,7 @@ Replace the example PR URL with a real pull request. `https://github.com/owner/r
 
 Exit codes are `0` for a ready decision, `2` when human evidence or ownership is required, and `1` for an invalid request or runtime failure. This keeps the CLI useful in CI without treating uncertainty as a successful merge gate.
 
-The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, plan, and safe-fix workflows through the same bundled CLI.
+The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, local review, sandbox agent, plan, and safe-fix workflows through the same bundled CLI.
 
 The desktop shell invokes the same CLI engine through the local `tsx` runner during development. `npm run desktop:build` bundles the CLI into a Windows sidecar and produces MSI and NSIS installers. Set `MERGEPROOF_CLI` only when using a separately installed executable during development.
 
@@ -99,15 +106,15 @@ Repository policy lives in `.mergeproof/config.json`; team review guidance can b
 
 Save a machine-readable run with `-- --json` and use `evaluate` to report criterion coverage, citation coverage, abstention, unsupported claims, and retrieval usage. This makes MergeProof quality measurable instead of relying on an attractive demo transcript.
 
-For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` in `.env`; link an issue in the PR body using a Jira URL or issue key. For Slack notifications, pass `--slack-webhook` explicitly; webhook URLs are never persisted by MergeProof.
+For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` in `.env`; for Linear context, configure `LINEAR_API_KEY` and optionally `LINEAR_TEAM_KEY`; link an issue in the change request body using a Jira or Linear URL. For Slack notifications, pass `--slack-webhook` explicitly; webhook URLs are never persisted by MergeProof.
 
 Mutation actions are explicit: `--publish-review` posts a GitHub review or fallback PR comment, and `--create-jira` creates a Jira follow-up using `JIRA_PROJECT_KEY`. These flags are never enabled by default.
 
 Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. The store is bounded and contains review summaries, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof plan`, and `/mergeproof issue` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands`: `review <PR URL>`, `plan <PR URL>`, and explicit `issue <PR URL>` commands. Slack and GitHub writes are never enabled without the command and credentials.
 
-The VS Code extension exposes the same `analyze`, `plan`, and `fix` commands from the command palette. It is intentionally a thin client over the CLI so desktop, terminal, CI, and editor results share the same validator.
+The VS Code extension exposes the same `review`, `analyze`, `plan`, and `fix` commands from the command palette. Local review includes uncommitted files and uses the same validator as PR analysis, so desktop, terminal, CI, and editor results share one evidence contract.
 
-Fix suggestions are not silently committed, pushed, or posted to GitHub. Without `--apply`, MergeProof only emits a patch. With `--apply`, it rejects absolute or traversal paths and requires Git to accept the patch with whitespace errors treated as failures.
+Fix suggestions are not silently committed, pushed, or posted to GitHub. Without `--apply`, MergeProof only emits a patch. With `--apply`, it rejects absolute or traversal paths and requires Git to accept the patch with whitespace errors treated as failures. The `agent` command is safer by default: it applies the patch only in an ephemeral Git worktree and can run only the explicitly supported verification commands.
 
 ## Planned integrations
 

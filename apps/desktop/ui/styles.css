@@ -10,3 +10,4 @@
 
 .settings-row input.repo { flex: 1; min-width: 220px; }.settings-row .apply-label { display: inline-flex; align-items: center; gap: 5px; text-transform: none; letter-spacing: 0; font-size: 11px; color: #a5b3aa; font-weight: 600; }.settings-row .apply-label input { width: auto; accent-color: #b7ed77; }.row small { color: #a5b3aa; line-height: 1.5; }.patch { max-height: 360px; overflow: auto; white-space: pre-wrap; color: #c8edaa; background: #101614; border: 1px solid #34463a; border-radius: 8px; padding: 14px; font-size: 11px; }
 .result h3 { color: #ffb86b; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; margin: 20px 0 8px; }.row.security { border-left: 3px solid #ff8d63; }
+.settings-row input.criteria { flex: 1; min-width: 240px; }
