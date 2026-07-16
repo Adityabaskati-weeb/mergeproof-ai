@@ -11,6 +11,7 @@ import { indexRepository } from "../lib/retrieval";
 import { planPullRequest } from "../lib/plan";
 import { publishSlackSummary } from "../lib/slack";
 import { readRepositoryMemory } from "../lib/memory";
+import { addKnowledge, readKnowledge } from "../lib/knowledge";
 import { startGithubWebhookServer } from "../lib/webhook";
 import { createGithubIssueFromAnalysis } from "../lib/github-issues";
 import { generateTestsPullRequest, type TestSuggestion } from "../lib/tests";
@@ -19,6 +20,8 @@ import { runLocalAgent, VERIFICATION_COMMANDS, type LocalAgentRun, type Verifica
 import type { Analysis } from "../lib/types";
 import type { ReviewPlan } from "../lib/models";
 import type { FixSuggestion } from "../lib/fix";
+import type { PullRequestRef } from "../lib/github";
+import type { ReviewEffort } from "../lib/types";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -42,6 +45,11 @@ function printAnalysis(analysis: Analysis) {
   if (analysis.trace.externalSecurity) console.log(`External security: ${analysis.trace.externalSecurity.tools.join(", ") || "none"}${analysis.trace.externalSecurity.unavailable.length ? ` | unavailable: ${analysis.trace.externalSecurity.unavailable.join(", ")}` : ""}`);
   if (analysis.trace.mcp) console.log(`MCP context: ${analysis.trace.mcp.successful.join(", ") || "none"}${analysis.trace.mcp.failed.length ? ` | failed: ${analysis.trace.mcp.failed.join("; ")}` : ""}`);
   if (analysis.trace.webSearch) console.log(`Web search: ${analysis.trace.webSearch.provider || "none"} | results: ${analysis.trace.webSearch.resultCount}${analysis.trace.webSearch.unavailable ? ` | unavailable: ${analysis.trace.webSearch.unavailable}` : ""}`);
+  if (analysis.trace.reviewEffort) console.log(`Review effort: ${analysis.trace.reviewEffort}`);
+  if (analysis.trace.agent) console.log(`Agent profile: ${analysis.trace.agent}`);
+  if (analysis.trace.knowledge) console.log(`Knowledge facts: ${analysis.trace.knowledge.matchedFacts}`);
+  if (analysis.trace.relatedRepositories) console.log(`Related repositories: ${analysis.trace.relatedRepositories}`);
+  if (analysis.trace.reviewPaths?.length) console.log(`Review scope: ${analysis.trace.reviewPaths.join(", ")}`);
   console.log();
 }
 
@@ -69,6 +77,8 @@ function printAgent(run: LocalAgentRun) {
   console.log(run.patch || "No patch was proposed.");
   console.log(`\nSandbox applied: ${run.trace.appliedToSandbox ? "yes" : "no"}`);
   console.log(`Verification: ${run.trace.verificationCommand ? `${run.trace.verificationCommand} (${run.trace.verified ? "passed" : "failed"})` : "not requested"}`);
+  if (run.trace.reReviewDecision) console.log(`Autonomous re-review: ${run.trace.reReviewDecision} (${run.trace.reReviewPassed ? "passed" : "failed"})`);
+  if (run.trace.reReviewError) console.log(`Re-review detail: ${run.trace.reReviewError}`);
   if (run.trace.verificationOutput) console.log(`\nVerification output:\n${run.trace.verificationOutput}`);
 }
 
@@ -81,6 +91,18 @@ function parseVerificationCommand(value?: string): VerificationCommand | undefin
   if (!value) return undefined;
   if (!VERIFICATION_COMMANDS.includes(value as VerificationCommand)) throw new Error(`Unsupported verification command. Choose one of: ${VERIFICATION_COMMANDS.join(", ")}.`);
   return value as VerificationCommand;
+}
+
+function parseReviewEffort(value?: string): ReviewEffort | undefined {
+  if (!value) return undefined;
+  if (value !== "low" && value !== "medium" && value !== "high") throw new Error("Review effort must be low, medium, or high.");
+  return value;
+}
+
+function parseRepository(value: string): PullRequestRef {
+  const match = value.trim().match(/^([^/]+)\/([^/]+)$/);
+  if (!match) throw new Error("Repository must use the owner/repo format.");
+  return { owner: match[1], repo: match[2], number: 0, url: `https://github.com/${match[1]}/${match[2]}` };
 }
 
 const program = new Command();
@@ -107,6 +129,23 @@ program.command("memory").description("Inspect repository-scoped review memory")
   }
 });
 
+program.command("knowledge").description("Inspect or explicitly add repository-scoped review knowledge").argument("<repository>", "GitHub repository, for example owner/repo").option("--repo <path>", "Repository path", process.cwd()).option("--query <text>", "Filter facts by content").option("--limit <number>", "Maximum facts", "20").option("--add <fact>", "Add an explicitly approved human fact").option("--path <path...>", "Optional changed-file paths this fact applies to").option("--json", "Print machine-readable JSON").action(async (repository, options) => {
+  try {
+    const ref = parseRepository(repository);
+    if (options.add) {
+      const fact = await addKnowledge(options.repo, ref, options.add, options.path ?? []);
+      console.log(options.json ? JSON.stringify(fact, null, 2) : `Knowledge fact ${fact.id} stored for ${fact.repository}.`);
+      return;
+    }
+    const facts = await readKnowledge(options.repo, ref, [], options.query ?? "", Number(options.limit));
+    if (options.json) console.log(JSON.stringify(facts, null, 2));
+    else for (const fact of facts) console.log(`${fact.id} ${fact.paths.length ? `[${fact.paths.join(", ")}] ` : ""}${fact.content}`);
+  } catch (error) {
+    console.error(`MergeProof knowledge error: ${error instanceof Error ? error.message : "Knowledge operation failed."}`);
+    process.exitCode = 1;
+  }
+});
+
 program.command("serve").description("Run GitHub, GitLab, Bitbucket, Azure DevOps, and optional Slack webhook receivers").option("--host <host>", "Bind host", process.env.MERGEPROOF_WEBHOOK_HOST || "127.0.0.1").option("--port <number>", "Bind port", process.env.MERGEPROOF_WEBHOOK_PORT || "8787").option("--secret <secret>", "GitHub webhook signing secret", process.env.GITHUB_WEBHOOK_SECRET).option("--slack-signing-secret <secret>", "Slack signing secret", process.env.SLACK_SIGNING_SECRET).option("--slack-bot-token <token>", "Slack bot token for Events API replies", process.env.SLACK_BOT_TOKEN).option("--gitlab-webhook-secret <secret>", "GitLab webhook secret", process.env.GITLAB_WEBHOOK_SECRET).option("--bitbucket-webhook-secret <secret>", "Bitbucket webhook secret", process.env.BITBUCKET_WEBHOOK_SECRET).option("--azure-devops-webhook-secret <secret>", "Azure DevOps webhook secret", process.env.AZURE_DEVOPS_WEBHOOK_SECRET).option("--repo <path>", "Local repository path for retrieval and memory").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--publish-review", "Publish a PR review in addition to the provider status/check").action(async (options) => {
   try {
     const server = startGithubWebhookServer({ secret: options.secret, slackSigningSecret: options.slackSigningSecret, slackBotToken: options.slackBotToken, gitlabWebhookSecret: options.gitlabWebhookSecret, bitbucketWebhookSecret: options.bitbucketWebhookSecret, azureDevopsWebhookSecret: options.azureDevopsWebhookSecret, host: options.host, port: Number(options.port), repoPath: options.repo, model: options.model, provider: options.provider, publishReview: options.publishReview, log: (message) => console.error(message) });
@@ -118,9 +157,9 @@ program.command("serve").description("Run GitHub, GitLab, Bitbucket, Azure DevOp
   }
 });
 
-program.command("plan").description("Generate a citation-aware implementation plan for a change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").action(async (prUrl, options) => {
+program.command("plan").description("Generate a citation-aware implementation plan for a change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--repo <path>", "Local repository containing the profile").action(async (prUrl, options) => {
   try {
-    const plan = await planPullRequest(prUrl, options.model, options.provider);
+    const plan = await planPullRequest(prUrl, options.model, options.provider, { repoPath: options.repo, agent: options.agent });
     if (options.save) await writeFile(options.save, JSON.stringify(plan, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(plan, null, 2));
     else printPlan(plan);
@@ -130,9 +169,9 @@ program.command("plan").description("Generate a citation-aware implementation pl
   }
 });
 
-program.command("fix").description("Suggest or explicitly apply a validated unified diff").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the fix JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to validate").option("--apply", "Apply only after git apply --check succeeds").action(async (prUrl, options) => {
+program.command("fix").description("Suggest or explicitly apply a validated unified diff").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the fix JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to validate").option("--agent <profile>", "Repository custom-agent profile").option("--apply", "Apply only after git apply --check succeeds").action(async (prUrl, options) => {
   try {
-    const fix = await fixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, apply: options.apply });
+    const fix = await fixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, agent: options.agent, apply: options.apply });
     if (options.patch) await writeFile(options.patch, fix.patch, "utf8");
     if (options.save) await writeFile(options.save, JSON.stringify(fix, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(fix, null, 2));
@@ -143,9 +182,9 @@ program.command("fix").description("Suggest or explicitly apply a validated unif
   }
 });
 
-program.command("tests").description("Generate a test-only unified diff suggestion").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the test suggestion JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout for repository retrieval").action(async (prUrl, options) => {
+program.command("tests").description("Generate a test-only unified diff suggestion").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the test suggestion JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout for repository retrieval").option("--agent <profile>", "Repository custom-agent profile").action(async (prUrl, options) => {
   try {
-    const suggestion = await generateTestsPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo });
+    const suggestion = await generateTestsPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, agent: options.agent });
     if (options.patch) await writeFile(options.patch, suggestion.patch, "utf8");
     if (options.save) await writeFile(options.save, JSON.stringify(suggestion, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(suggestion, null, 2));
@@ -156,9 +195,9 @@ program.command("tests").description("Generate a test-only unified diff suggesti
   }
 });
 
-program.command("review").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").action(async (repoPath, options) => {
+program.command("review").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").action(async (repoPath, options) => {
   try {
-    const analysis = await reviewWorkingTree(options.model, { repoPath, provider: options.provider, criteria: parseCriteria(options.criteria), retrievalTopK: Number(options.retrievalTopK), externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery });
+    const analysis = await reviewWorkingTree(options.model, { repoPath, provider: options.provider, effort: parseReviewEffort(options.effort), agent: options.agent, directories: options.dir, criteria: parseCriteria(options.criteria), retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery });
     if (options.save) await writeFile(options.save, JSON.stringify(analysis, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(analysis, null, 2));
     else printAnalysis(analysis);
@@ -169,22 +208,25 @@ program.command("review").description("Review staged, unstaged, and untracked wo
   }
 });
 
-program.command("agent").description("Generate and verify a fix inside an ephemeral Git worktree").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the agent run JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--verify <command>", "Sandbox verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").action(async (repoPath, options) => {
+program.command("agent").description("Generate and verify a fix inside an ephemeral Git worktree").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the agent run JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--verify <command>", "Sandbox verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Review the verified sandbox patch once before reporting success").action(async (repoPath, options) => {
   try {
-    const run = await runLocalAgent(options.model, { repoPath, provider: options.provider, criteria: parseCriteria(options.criteria), retrievalTopK: Number(options.retrievalTopK), externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, verify: parseVerificationCommand(options.verify) });
+    const run = await runLocalAgent(options.model, { repoPath, provider: options.provider, effort: parseReviewEffort(options.effort), agent: options.agent, directories: options.dir, criteria: parseCriteria(options.criteria), retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, verify: parseVerificationCommand(options.verify), reReview: options.reReview });
     if (options.save) await writeFile(options.save, JSON.stringify(run, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(run, null, 2));
     else printAgent(run);
-    process.exitCode = run.trace.verified || !options.verify ? 0 : 2;
+    const gated = Boolean(options.verify || options.reReview);
+    const verificationPassed = !options.verify || run.trace.verified;
+    const reReviewPassed = !options.reReview || run.trace.reReviewPassed === true;
+    process.exitCode = !gated || verificationPassed && reReviewPassed ? 0 : 2;
   } catch (error) {
     console.error(`MergeProof agent error: ${error instanceof Error ? error.message : "Sandbox agent failed."}`);
     process.exitCode = 1;
   }
 });
 
-program.command("analyze").description("Analyze a GitHub, GitLab, Bitbucket, or Azure DevOps change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the JSON analysis to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--mcp", "Use explicitly configured read-only MCP context tools").option("--web-search", "Use opt-in Brave or Tavily web-search snippets as external context").option("--remember", "Persist this review in repository-scoped memory").option("--memory-root <path>", "Memory repository root").option("--memory-limit <number>", "Prior memory entries to provide", "5").option("--publish-check", "Publish the result as a GitHub Check").option("--publish-review", "Publish a pull-request review or fallback comment").option("--slack-webhook <url>", "Post a summary to a Slack incoming webhook").option("--create-jira", "Create a Jira follow-up for non-passing criteria").option("--create-linear", "Create a Linear follow-up for non-passing criteria").option("--create-github-issue", "Create one GitHub follow-up issue from unresolved findings").option("--github-issue-title <title>", "Title for the created GitHub issue").action(async (prUrl, options) => {
+program.command("analyze").description("Analyze a GitHub, GitLab, Bitbucket, or Azure DevOps change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the JSON analysis to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--related-repo <path...>", "Additional local repositories for read-only context").option("--effort <level>", "Review effort: low, medium, or high").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--knowledge-limit <number>", "Maximum approved knowledge facts to include", "12").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--mcp", "Use explicitly configured read-only MCP context tools").option("--web-search", "Use opt-in Brave or Tavily web-search snippets as external context").option("--remember", "Persist this review in repository-scoped memory").option("--memory-root <path>", "Memory repository root").option("--memory-limit <number>", "Prior memory entries to provide", "5").option("--publish-check", "Publish the result as a GitHub Check").option("--publish-review", "Publish a pull-request review or fallback comment").option("--slack-webhook <url>", "Post a summary to a Slack incoming webhook").option("--create-jira", "Create a Jira follow-up for non-passing criteria").option("--create-linear", "Create a Linear follow-up for non-passing criteria").option("--create-github-issue", "Create one GitHub follow-up issue from unresolved findings").option("--github-issue-title <title>", "Title for the created GitHub issue").action(async (prUrl, options) => {
   try {
-    const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, retrievalTopK: Number(options.retrievalTopK), remember: options.remember, memoryRoot: options.memoryRoot, memoryLimit: Number(options.memoryLimit), externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, mcp: options.mcp, webSearch: options.webSearch });
+    const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, relatedRepos: options.relatedRepo, effort: parseReviewEffort(options.effort), agent: options.agent, retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, remember: options.remember, memoryRoot: options.memoryRoot, memoryLimit: Number(options.memoryLimit), knowledgeLimit: Number(options.knowledgeLimit), externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, mcp: options.mcp, webSearch: options.webSearch });
     if (options.publishCheck) console.error(`Change Check: ${await publishChangeRequestCheck(prUrl, analysis)}`);
     if (options.publishReview) console.error(`Change Review: ${await publishChangeRequestReview(prUrl, analysis)}`);
     if (options.slackWebhook) await publishSlackSummary(options.slackWebhook, prUrl, analysis);

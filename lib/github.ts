@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { createGithubClient } from "./github-auth";
 import type { EvidenceChunk, LinkedIssue, ReviewMemoryEntry, SecurityFinding } from "./types";
+import type { KnowledgeFact } from "./knowledge";
+import type { ReviewEffort } from "./types";
 
 const pullRequestUrlSchema = z.string().url().regex(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i, "Expected a GitHub pull request URL");
 
@@ -21,6 +23,9 @@ export type PullRequestContext = {
   customInstructions?: string;
   securityFindings?: SecurityFinding[];
   reviewMemory?: ReviewMemoryEntry[];
+  knowledge?: KnowledgeFact[];
+  reviewEffort?: ReviewEffort;
+  sourceCommits?: Set<string>;
 };
 
 export function parsePullRequestUrl(value: string): PullRequestRef {

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import type { PullRequestContext } from "./github";
+import { reviewEffortGuidance } from "./effort";
 
 export const modelAnalysisSchema = z.object({
   contract: z.object({ promise: z.string(), code: z.string(), tests: z.string(), release: z.string() }),
@@ -31,19 +32,20 @@ const planResponseSchema = { type: "object", additionalProperties: false, proper
 const fixResponseSchema = { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, patch: { type: "string" } }, required: ["summary", "patch"] };
 
 function analysisPrompt(context: PullRequestContext, criteria: string[]): string {
-  return JSON.stringify({ title: context.title, criteria, files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], reviewMemory: context.reviewMemory ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
+  const effort = context.reviewEffort ?? "medium";
+  return JSON.stringify({ title: context.title, criteria, reviewEffort: effort, reviewGuidance: reviewEffortGuidance(effort), files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], reviewMemory: context.reviewMemory ?? [], knowledge: context.knowledge ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
 }
 
 function planPrompt(context: PullRequestContext, criteria: string[]): string {
-  return JSON.stringify({ task: "Create an implementation plan for this pull request and its requirements.", title: context.title, criteria, files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], reviewMemory: context.reviewMemory ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
+  return JSON.stringify({ task: "Create an implementation plan for this pull request and its requirements.", title: context.title, criteria, files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], reviewMemory: context.reviewMemory ?? [], knowledge: context.knowledge ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
 }
 
 function fixPrompt(context: PullRequestContext, criteria: string[]): string {
-  return JSON.stringify({ task: "Propose a minimal unified diff that fixes the highest-confidence unmet criterion. Do not modify files outside the supplied change set. If a safe fix cannot be proven, return an empty patch.", title: context.title, criteria, files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], reviewMemory: context.reviewMemory ?? [], headSha: context.headSha });
+  return JSON.stringify({ task: "Propose a minimal unified diff that fixes the highest-confidence unmet criterion. Do not modify files outside the supplied change set. If a safe fix cannot be proven, return an empty patch.", title: context.title, criteria, files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], reviewMemory: context.reviewMemory ?? [], knowledge: context.knowledge ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
 }
 
 function testPrompt(context: PullRequestContext, criteria: string[]): string {
-  return JSON.stringify({ task: "Propose a minimal unified diff adding focused automated tests for the highest-risk unmet criterion. Modify only existing test files or a new test file adjacent to the changed code. Do not modify production code. If a safe test cannot be proven from the supplied context, return an empty patch.", title: context.title, criteria, files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], reviewMemory: context.reviewMemory ?? [], headSha: context.headSha });
+  return JSON.stringify({ task: "Propose a minimal unified diff adding focused automated tests for the highest-risk unmet criterion. Modify only existing test files or a new test file adjacent to the changed code. Do not modify production code. If a safe test cannot be proven from the supplied context, return an empty patch.", title: context.title, criteria, files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], reviewMemory: context.reviewMemory ?? [], knowledge: context.knowledge ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
 }
 
 function systemPrompt(): string {

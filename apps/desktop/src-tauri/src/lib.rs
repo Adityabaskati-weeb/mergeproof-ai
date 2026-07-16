@@ -13,6 +13,10 @@ fn cli_args(
     pr_url: String,
     model: Option<String>,
     provider: Option<String>,
+    effort: Option<String>,
+    agent: Option<String>,
+    directories: Option<String>,
+    related_repos: Option<String>,
     repo_path: Option<String>,
     criteria: Option<String>,
     verify: Option<String>,
@@ -22,6 +26,7 @@ fn cli_args(
     web_search: bool,
     apply: bool,
     remember: bool,
+    re_review: bool,
 ) -> Result<Vec<String>, String> {
     if !matches!(command, "analyze" | "plan" | "fix" | "tests" | "review" | "agent") {
         return Err(String::from("Unsupported MergeProof command."));
@@ -35,11 +40,24 @@ fn cli_args(
         if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) {
             args.extend(["--provider".to_string(), provider]);
         }
+        if let Some(effort) = effort.clone().filter(|value| !value.trim().is_empty()) {
+            args.extend(["--effort".to_string(), effort]);
+        }
+        if let Some(agent) = agent.clone().filter(|value| !value.trim().is_empty()) {
+            args.extend(["--agent".to_string(), agent]);
+        }
+        if let Some(directories) = directories.clone().filter(|value| !value.trim().is_empty()) {
+            args.push(String::from("--dir"));
+            args.extend(directories.split(',').map(|value| value.trim().to_string()).filter(|value| !value.is_empty()));
+        }
         if let Some(criteria) = criteria.filter(|value| !value.trim().is_empty()) {
             args.extend(["--criteria".to_string(), criteria]);
         }
         if let Some(verify) = verify.filter(|value| !value.trim().is_empty()) {
             args.extend(["--verify".to_string(), verify]);
+        }
+        if command == "agent" && re_review {
+            args.push(String::from("--re-review"));
         }
         if external_security {
             args.push(String::from("--external-security"));
@@ -56,6 +74,20 @@ fn cli_args(
     }
     if let Some(provider) = provider.as_deref().filter(|value| !value.trim().is_empty()) {
         args.extend(["--provider".to_string(), provider.to_string()]);
+    }
+    if command == "analyze" {
+        if let Some(effort) = effort.as_deref().filter(|value| !value.trim().is_empty()) {
+        args.extend(["--effort".to_string(), effort.to_string()]);
+        }
+    }
+    if let Some(agent) = agent.as_deref().filter(|value| !value.trim().is_empty()) {
+        args.extend(["--agent".to_string(), agent.to_string()]);
+    }
+    if command == "analyze" {
+        if let Some(related_repos) = related_repos.as_deref().filter(|value| !value.trim().is_empty()) {
+            args.push(String::from("--related-repo"));
+            args.extend(related_repos.split(',').map(|value| value.trim().to_string()).filter(|value| !value.is_empty()));
+        }
     }
     if command == "analyze" && external_security {
         args.push(String::from("--external-security"));
@@ -80,6 +112,12 @@ fn cli_args(
         .filter(|value| !value.trim().is_empty())
     {
         args.extend(["--repo".to_string(), repo_path.to_string()]);
+    }
+    if matches!(command, "review" | "agent") {
+        if let Some(directories) = directories.as_deref().filter(|value| !value.trim().is_empty()) {
+        args.push(String::from("--dir"));
+        args.extend(directories.split(',').map(|value| value.trim().to_string()).filter(|value| !value.is_empty()));
+        }
     }
     if apply {
         if command != "fix" {
@@ -106,6 +144,10 @@ async fn run_cli(
     pr_url: String,
     model: Option<String>,
     provider: Option<String>,
+    effort: Option<String>,
+    agent: Option<String>,
+    directories: Option<String>,
+    related_repos: Option<String>,
     repo_path: Option<String>,
     criteria: Option<String>,
     verify: Option<String>,
@@ -115,12 +157,17 @@ async fn run_cli(
     web_search: bool,
     apply: bool,
     remember: bool,
+    re_review: bool,
 ) -> Result<serde_json::Value, String> {
     let args = cli_args(
         &command_name,
         pr_url,
         model,
         provider,
+        effort,
+        agent,
+        directories,
+        related_repos,
         repo_path,
         criteria,
         verify,
@@ -130,6 +177,7 @@ async fn run_cli(
         web_search,
         apply,
         remember,
+        re_review,
     )?;
 
     if let Ok(sidecar) = app.shell().sidecar("mergeproof-cli") {

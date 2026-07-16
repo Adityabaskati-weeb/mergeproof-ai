@@ -5,8 +5,9 @@ import { fetchLinkedIssues } from "./issues";
 import { createModelProvider, type ModelFix } from "./models";
 import { loadPolicy } from "./policy";
 import { retrieveRepositoryEvidence } from "./retrieval";
+import { combineInstructions, loadAgentProfile } from "./agents";
 
-export type FixOptions = { provider?: string; repoPath?: string; apply?: boolean };
+export type FixOptions = { provider?: string; repoPath?: string; apply?: boolean; agent?: string };
 export type FixSuggestion = ModelFix & { trace: { model: string; headSha: string; changedPaths: string[]; applied: boolean } };
 
 export function extractPatchPaths(patch: string): string[] {
@@ -30,6 +31,7 @@ export async function fixPullRequest(prUrl: string, model?: string, options: Fix
   const target = parseChangeRequestUrl(prUrl);
   const ref = target.ref;
   const policy = await loadPolicy(options.repoPath || process.cwd());
+  const agentProfile = await loadAgentProfile(options.repoPath || process.cwd(), options.agent);
   const context = await fetchChangeRequest(target);
   const issues = await fetchLinkedIssues(context.body);
   const criteria = [...extractAcceptanceCriteria(context.body).criteria, ...issues.flatMap((issue) => issue.acceptanceCriteria)].filter((criterion, index, values) => values.findIndex((candidate) => candidate.toLowerCase() === criterion.toLowerCase()) === index);
@@ -38,7 +40,7 @@ export async function fixPullRequest(prUrl: string, model?: string, options: Fix
   const provider = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (provider === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);
-  const result = await modelProvider.fix({ ...context, issues, repositoryEvidence: retrieval.chunks, customInstructions: policy.instructions }, criteria, AbortSignal.timeout(45_000));
+  const result = await modelProvider.fix({ ...context, issues, repositoryEvidence: retrieval.chunks, customInstructions: combineInstructions(policy.instructions, agentProfile) }, criteria, AbortSignal.timeout(45_000));
   const patch = result.patch.replace(/^```(?:diff|patch)?\s*/i, "").replace(/\s*```$/, "").trim();
   const changedPaths = extractPatchPaths(patch);
   let applied = false;

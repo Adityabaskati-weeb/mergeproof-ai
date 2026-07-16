@@ -10,6 +10,9 @@ import { scanPullRequestSecurity } from "./security";
 import { scanExternalSecurity, type ExternalSecurityReport } from "./external-security";
 import { validateAnalysis } from "./validator";
 import { attestAnalysis } from "./attestation";
+import { readKnowledge } from "./knowledge";
+import { normalizeReviewEffort, retrievalTopKForEffort } from "./effort";
+import { combineInstructions, loadAgentProfile } from "./agents";
 import type { PullRequestContext } from "./github";
 import type { Analysis } from "./types";
 
@@ -18,7 +21,7 @@ const MAX_DIFF_BYTES = 20 * 1024 * 1024;
 const MAX_UNTRACKED_BYTES = 250_000;
 
 export type WorkingTreeFile = PullRequestContext["files"][number];
-export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string };
+export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string };
 
 function runGit(root: string, args: string[]): string {
   try {
@@ -74,12 +77,23 @@ async function readUntracked(root: string, path: string): Promise<string | undef
   }
 }
 
-export async function collectWorkingTreeChanges(root: string): Promise<{ files: WorkingTreeFile[]; digest: string; gitHeadSha: string }> {
+function normalizeScopePath(root: string, value: string): string {
+  const trimmed = value.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+  return trimmed === "" || trimmed === "." ? "" : normalizePath(root, trimmed).toLowerCase();
+}
+
+function matchesScope(path: string, scopes: string[]): boolean {
+  const normalized = path.toLowerCase();
+  return scopes.length === 0 || scopes.some((scope) => normalized === scope || normalized.startsWith(`${scope}/`));
+}
+
+export async function collectWorkingTreeChanges(root: string, directories: string[] = []): Promise<{ files: WorkingTreeFile[]; digest: string; gitHeadSha: string }> {
   const repositoryRoot = resolve(root);
   const gitHeadSha = runGit(repositoryRoot, ["rev-parse", "HEAD"]).trim();
   const statuses = parseStatus(repositoryRoot);
   const trackedPaths = runGit(repositoryRoot, ["diff", "--name-only", "-z", "HEAD", "--"]).split("\0").filter(Boolean).map((path) => normalizePath(repositoryRoot, path));
-  const paths = [...new Set([...trackedPaths, ...statuses.keys()])].sort();
+  const scopes = directories.map((directory) => normalizeScopePath(repositoryRoot, directory)).filter(Boolean);
+  const paths = [...new Set([...trackedPaths, ...statuses.keys()])].filter((path) => matchesScope(path, scopes)).sort();
   const files: WorkingTreeFile[] = [];
   for (const path of paths) {
     const status = statuses.get(path) ?? "modified";
@@ -105,6 +119,8 @@ export type WorkingTreeReviewContext = {
   criteria: string[];
   policy: Awaited<ReturnType<typeof loadPolicy>>;
   retrieval: Awaited<ReturnType<typeof retrieveLocalEvidence>>;
+  knowledge: Awaited<ReturnType<typeof readKnowledge>>;
+  scopePaths: string[];
   securityFindings: ReturnType<typeof scanPullRequestSecurity>;
   externalSecurity: ExternalSecurityReport;
 };
@@ -112,30 +128,33 @@ export type WorkingTreeReviewContext = {
 export async function buildWorkingTreeReviewContext(options: LocalReviewOptions = {}): Promise<WorkingTreeReviewContext> {
   const repositoryRoot = resolve(options.repoPath || process.cwd());
   const policy = await loadPolicy(repositoryRoot);
-  const changes = await collectWorkingTreeChanges(repositoryRoot);
+  const agentProfile = await loadAgentProfile(repositoryRoot, options.agent);
+  const effort = normalizeReviewEffort(options.effort || policy.effort || process.env.MERGEPROOF_REVIEW_EFFORT);
+  const changes = await collectWorkingTreeChanges(repositoryRoot, options.directories);
   const reviewSha = `working-tree:${changes.digest}`;
   const ref = { owner: "local", repo: basename(repositoryRoot), number: 0, url: pathToFileURL(repositoryRoot).toString() };
-  const retrieval = await retrieveLocalEvidence(repositoryRoot, reviewSha, `${basename(repositoryRoot)} ${changes.files.map((file) => file.path).join(" ")}`, options.retrievalTopK ?? policy.retrievalTopK ?? 8);
+  const retrieval = await retrieveLocalEvidence(repositoryRoot, reviewSha, `${basename(repositoryRoot)} ${changes.files.map((file) => file.path).join(" ")}`, options.retrievalTopK ?? policy.retrievalTopK ?? retrievalTopKForEffort(effort));
+  const knowledge = await readKnowledge(repositoryRoot, ref, changes.files.map((file) => file.path), basename(repositoryRoot), 12);
   const criteria = uniqueCriteria(options.criteria);
   if (!criteria.length) criteria.push(DEFAULT_CRITERION);
-  const context: PullRequestContext = { ref, title: `Working-tree review: ${basename(repositoryRoot)}`, body: criteria.join("\n"), headSha: reviewSha, baseSha: changes.gitHeadSha, files: changes.files, checks: [], commits: [], discussion: [], sources: new Set([ref.url, ...changes.files.map((file) => file.url), ...retrieval.chunks.map((chunk) => chunk.url)]), repositoryEvidence: retrieval.chunks, issues: [] };
+  const context: PullRequestContext = { ref, title: `Working-tree review: ${basename(repositoryRoot)}`, body: criteria.join("\n"), headSha: reviewSha, baseSha: changes.gitHeadSha, files: changes.files, checks: [], commits: [], discussion: [], sources: new Set([ref.url, ...changes.files.map((file) => file.url), ...retrieval.chunks.map((chunk) => chunk.url)]), repositoryEvidence: retrieval.chunks, issues: [], customInstructions: combineInstructions(policy.instructions, agentProfile), knowledge, reviewEffort: effort };
   const baseSecurityFindings = scanPullRequestSecurity(context);
   const externalSecurity = options.externalSecurity || options.codeqlDatabase ? await scanExternalSecurity({ repoPath: repositoryRoot, commitSha: reviewSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery }) : { findings: [], tools: [], unavailable: [] };
   const securityFindings = [...baseSecurityFindings, ...externalSecurity.findings];
   context.securityFindings = securityFindings;
-  return { repositoryRoot, context, changes, criteria, policy, retrieval, securityFindings, externalSecurity };
+  return { repositoryRoot, context, changes, criteria, policy, retrieval, knowledge, scopePaths: (options.directories ?? []).map((directory) => directory.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean), securityFindings, externalSecurity };
 }
 
 export async function reviewWorkingTree(model?: string, options: LocalReviewOptions = {}): Promise<Analysis> {
   const started = Date.now();
   const workingTree = await buildWorkingTreeReviewContext(options);
-  const { context, criteria, policy, retrieval, changes, securityFindings, externalSecurity } = workingTree;
+  const { context, criteria, policy, retrieval, changes, knowledge, scopePaths, securityFindings, externalSecurity } = workingTree;
   const providerName = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (providerName === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const provider = createModelProvider(selectedModel, providerName as Parameters<typeof createModelProvider>[1]);
   const retrievalTrace = { enabled: true, indexedChunks: retrieval.indexedChunks, selectedChunks: retrieval.chunks.length, ...(retrieval.indexCommitSha ? { indexCommitSha: retrieval.indexCommitSha } : {}) };
   const result = await provider.analyze(context, criteria, AbortSignal.timeout(45_000));
   const analysis = validateAnalysis(result, context, criteria, provider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings);
-  const withScope = { ...analysis, trace: { ...analysis.trace, scope: "working-tree" as const, workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable } } };
+  const withScope = { ...analysis, trace: { ...analysis.trace, scope: "working-tree" as const, workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: context.reviewEffort, reviewPaths: scopePaths, agent: options.agent } };
   return { ...withScope, trace: { ...withScope.trace, attestation: attestAnalysis(withScope) } };
 }

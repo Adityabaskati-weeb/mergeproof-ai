@@ -1,4 +1,5 @@
 export type EvidenceState = "pass" | "warn" | "fail";
+export type ReviewEffort = "low" | "medium" | "high";
 
 export type EvidenceChunk = {
   path: string;
@@ -54,7 +55,7 @@ export type Analysis = {
     model: string;
     elapsedMs: number;
     headSha?: string;
-    retrieval?: { enabled: boolean; indexedChunks: number; selectedChunks: number; indexCommitSha?: string };
+    retrieval?: { enabled: boolean; indexedChunks: number; selectedChunks: number; indexCommitSha?: string; relatedRepositories?: number };
     linkedIssues?: number;
     securityFindings?: number;
     memory?: { enabled: boolean; matchedEntries: number; stored: boolean };
@@ -64,5 +65,10 @@ export type Analysis = {
     externalSecurity?: { tools: string[]; unavailable: string[] };
     mcp?: { successful: string[]; failed: string[] };
     webSearch?: { provider?: string; resultCount: number; unavailable?: string };
+    knowledge?: { enabled: boolean; matchedFacts: number };
+    reviewEffort?: ReviewEffort;
+    reviewPaths?: string[];
+    agent?: string;
+    relatedRepositories?: number;
   };
 };

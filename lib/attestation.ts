@@ -15,6 +15,12 @@ export function attestAnalysis(analysis: Analysis): AnalysisAttestation {
     externalSecurity: analysis.trace.externalSecurity ?? null,
     mcp: analysis.trace.mcp ?? null,
     webSearch: analysis.trace.webSearch ?? null,
+    knowledge: analysis.trace.knowledge ?? null,
+    reviewEffort: analysis.trace.reviewEffort ?? null,
+    agent: analysis.trace.agent ?? null,
+    reviewPaths: analysis.trace.reviewPaths ?? null,
+    retrieval: analysis.trace.retrieval ?? null,
+    relatedRepositories: analysis.trace.relatedRepositories ?? null,
   });
   return { algorithm: "sha256", digest: createHash("sha256").update(payload).digest("hex") };
 }

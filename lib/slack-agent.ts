@@ -6,6 +6,7 @@ import { parseChangeRequestUrl } from "./change-request";
 import { fixPullRequest } from "./fix";
 import { generateTestsPullRequest } from "./tests";
 import { readSlackThread, recordSlackThread } from "./slack-memory";
+import { loadSlackAutomations, matchSlackAutomation } from "./slack-automations";
 
 export type SlackAgentOptions = { signingSecret: string; botToken?: string; repoPath?: string; model?: string; provider?: string; log?: (message: string) => void };
 export type SlackCommand = { action: "review" | "investigate" | "plan" | "fix" | "tests" | "issue"; prUrl: string };
@@ -85,7 +86,8 @@ export async function processSlackEvent(payload: unknown, options: SlackAgentOpt
   if (!event || !["app_mention", "message"].includes(event.type ?? "") || event.bot_id) return { accepted: true, ignored: true };
   const threadKey = event.channel ? `${event.channel}:${event.thread_ts ?? event.ts ?? "root"}` : undefined;
   const previous = threadKey ? await readSlackThread(options.repoPath || process.cwd(), threadKey) : undefined;
-  const command = parseSlackCommand(event.text ?? "", previous?.prUrl);
+  const automation = matchSlackAutomation(await loadSlackAutomations(options.repoPath || process.cwd()), event);
+  const command = parseSlackCommand(event.text ?? "", previous?.prUrl) ?? (automation ? parseSlackCommand(`${automation.action} ${event.text ?? ""}`, previous?.prUrl) : undefined);
   if (!command) return { accepted: true, ignored: true, text: "Mention MergeProof with `review`, `investigate`, `plan`, `fix`, or `tests` followed by a change-request URL." };
   const text = await runSlackCommand(command, options);
   if (threadKey) await recordSlackThread(options.repoPath || process.cwd(), threadKey, command.prUrl);

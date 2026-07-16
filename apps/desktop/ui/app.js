@@ -15,6 +15,11 @@ const externalSecurity = document.querySelector("#external-security");
 const codeqlDatabase = document.querySelector("#codeql-db");
 const mcp = document.querySelector("#mcp");
 const webSearch = document.querySelector("#web-search");
+const effort = document.querySelector("#effort");
+const directories = document.querySelector("#directories");
+const reReview = document.querySelector("#re-review");
+const agentProfile = document.querySelector("#agent-profile");
+const relatedRepos = document.querySelector("#related-repos");
 
 function updateActionLabel() {
   const labels = { analyze: "Analyze change", review: "Review local changes", agent: "Sandbox fix and verify", plan: "Generate plan", fix: "Suggest safe fix", tests: "Generate tests" };
@@ -36,6 +41,12 @@ function updateActionLabel() {
   if (mcp.disabled) mcp.checked = false;
   webSearch.disabled = action.value !== "analyze";
   if (webSearch.disabled) webSearch.checked = false;
+  directories.disabled = !["review", "agent"].includes(action.value);
+  if (directories.disabled) directories.value = "";
+  reReview.disabled = action.value !== "agent";
+  if (reReview.disabled) reReview.checked = false;
+  relatedRepos.disabled = action.value !== "analyze";
+  if (relatedRepos.disabled) relatedRepos.value = "";
 }
 
 action.addEventListener("change", updateActionLabel);
@@ -57,14 +68,14 @@ button.addEventListener("click", async () => {
   button.textContent = "Working...";
   result.classList.add("hidden");
   try {
-    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: target, model: model.value || null, provider: provider.value || null, repoPath: action.value === "review" || action.value === "agent" ? null : (repo.value || null), criteria: criteria.value || null, verify: verify.value || null, externalSecurity: externalSecurity.checked, codeqlDatabase: codeqlDatabase.value || null, mcp: mcp.checked, webSearch: webSearch.checked, apply: apply.checked, remember: remember.checked });
+    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: target, model: model.value || null, provider: provider.value || null, effort: effort.value || null, agent: agentProfile.value || null, directories: directories.value || null, relatedRepos: relatedRepos.value || null, repoPath: action.value === "review" || action.value === "agent" ? null : (repo.value || null), criteria: criteria.value || null, verify: verify.value || null, externalSecurity: externalSecurity.checked, codeqlDatabase: codeqlDatabase.value || null, mcp: mcp.checked, webSearch: webSearch.checked, apply: apply.checked, remember: remember.checked, reReview: reReview.checked });
     empty.classList.add("hidden");
     if (action.value === "analyze" || action.value === "review") {
       const retrieval = output.trace.retrieval?.enabled ? ` &middot; ${output.trace.retrieval.selectedChunks}/${output.trace.retrieval.indexedChunks} repository chunks` : "";
       const security = (output.securityFindings || []).map((finding) => `<div class="row security"><span>${escapeHtml(finding.title)}</span><code>${escapeHtml(finding.path)}:${escapeHtml(finding.line)}</code><span class="badge">${escapeHtml(finding.severity.toUpperCase())}</span></div>`).join("");
-      result.innerHTML = `<h2>${escapeHtml(output.decision.replaceAll("-", " ").toUpperCase())}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.citedSources} cited sources${retrieval} &middot; ${output.trace.elapsedMs}ms</p>${security ? `<h3>Security gate</h3><div class="evidence">${security}</div>` : ""}<div class="evidence">${output.rows.map((row) => `<div class="row"><span>${escapeHtml(row.criterion)}</span><code>${escapeHtml(row.citations[0]?.path ?? "No citation")}</code><span class="badge">${escapeHtml(row.state.toUpperCase())}</span></div>`).join("")}</div>`;
+      result.innerHTML = `<h2>${escapeHtml(output.decision.replaceAll("-", " ").toUpperCase())}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; Effort: ${escapeHtml(output.trace.reviewEffort || "medium")} &middot; ${output.trace.citedSources} cited sources${retrieval} &middot; ${output.trace.elapsedMs}ms</p>${security ? `<h3>Security gate</h3><div class="evidence">${security}</div>` : ""}<div class="evidence">${output.rows.map((row) => `<div class="row"><span>${escapeHtml(row.criterion)}</span><code>${escapeHtml(row.citations[0]?.path ?? "No citation")}</code><span class="badge">${escapeHtml(row.state.toUpperCase())}</span></div>`).join("")}</div>`;
     } else if (action.value === "agent") {
-      result.innerHTML = `<h2>SANDBOX AGENT ${output.trace.verified ? "VERIFIED" : "SUGGESTED"}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.changedPaths.length} changed paths &middot; ${output.trace.verificationCommand ? escapeHtml(output.trace.verificationCommand) : "no verification"}</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No patch was proposed.")}</pre>`;
+      result.innerHTML = `<h2>SANDBOX AGENT ${output.trace.verified && output.trace.reReviewPassed !== false ? "VERIFIED" : "SUGGESTED"}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.changedPaths.length} changed paths &middot; ${output.trace.verificationCommand ? escapeHtml(output.trace.verificationCommand) : "no verification"}${output.trace.reReviewDecision ? ` &middot; Re-review: ${escapeHtml(output.trace.reReviewDecision)}` : ""}</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No patch was proposed.")}</pre>`;
     } else if (action.value === "plan") {
       result.innerHTML = `<h2>IMPLEMENTATION PLAN</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.citedSources}/${output.trace.fetchedSources} citations verified</p><p>${escapeHtml(output.summary)}</p><div class="evidence">${output.steps.map((step, index) => `<div class="row"><span>${index + 1}. ${escapeHtml(step.title)}<br /><small>${escapeHtml(step.detail)}</small></span><code>${escapeHtml(step.citations[0]?.path ?? "No citation")}</code><span class="badge">PLAN</span></div>`).join("")}</div>`;
     } else if (action.value === "fix") {

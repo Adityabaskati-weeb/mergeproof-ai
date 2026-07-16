@@ -2,15 +2,16 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildWorkingTreeReviewContext, type LocalReviewOptions } from "./local-review";
+import { buildWorkingTreeReviewContext, reviewWorkingTree, type LocalReviewOptions } from "./local-review";
 import { createModelProvider } from "./models";
 import { validatePatchPaths } from "./fix";
+import type { Analysis } from "./types";
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 export type VerificationCommand = "npm test" | "npm run build" | "npm run typecheck" | "pytest" | "cargo test" | "go test ./...";
 export const VERIFICATION_COMMANDS: readonly VerificationCommand[] = ["npm test", "npm run build", "npm run typecheck", "pytest", "cargo test", "go test ./..."];
-export type LocalAgentOptions = LocalReviewOptions & { verify?: VerificationCommand };
+export type LocalAgentOptions = LocalReviewOptions & { verify?: VerificationCommand; reReview?: boolean };
 export type LocalAgentRun = {
   summary: string;
   patch: string;
@@ -22,6 +23,10 @@ export type LocalAgentRun = {
     verified: boolean;
     verificationCommand?: VerificationCommand;
     verificationOutput?: string;
+    reReviewDecision?: Analysis["decision"];
+    reReviewPassed?: boolean;
+    reReviewUnsupportedClaims?: number;
+    reReviewError?: string;
   };
 };
 
@@ -55,6 +60,10 @@ export async function runLocalAgent(model?: string, options: LocalAgentOptions =
   let sandbox: string | undefined;
   let verified = false;
   let verificationOutput = "";
+  let reReviewDecision: Analysis["decision"] | undefined;
+  let reReviewPassed: boolean | undefined;
+  let reReviewUnsupportedClaims: number | undefined;
+  let reReviewError: string | undefined;
   try {
     sandbox = await mkdtemp(join(tmpdir(), "mergeproof-agent-"));
     runGit(workingTree.repositoryRoot, ["worktree", "add", "--detach", sandbox, workingTree.changes.gitHeadSha]);
@@ -68,6 +77,22 @@ export async function runLocalAgent(model?: string, options: LocalAgentOptions =
         verificationOutput = error instanceof Error ? error.message : "Verification failed.";
       }
     }
+    if (options.reReview) {
+      if (options.verify && !verified) {
+        reReviewPassed = false;
+        reReviewError = "Skipped re-review because the requested verification command failed.";
+      } else {
+        try {
+          const rereview = await reviewWorkingTree(model, { repoPath: sandbox, provider: options.provider, criteria: workingTree.criteria, retrievalTopK: options.retrievalTopK, effort: options.effort, agent: options.agent, directories: options.directories, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery });
+          reReviewDecision = rereview.decision;
+          reReviewPassed = rereview.decision === "ready";
+          reReviewUnsupportedClaims = rereview.trace.unsupportedClaims;
+        } catch (error) {
+          reReviewPassed = false;
+          reReviewError = error instanceof Error ? error.message : "Re-review failed.";
+        }
+      }
+    }
   } finally {
     if (sandbox) {
       try {
@@ -78,5 +103,5 @@ export async function runLocalAgent(model?: string, options: LocalAgentOptions =
       await rm(sandbox, { recursive: true, force: true });
     }
   }
-  return { summary: result.summary, patch, trace: { model: provider.name, changedPaths, sandboxed: true, appliedToSandbox: true, verified, ...(options.verify ? { verificationCommand: options.verify, verificationOutput } : {}) } };
+  return { summary: result.summary, patch, trace: { model: provider.name, changedPaths, sandboxed: true, appliedToSandbox: true, verified, ...(options.verify ? { verificationCommand: options.verify, verificationOutput } : {}), ...(options.reReview ? { reReviewDecision, reReviewPassed, reReviewUnsupportedClaims, reReviewError } : {}) } };
 }

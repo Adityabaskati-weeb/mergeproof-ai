@@ -6,6 +6,7 @@ import { loadPolicy } from "./policy";
 import { retrieveRepositoryEvidence } from "./retrieval";
 import { scanPullRequestSecurity } from "./security";
 import { extractPatchPaths } from "./fix";
+import { combineInstructions, loadAgentProfile } from "./agents";
 
 export type TestSuggestion = { summary: string; patch: string; trace: { model: string; headSha: string; changedPaths: string[] } };
 
@@ -13,10 +14,11 @@ export function isTestPath(path: string): boolean {
   return /(^|\/)(__tests__|test|tests)(\/|$)|\.(?:test|spec)\.[^/]+$|(?:^|\/)[^/]+_test\.[^/]+$/i.test(path.replace(/\\/g, "/"));
 }
 
-export async function generateTestsPullRequest(prUrl: string, model?: string, options: { provider?: string; repoPath?: string } = {}): Promise<TestSuggestion> {
+export async function generateTestsPullRequest(prUrl: string, model?: string, options: { provider?: string; repoPath?: string; agent?: string } = {}): Promise<TestSuggestion> {
   const target = parseChangeRequestUrl(prUrl);
   const ref = target.ref;
   const policy = await loadPolicy(options.repoPath || process.cwd());
+  const agentProfile = await loadAgentProfile(options.repoPath || process.cwd(), options.agent);
   const context = await fetchChangeRequest(target);
   const issues = await fetchLinkedIssues(context.body);
   const criteria = [...extractAcceptanceCriteria(context.body).criteria, ...issues.flatMap((issue) => issue.acceptanceCriteria)].filter((criterion, index, values) => values.findIndex((candidate) => candidate.toLowerCase() === criterion.toLowerCase()) === index);
@@ -25,7 +27,7 @@ export async function generateTestsPullRequest(prUrl: string, model?: string, op
   const providerName = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (providerName === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const provider = createModelProvider(selectedModel, providerName as Parameters<typeof createModelProvider>[1]);
-  const result = await provider.tests({ ...context, issues, repositoryEvidence: retrieval.chunks, securityFindings: scanPullRequestSecurity(context), customInstructions: policy.instructions }, criteria, AbortSignal.timeout(45_000));
+  const result = await provider.tests({ ...context, issues, repositoryEvidence: retrieval.chunks, securityFindings: scanPullRequestSecurity(context), customInstructions: combineInstructions(policy.instructions, agentProfile) }, criteria, AbortSignal.timeout(45_000));
   const patch = result.patch.replace(/^```(?:diff|patch)?\s*/i, "").replace(/\s*```$/, "").trim();
   const changedPaths = extractPatchPaths(patch);
   if (changedPaths.some((path) => !isTestPath(path))) throw new Error("The proposed test patch changes a non-test file.");

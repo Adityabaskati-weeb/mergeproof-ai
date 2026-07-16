@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -30,6 +30,28 @@ describe("working-tree review context", () => {
       expect(result.digest).toMatch(/^[a-f0-9]{64}$/);
       const second = await collectWorkingTreeChanges(root);
       expect(second.digest).toBe(result.digest);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("limits a review to the requested directory scope", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mergeproof-local-scope-"));
+    try {
+      git(root, ["init", "-q"]);
+      git(root, ["config", "user.email", "mergeproof@example.com"]);
+      git(root, ["config", "user.name", "MergeProof Test"]);
+      await mkdir(join(root, "src"), { recursive: true });
+      await mkdir(join(root, "docs"), { recursive: true });
+      await writeFile(join(root, "src", "app.ts"), "export const value = 1;\n", "utf8");
+      await writeFile(join(root, "docs", "notes.md"), "initial\n", "utf8");
+      git(root, ["add", "."]);
+      git(root, ["commit", "-qm", "initial"]);
+      await writeFile(join(root, "src", "app.ts"), "export const value = 2;\n", "utf8");
+      await writeFile(join(root, "docs", "notes.md"), "changed\n", "utf8");
+
+      const result = await collectWorkingTreeChanges(root, ["src"]);
+      expect(result.files.map((file) => file.path)).toEqual(["src/app.ts"]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

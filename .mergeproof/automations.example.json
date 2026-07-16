@@ -1,0 +1,12 @@
+{
+  "automations": [
+    {
+      "id": "review-pr-alerts",
+      "action": "review",
+      "contains": ["review this pr"],
+      "channelIds": ["C0123456789"],
+      "authorIds": ["U0123456789"],
+      "topLevelOnly": true
+    }
+  ]
+}

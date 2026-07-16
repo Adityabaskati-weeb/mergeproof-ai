@@ -46,4 +46,13 @@ describe("validateAnalysis", () => {
     expect(analysis.trace.unsupportedClaims).toBe(1);
     expect(analysis.rows[0].state).toBe("fail");
   });
+
+  it("accepts a citation from an explicitly linked repository commit", () => {
+    const related = { ...context, sources: new Set([...context.sources, "file:///C:/shared/contracts.ts"]), sourceCommits: new Set(["related-sha"]) };
+    const result: ModelAnalysis = {
+      contract,
+      rows: [{ criterion: "Retries twice", evidence: "The shared contract requires the retry behavior.", state: "pass", citations: [{ path: "contracts.ts", commitSha: "related-sha", url: "file:///C:/shared/contracts.ts#L1-L4" }] }],
+    };
+    expect(validateAnalysis(result, related, ["Retries twice"], "gpt-5.6", 12).decision).toBe("ready");
+  });
 });
