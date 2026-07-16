@@ -6,6 +6,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 
 - `mergeproof analyze <public-pr-url>` CLI workflow
 - Desktop shell boundary in `apps/desktop`
+- VS Code commands in `apps/vscode`
 - Paste a public GitHub pull request URL into the CLI or native desktop client
 - Fetch real PR metadata, changed files, commits, and checks with Octokit
 - Extract acceptance criteria from the PR description
@@ -16,6 +17,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Validate model citations against the fetched GitHub sources
 - Publish a MergeProof GitHub Check with annotations and a merge decision
 - Optionally notify a Slack incoming webhook
+- Generate citation-aware implementation plans from a PR
 - Three-state decision model: ready, needs evidence, needs owner decision
 - Provenance metrics for fetched sources, cited sources, unsupported claims, model, and latency
 
@@ -62,6 +64,7 @@ npm run cli -- index .
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --provider openai-compatible --model your-model
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --save analysis.json
 npm run cli -- evaluate analysis.json
+npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json
 ```
 
 Replace the example PR URL with a real pull request. `https://github.com/owner/repo/pull/123` is only a placeholder.
@@ -85,6 +88,8 @@ Save a machine-readable run with `-- --json` and use `evaluate` to report criter
 For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` in `.env`; link an issue in the PR body using a Jira URL or issue key. For Slack notifications, pass `--slack-webhook` explicitly; webhook URLs are never persisted by MergeProof.
 
 Mutation actions are explicit: `--publish-review` posts a GitHub review or fallback PR comment, and `--create-jira` creates a Jira follow-up using `JIRA_PROJECT_KEY`. These flags are never enabled by default.
+
+The VS Code extension exposes the same `analyze` and `plan` commands from the command palette. It is intentionally a thin client over the CLI so desktop, terminal, CI, and editor results share the same validator.
 
 ## Planned integrations
 

@@ -8,8 +8,10 @@ import { publishPullRequestCheck } from "../lib/github-publish";
 import { publishPullRequestReview } from "../lib/github-review";
 import { createJiraIssue } from "../lib/issues";
 import { indexRepository } from "../lib/retrieval";
+import { planPullRequest } from "../lib/plan";
 import { publishSlackSummary } from "../lib/slack";
 import type { Analysis } from "../lib/types";
+import type { ReviewPlan } from "../lib/models";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -27,6 +29,13 @@ function printAnalysis(analysis: Analysis) {
   console.log();
 }
 
+function printPlan(plan: ReviewPlan) {
+  console.log(`\nMERGEPROOF PLAN (${plan.trace.model})\n\n${plan.summary}\n`);
+  if (plan.risks.length) console.log(`Risks:\n${plan.risks.map((risk) => `- [${risk.severity}] ${risk.risk}`).join("\n")}\n`);
+  console.log(`Steps:\n${plan.steps.map((step, index) => `${index + 1}. ${step.title}\n   ${step.detail}${step.citations.length ? `\n   Evidence: ${step.citations.map((citation) => citation.url).join(", ")}` : ""}`).join("\n")}`);
+  console.log(`\nCitations verified: ${plan.trace.citedSources}/${plan.trace.fetchedSources}\n`);
+}
+
 const program = new Command();
 program.name("mergeproof").description("Evidence-backed merge decisions for GitHub pull requests").version("0.3.0");
 
@@ -38,6 +47,18 @@ program.command("index").description("Build a local repository evidence index").
 program.command("evaluate").description("Measure evidence coverage for a saved JSON analysis").argument("<analysis-json>", "Path to analysis JSON").action(async (analysisPath) => {
   const analysis = JSON.parse(await readFile(analysisPath, "utf8")) as Analysis;
   console.log(JSON.stringify(evaluateAnalysis(analysis), null, 2));
+});
+
+program.command("plan").description("Generate a citation-aware implementation plan for a pull request").argument("<pr-url>", "Public GitHub pull request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").action(async (prUrl, options) => {
+  try {
+    const plan = await planPullRequest(prUrl, options.model, options.provider);
+    if (options.save) await writeFile(options.save, JSON.stringify(plan, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(plan, null, 2));
+    else printPlan(plan);
+  } catch (error) {
+    console.error(`MergeProof plan error: ${error instanceof Error ? error.message : "Planning failed."}`);
+    process.exitCode = 1;
+  }
 });
 
 program.command("analyze").description("Analyze a GitHub pull request").argument("<pr-url>", "Public GitHub pull request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the JSON analysis to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--publish-check", "Publish the result as a GitHub Check").option("--publish-review", "Publish a pull-request review or fallback comment").option("--slack-webhook <url>", "Post a summary to a Slack incoming webhook").option("--create-jira", "Create a Jira follow-up for non-passing criteria").action(async (prUrl, options) => {

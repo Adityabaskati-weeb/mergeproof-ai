@@ -1,0 +1,21 @@
+{
+  "name": "mergeproof-vscode",
+  "displayName": "MergeProof Evidence Review",
+  "description": "Run evidence-backed MergeProof reviews from VS Code.",
+  "version": "0.1.0",
+  "publisher": "mergeproof",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Linters", "Other"],
+  "main": "extension.js",
+  "activationEvents": ["onCommand:mergeproof.analyzePullRequest", "onCommand:mergeproof.generatePlan"],
+  "contributes": {
+    "commands": [
+      { "command": "mergeproof.analyzePullRequest", "title": "MergeProof: Analyze Pull Request" },
+      { "command": "mergeproof.generatePlan", "title": "MergeProof: Generate Evidence Plan" }
+    ],
+    "configuration": {
+      "title": "MergeProof",
+      "properties": { "mergeproof.cliPath": { "type": "string", "description": "Path to the MergeProof CLI executable or npm runner." } }
+    }
+  }
+}
