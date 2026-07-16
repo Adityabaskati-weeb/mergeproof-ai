@@ -2,27 +2,24 @@
   "name": "mergeproof",
   "version": "0.1.0",
   "private": true,
+  "bin": { "mergeproof": "dist/cli.js" },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "build": "tsc --noEmit",
+    "cli": "tsx bin/mergeproof.ts",
+    "cli:json": "tsx bin/mergeproof.ts analyze",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.0",
-    "@octokit/webhooks-types": "^7.6.1",
-    "next": "^15.4.0",
+    "commander": "^14.0.0",
     "openai": "^5.12.2",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",
-    "@types/react": "^19.1.2",
-    "@types/react-dom": "^19.1.2",
     "typescript": "^5.8.3",
+    "tsx": "^4.20.3",
     "vitest": "^3.2.4"
   }
 }
