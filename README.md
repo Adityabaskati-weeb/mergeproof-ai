@@ -26,6 +26,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Detect high-confidence credential and dangerous-sink patterns on added lines before model review
 - Optionally run `npm audit`, Semgrep, and an existing or explicitly created CodeQL database with normalized findings
 - Optionally call explicitly configured read-only MCP tools and include their responses as cited review context
+- Optionally add Brave or Tavily web-search snippets as clearly labeled external context
 - Persist bounded, repository-scoped review memory locally for future context
 - Accept signed GitHub pull-request webhooks for automatic review runs
 - Emit a reproducible SHA-256 attestation for each decision and evidence set
@@ -34,6 +35,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Run an explicit allowlisted verification command inside that sandbox before reporting success
 - Run the same sandbox agent in an ephemeral GitHub Actions runner through manual `workflow_dispatch`
 - Reuse the evidence contract from compatible agent surfaces through `skills/mergeproof-review/SKILL.md`
+- Use the same engine from Cursor through `.cursor/rules/mergeproof-review.mdc` or JetBrains through `docs/jetbrains.md`
 - Three-state decision model: ready, needs evidence, needs owner decision
 - Provenance metrics for fetched sources, cited sources, unsupported claims, model, and latency
 
@@ -75,6 +77,8 @@ The CLI also loads values from `.env`. Never commit the real `.env` file. `GITHU
 
 To use MCP context, create `.mergeproof/mcp.json` and invoke `analyze --mcp`. MergeProof initializes each configured HTTP MCP server, requires the named tool to advertise `readOnlyHint: true`, calls only that tool, bounds its response to 20,000 characters, and records the server/tool URL in the analysis provenance. Header and argument strings may reference environment variables such as `${LINEAR_API_KEY}` and review fields such as `{{title}}`, `{{criteria}}`, `{{prUrl}}`, and `{{headSha}}`.
 
+For web search, set `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` and pass `--web-search`; snippets are capped, labeled as external context, and never treated as repository files. This sends a bounded PR title/body summary to the selected search provider, so enable it only when that data flow is acceptable for the repository.
+
 ```json
 {
   "servers": [
@@ -98,6 +102,7 @@ npm run cli -- review . -- --external-security
 npm run cli -- review . -- --codeql-db .codeql/db --codeql-create --codeql-query javascript-code-scanning.qls
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --external-security --codeql-db .codeql/db
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --mcp
+npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --web-search
 npm run cli -- agent . -- --verify "npm test"
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --json
 npm run cli -- index .
@@ -128,7 +133,7 @@ For repository retrieval, check out the PR head locally and run `npm run cli -- 
 
 The included workflow reviews opened, synchronized, reopened, and ready-for-review pull requests, and supports manual `workflow_dispatch` runs. It checks out the PR head, publishes a Check and review, runs the deterministic security gate, and records memory for that repository. Add `OPENAI_API_KEY`; if your token cannot publish reviews, the workflow still retains the Check/status fallback. For a deployable GitHub App receiver, configure `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_PRIVATE_KEY`; `GITHUB_TOKEN` takes precedence for local and Actions runs. The `serve` command also accepts signed GitLab, Bitbucket, and Azure DevOps webhook events at `/gitlab/webhook`, `/bitbucket/webhook`, and `/azure-devops/webhook` when their provider webhook secrets are configured.
 
-The manual `.github/workflows/mergeproof-agent.yml` workflow checks out a selected PR into an ephemeral Actions runner, runs the sandbox agent with an allowlisted verification command, uploads the JSON result as an artifact, and posts a summary comment. It never applies the patch to the PR branch. Agent-compatible editors can use `skills/mergeproof-review/SKILL.md` to invoke the same CLI contract.
+The manual `.github/workflows/mergeproof-agent.yml` workflow checks out a selected PR into an ephemeral Actions runner, runs the sandbox agent with an allowlisted verification command, uploads the JSON result as an artifact, and posts a summary comment. Its default-off `create_pr` input can apply the already-verified patch to a new branch and open a separate handoff PR; it never mutates the original PR branch. Agent-compatible editors can use `skills/mergeproof-review/SKILL.md` to invoke the same CLI contract.
 
 Repository policy lives in `.mergeproof/config.json`; team review guidance can be added to `.mergeproof/instructions.md`. Supported policy keys are `provider`, `model`, `retrievalTopK`, and `minCitationsPerCriterion`.
 

@@ -10,9 +10,10 @@ import { scanExternalSecurity } from "./external-security";
 import { validateAnalysis } from "./validator";
 import { attestAnalysis } from "./attestation";
 import { fetchMcpContext } from "./mcp";
+import { searchWebContext } from "./web-context";
 import type { Analysis } from "./types";
 
-export type AnalyzeOptions = { provider?: string; repoPath?: string; retrievalTopK?: number; remember?: boolean; memoryRoot?: string; memoryLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; mcp?: boolean };
+export type AnalyzeOptions = { provider?: string; repoPath?: string; retrievalTopK?: number; remember?: boolean; memoryRoot?: string; memoryLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; mcp?: boolean; webSearch?: boolean };
 
 export async function analyzePullRequest(prUrl: string, model?: string, options: AnalyzeOptions = {}): Promise<Analysis> {
   const started = Date.now();
@@ -36,6 +37,9 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const mcp = await fetchMcpContext(options.repoPath || process.cwd(), context, criteria, options.mcp);
   context.discussion = [...(context.discussion ?? []), ...mcp.discussion];
   mcp.sources.forEach((source) => context.sources.add(source));
+  const webSearch = await searchWebContext(context, criteria, options.webSearch);
+  context.discussion = [...(context.discussion ?? []), ...webSearch.discussion];
+  webSearch.sources.forEach((source) => context.sources.add(source));
   const provider = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (provider === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const retrievalTrace = { enabled: Boolean(options.repoPath), indexedChunks: retrieval.indexedChunks, selectedChunks: retrieval.chunks.length, ...(retrieval.indexCommitSha ? { indexCommitSha: retrieval.indexCommitSha } : {}) };
@@ -53,11 +57,11 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
       contract: { promise: context.title, code: "Not specified", tests: "Not specified", release: "Not specified" },
       rows: [],
       securityFindings,
-      trace: { fetchedSources: context.sources.size, citedSources: 0, unsupportedClaims: 0, model: `${provider}:${selectedModel}`, elapsedMs: Date.now() - started, headSha: context.headSha, retrieval: retrievalTrace, linkedIssues: issues.length, securityFindings: securityFindings.length, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, mcp: { successful: mcp.successful, failed: mcp.failed }, scope: "pull-request" },
+      trace: { fetchedSources: context.sources.size, citedSources: 0, unsupportedClaims: 0, model: `${provider}:${selectedModel}`, elapsedMs: Date.now() - started, headSha: context.headSha, retrieval: retrievalTrace, linkedIssues: issues.length, securityFindings: securityFindings.length, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, scope: "pull-request" },
     });
   }
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);
   const result = await modelProvider.analyze(context, criteria, AbortSignal.timeout(45_000));
   const analysis = validateAnalysis(result, context, criteria, modelProvider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings);
-  return persist({ ...analysis, trace: { ...analysis.trace, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, mcp: { successful: mcp.successful, failed: mcp.failed } } });
+  return persist({ ...analysis, trace: { ...analysis.trace, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable } } });
 }

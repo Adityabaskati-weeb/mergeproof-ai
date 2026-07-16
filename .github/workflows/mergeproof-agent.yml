@@ -19,6 +19,11 @@ on:
           - pytest
           - cargo test
           - go test ./...
+      create_pr:
+        description: Open a new PR from the verified patch
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -39,6 +44,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Checkout pull request head
+        id: prepare
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -46,9 +52,15 @@ jobs:
           set -euo pipefail
           repo=$(gh pr view "$PR_URL" --json headRepository --jq '.headRepository.nameWithOwner')
           sha=$(gh pr view "$PR_URL" --json headRefOid --jq '.headRefOid')
+          base_repo=$(gh pr view "$PR_URL" --json baseRepository --jq '.baseRepository.nameWithOwner')
+          base_branch=$(gh pr view "$PR_URL" --json baseRefName --jq '.baseRefName')
+          head_owner=$(gh pr view "$PR_URL" --json headRepositoryOwner --jq '.headRepositoryOwner.login')
           gh repo clone "$repo" mergeproof-target -- --filter=blob:none
           git -C mergeproof-target fetch origin "$sha"
           git -C mergeproof-target checkout --detach "$sha"
+          echo "base_repo=$base_repo" >> "$GITHUB_OUTPUT"
+          echo "base_branch=$base_branch" >> "$GITHUB_OUTPUT"
+          echo "head_owner=$head_owner" >> "$GITHUB_OUTPUT"
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -78,3 +90,26 @@ jobs:
         run: |
           node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("mergeproof-agent.json","utf8")); const trace=value.trace||{}; const body=["## MergeProof sandbox agent", value.summary||"No summary returned.", `Verification: ${trace.verificationCommand||"not requested"} (${trace.verified?"passed":"failed"})`, `Changed paths: ${(trace.changedPaths||[]).join(", ")||"none"}`, "The proposed patch is attached as a workflow artifact and was not applied to the pull-request branch."].join("\n\n"); fs.writeFileSync("mergeproof-agent-comment.md", body);'
           gh pr comment "$PR_URL" --body-file mergeproof-agent-comment.md
+      - name: Open handoff pull request
+        if: ${{ inputs.create_pr && steps.agent.outputs.exit_code == '0' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REPOSITORY: ${{ steps.prepare.outputs.base_repo }}
+          BASE_BRANCH: ${{ steps.prepare.outputs.base_branch }}
+          HEAD_OWNER: ${{ steps.prepare.outputs.head_owner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("mergeproof-agent.json","utf8")); if (!value.patch) process.exit(2); fs.writeFileSync("mergeproof-agent.patch", value.patch);'
+          test -s mergeproof-agent.patch
+          branch="mergeproof/agent-${GITHUB_RUN_ID}"
+          git -C mergeproof-target checkout -b "$branch"
+          git -C mergeproof-target apply --check --whitespace=error "../mergeproof-agent.patch"
+          git -C mergeproof-target apply --whitespace=error "../mergeproof-agent.patch"
+          git -C mergeproof-target config user.name "MergeProof Agent"
+          git -C mergeproof-target config user.email "mergeproof-agent@users.noreply.github.com"
+          git -C mergeproof-target add -A
+          git -C mergeproof-target commit -m "Apply verified MergeProof sandbox patch"
+          gh auth setup-git
+          git -C mergeproof-target push --set-upstream origin "$branch"
+          gh pr create --repo "$BASE_REPOSITORY" --base "$BASE_BRANCH" --head "$HEAD_OWNER:$branch" --title "MergeProof verified patch" --body "This pull request was created by an explicit MergeProof sandbox-agent handoff. The patch was applied and verified in an ephemeral runner; review the changes before merging."

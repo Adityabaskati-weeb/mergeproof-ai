@@ -19,6 +19,7 @@ fn cli_args(
     external_security: bool,
     codeql_database: Option<String>,
     mcp: bool,
+    web_search: bool,
     apply: bool,
     remember: bool,
 ) -> Result<Vec<String>, String> {
@@ -61,6 +62,9 @@ fn cli_args(
     }
     if command == "analyze" && mcp {
         args.push(String::from("--mcp"));
+    }
+    if command == "analyze" && web_search {
+        args.push(String::from("--web-search"));
     }
     if let Some(database) = codeql_database
         .as_deref()
@@ -108,6 +112,7 @@ async fn run_cli(
     external_security: bool,
     codeql_database: Option<String>,
     mcp: bool,
+    web_search: bool,
     apply: bool,
     remember: bool,
 ) -> Result<serde_json::Value, String> {
@@ -122,6 +127,7 @@ async fn run_cli(
         external_security,
         codeql_database,
         mcp,
+        web_search,
         apply,
         remember,
     )?;

@@ -63,5 +63,6 @@ export type Analysis = {
     workingTreeDigest?: string;
     externalSecurity?: { tools: string[]; unavailable: string[] };
     mcp?: { successful: string[]; failed: string[] };
+    webSearch?: { provider?: string; resultCount: number; unavailable?: string };
   };
 };
