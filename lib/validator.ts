@@ -2,13 +2,24 @@ import type { PullRequestContext } from "./github";
 import type { ModelAnalysis } from "./models";
 import type { Analysis } from "./types";
 
+function canonicalizeUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return value;
+  }
+}
+
 export function validateAnalysis(result: ModelAnalysis, context: PullRequestContext, criteria: string[], model: string, elapsedMs: number): Analysis {
   const validRows = result.rows.filter((row) => criteria.some((criterion) => criterion.toLowerCase() === row.criterion.toLowerCase()));
   const unsupportedClaims = result.rows.length - validRows.length;
+  const fetchedSources = new Set([...context.sources].map(canonicalizeUrl));
   const rows = criteria.map((criterion) => {
     const row = validRows.find((candidate) => candidate.criterion.toLowerCase() === criterion.toLowerCase());
     if (!row) return { criterion, evidence: "No model-supported evidence was returned.", state: "fail" as const, citations: [] };
-    const citations = row.citations.filter((citation) => citation.commitSha === context.headSha && context.sources.has(citation.url));
+    const citations = row.citations.filter((citation) => citation.commitSha === context.headSha && fetchedSources.has(canonicalizeUrl(citation.url)));
     return { ...row, citations, state: citations.length === row.citations.length ? row.state : "warn" as const };
   });
   const citedSources = rows.reduce((count, row) => count + row.citations.length, 0);

@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "Default permissions for the MergeProof desktop client",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{ "name": "binaries/mergeproof-cli", "sidecar": true, "args": true }]
+    }
+  ]
 }

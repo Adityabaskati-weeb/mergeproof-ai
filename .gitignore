@@ -4,6 +4,8 @@ node_modules
 target
 apps/desktop/src-tauri/gen
 out
+dist
+apps/desktop/src-tauri/binaries
 .env*
 !.env.example
 npm-debug.log*

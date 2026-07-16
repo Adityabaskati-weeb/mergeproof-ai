@@ -23,7 +23,10 @@ export function parsePullRequestUrl(value: string): PullRequestRef {
 }
 
 export async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequestContext> {
-  const octokit = new Octokit(process.env.GITHUB_TOKEN ? { auth: process.env.GITHUB_TOKEN } : undefined);
+  const octokit = new Octokit({
+    ...(process.env.GITHUB_TOKEN ? { auth: process.env.GITHUB_TOKEN } : {}),
+    request: { timeout: 15_000 },
+  });
   const pull = await octokit.rest.pulls.get({ owner: ref.owner, repo: ref.repo, pull_number: ref.number });
   const [files, checks] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listFiles, { owner: ref.owner, repo: ref.repo, pull_number: ref.number, per_page: 100 }),

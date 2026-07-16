@@ -9,7 +9,7 @@ function printAnalysis(analysis: Analysis) {
     const marker = row.state === "pass" ? "[x]" : row.state === "warn" ? "[!]" : "[ ]";
     console.log(`${marker} ${row.criterion}`);
     console.log(`    ${row.evidence}`);
-    for (const citation of row.citations) console.log(`    → ${citation.path} (${citation.url})`);
+    for (const citation of row.citations) console.log(`    -> ${citation.path} (${citation.url})`);
   }
   console.log(`\nModel: ${analysis.trace.model}`);
   console.log(`Sources fetched: ${analysis.trace.fetchedSources} | Sources cited: ${analysis.trace.citedSources}`);

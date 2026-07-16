@@ -2,13 +2,12 @@
   "name": "mergeproof",
   "version": "0.1.0",
   "private": true,
-  "bin": { "mergeproof": "dist/cli.js" },
   "scripts": {
     "build": "tsc --noEmit",
     "desktop:dev": "tauri dev --config apps/desktop/src-tauri/tauri.conf.json",
-    "desktop:build": "tauri build --config apps/desktop/src-tauri/tauri.conf.json",
+    "build:sidecar": "node scripts/build-cli.mjs",
+    "desktop:build": "npm run build:sidecar && tauri build --config apps/desktop/src-tauri/tauri.conf.json",
     "cli": "tsx bin/mergeproof.ts",
-    "cli:json": "tsx bin/mergeproof.ts analyze",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -19,10 +18,12 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^22.15.21",
     "@tauri-apps/cli": "^2.5.0",
-    "typescript": "^5.8.3",
+    "@yao-pkg/pkg": "^6.21.0",
+    "@types/node": "^22.15.21",
+    "esbuild": "^0.28.1",
     "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }
 }
