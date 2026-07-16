@@ -5,5 +5,5 @@
   "identifier": "com.mergeproof.desktop",
   "build": { "frontendDist": "../ui" },
   "app": { "withGlobalTauri": true, "windows": [{ "title": "MergeProof", "width": 1100, "height": 760, "minWidth": 760, "minHeight": 560 }], "security": { "csp": null } },
-  "bundle": { "active": true, "targets": "all", "icon": [] }
+  "bundle": { "active": false, "icon": ["../ui/icon.svg"] }
 }
