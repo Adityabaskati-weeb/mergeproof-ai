@@ -16,6 +16,7 @@ fn cli_args(
     repo_path: Option<String>,
     criteria: Option<String>,
     verify: Option<String>,
+    external_security: bool,
     apply: bool,
     remember: bool,
 ) -> Result<Vec<String>, String> {
@@ -37,6 +38,9 @@ fn cli_args(
         if let Some(verify) = verify.filter(|value| !value.trim().is_empty()) {
             args.extend(["--verify".to_string(), verify]);
         }
+        if external_security {
+            args.push(String::from("--external-security"));
+        }
         args.push(String::from("--json"));
         return Ok(args);
     }
@@ -46,6 +50,9 @@ fn cli_args(
     }
     if let Some(provider) = provider.as_deref().filter(|value| !value.trim().is_empty()) {
         args.extend(["--provider".to_string(), provider.to_string()]);
+    }
+    if command == "analyze" && external_security {
+        args.push(String::from("--external-security"));
     }
     if let Some(repo_path) = repo_path
         .as_deref()
@@ -81,6 +88,7 @@ async fn run_cli(
     repo_path: Option<String>,
     criteria: Option<String>,
     verify: Option<String>,
+    external_security: bool,
     apply: bool,
     remember: bool,
 ) -> Result<serde_json::Value, String> {
@@ -92,6 +100,7 @@ async fn run_cli(
         repo_path,
         criteria,
         verify,
+        external_security,
         apply,
         remember,
     )?;

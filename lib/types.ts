@@ -61,5 +61,6 @@ export type Analysis = {
     attestation?: { algorithm: "sha256"; digest: string };
     scope?: "pull-request" | "working-tree";
     workingTreeDigest?: string;
+    externalSecurity?: { tools: string[]; unavailable: string[] };
   };
 };

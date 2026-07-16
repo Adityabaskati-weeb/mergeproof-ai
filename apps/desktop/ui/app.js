@@ -11,6 +11,7 @@ const remember = document.querySelector("#remember");
 const criteria = document.querySelector("#criteria");
 const targetLabel = document.querySelector("#target-label");
 const verify = document.querySelector("#verify");
+const externalSecurity = document.querySelector("#external-security");
 
 function updateActionLabel() {
   const labels = { analyze: "Analyze change", review: "Review local changes", agent: "Sandbox fix and verify", plan: "Generate plan", fix: "Suggest safe fix", tests: "Generate tests" };
@@ -24,6 +25,8 @@ function updateActionLabel() {
   if (action.value !== "analyze") remember.checked = false;
   verify.disabled = action.value !== "agent";
   if (action.value !== "agent") verify.value = "";
+  externalSecurity.disabled = !["analyze", "review", "agent"].includes(action.value);
+  if (externalSecurity.disabled) externalSecurity.checked = false;
 }
 
 action.addEventListener("change", updateActionLabel);
@@ -45,7 +48,7 @@ button.addEventListener("click", async () => {
   button.textContent = "Working...";
   result.classList.add("hidden");
   try {
-    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: target, model: model.value || null, provider: provider.value || null, repoPath: action.value === "review" || action.value === "agent" ? null : (repo.value || null), criteria: criteria.value || null, verify: verify.value || null, apply: apply.checked, remember: remember.checked });
+    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: target, model: model.value || null, provider: provider.value || null, repoPath: action.value === "review" || action.value === "agent" ? null : (repo.value || null), criteria: criteria.value || null, verify: verify.value || null, externalSecurity: externalSecurity.checked, apply: apply.checked, remember: remember.checked });
     empty.classList.add("hidden");
     if (action.value === "analyze" || action.value === "review") {
       const retrieval = output.trace.retrieval?.enabled ? ` &middot; ${output.trace.retrieval.selectedChunks}/${output.trace.retrieval.indexedChunks} repository chunks` : "";

@@ -7,6 +7,7 @@ import { createModelProvider } from "./models";
 import { loadPolicy } from "./policy";
 import { retrieveLocalEvidence } from "./retrieval";
 import { scanPullRequestSecurity } from "./security";
+import { scanExternalSecurity, type ExternalSecurityReport } from "./external-security";
 import { validateAnalysis } from "./validator";
 import { attestAnalysis } from "./attestation";
 import type { PullRequestContext } from "./github";
@@ -17,7 +18,7 @@ const MAX_DIFF_BYTES = 20 * 1024 * 1024;
 const MAX_UNTRACKED_BYTES = 250_000;
 
 export type WorkingTreeFile = PullRequestContext["files"][number];
-export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number };
+export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; externalSecurity?: boolean; codeqlDatabase?: string };
 
 function runGit(root: string, args: string[]): string {
   try {
@@ -105,6 +106,7 @@ export type WorkingTreeReviewContext = {
   policy: Awaited<ReturnType<typeof loadPolicy>>;
   retrieval: Awaited<ReturnType<typeof retrieveLocalEvidence>>;
   securityFindings: ReturnType<typeof scanPullRequestSecurity>;
+  externalSecurity: ExternalSecurityReport;
 };
 
 export async function buildWorkingTreeReviewContext(options: LocalReviewOptions = {}): Promise<WorkingTreeReviewContext> {
@@ -117,21 +119,23 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const criteria = uniqueCriteria(options.criteria);
   if (!criteria.length) criteria.push(DEFAULT_CRITERION);
   const context: PullRequestContext = { ref, title: `Working-tree review: ${basename(repositoryRoot)}`, body: criteria.join("\n"), headSha: reviewSha, baseSha: changes.gitHeadSha, files: changes.files, checks: [], commits: [], discussion: [], sources: new Set([ref.url, ...changes.files.map((file) => file.url), ...retrieval.chunks.map((chunk) => chunk.url)]), repositoryEvidence: retrieval.chunks, issues: [] };
-  const securityFindings = scanPullRequestSecurity(context);
+  const baseSecurityFindings = scanPullRequestSecurity(context);
+  const externalSecurity = options.externalSecurity || options.codeqlDatabase ? await scanExternalSecurity({ repoPath: repositoryRoot, commitSha: reviewSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase }) : { findings: [], tools: [], unavailable: [] };
+  const securityFindings = [...baseSecurityFindings, ...externalSecurity.findings];
   context.securityFindings = securityFindings;
-  return { repositoryRoot, context, changes, criteria, policy, retrieval, securityFindings };
+  return { repositoryRoot, context, changes, criteria, policy, retrieval, securityFindings, externalSecurity };
 }
 
 export async function reviewWorkingTree(model?: string, options: LocalReviewOptions = {}): Promise<Analysis> {
   const started = Date.now();
   const workingTree = await buildWorkingTreeReviewContext(options);
-  const { context, criteria, policy, retrieval, changes, securityFindings } = workingTree;
+  const { context, criteria, policy, retrieval, changes, securityFindings, externalSecurity } = workingTree;
   const providerName = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (providerName === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const provider = createModelProvider(selectedModel, providerName as Parameters<typeof createModelProvider>[1]);
   const retrievalTrace = { enabled: true, indexedChunks: retrieval.indexedChunks, selectedChunks: retrieval.chunks.length, ...(retrieval.indexCommitSha ? { indexCommitSha: retrieval.indexCommitSha } : {}) };
   const result = await provider.analyze(context, criteria, AbortSignal.timeout(45_000));
   const analysis = validateAnalysis(result, context, criteria, provider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings);
-  const withScope = { ...analysis, trace: { ...analysis.trace, scope: "working-tree" as const, workingTreeDigest: changes.digest } };
+  const withScope = { ...analysis, trace: { ...analysis.trace, scope: "working-tree" as const, workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable } } };
   return { ...withScope, trace: { ...withScope.trace, attestation: attestAnalysis(withScope) } };
 }

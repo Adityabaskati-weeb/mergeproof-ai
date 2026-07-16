@@ -6,6 +6,7 @@ import { publishPullRequestComment, publishPullRequestReview } from "./github-re
 import { createGithubIssueFromAnalysis } from "./github-issues";
 import { planPullRequest } from "./plan";
 import { processSlackCommand, verifySlackRequestSignature } from "./slack-agent";
+import { processProviderWebhookPayload, verifyProviderWebhookSignature, type ProviderWebhook } from "./provider-webhook";
 import type { Analysis } from "./types";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
@@ -19,6 +20,9 @@ export type GithubWebhookOptions = {
   repoPath?: string;
   publishReview?: boolean;
   slackSigningSecret?: string;
+  gitlabWebhookSecret?: string;
+  bitbucketWebhookSecret?: string;
+  azureDevopsWebhookSecret?: string;
   log?: (message: string) => void;
 };
 
@@ -87,7 +91,7 @@ async function readBody(request: IncomingMessage): Promise<string> {
 }
 
 export function startGithubWebhookServer(options: GithubWebhookOptions): Server {
-  if (!options.secret && !options.slackSigningSecret) throw new Error("A GitHub or Slack signing secret is required.");
+  if (!options.secret && !options.slackSigningSecret && !options.gitlabWebhookSecret && !options.bitbucketWebhookSecret && !options.azureDevopsWebhookSecret) throw new Error("At least one webhook signing secret is required.");
   const server = createServer(async (request, response) => {
     if (request.method === "POST" && request.url === "/slack/commands") {
       try {
@@ -102,6 +106,28 @@ export function startGithubWebhookServer(options: GithubWebhookOptions): Server 
         void processSlackCommand(body, { signingSecret: options.slackSigningSecret, repoPath: options.repoPath, model: options.model, provider: options.provider, log: options.log }).catch((error) => options.log?.(`MergeProof Slack command failed: ${error instanceof Error ? error.message : "unknown error"}`));
       } catch (error) {
         respond(response, 400, { error: error instanceof Error ? error.message : "Invalid Slack request" });
+      }
+      return;
+    }
+    const providerRoutes: Array<{ path: string; provider: ProviderWebhook; secret: string | undefined }> = [
+      { path: "/gitlab/webhook", provider: "gitlab", secret: options.gitlabWebhookSecret },
+      { path: "/bitbucket/webhook", provider: "bitbucket", secret: options.bitbucketWebhookSecret },
+      { path: "/azure-devops/webhook", provider: "azure-devops", secret: options.azureDevopsWebhookSecret },
+    ];
+    const providerRoute = providerRoutes.find((candidate) => request.url === candidate.path);
+    if (request.method === "POST" && providerRoute) {
+      try {
+        const body = await readBody(request);
+        if (!providerRoute.secret || !verifyProviderWebhookSignature(providerRoute.provider, body, request.headers, providerRoute.secret)) {
+          respond(response, 401, { error: "Invalid provider webhook signature" });
+          return;
+        }
+        const payload = JSON.parse(body) as unknown;
+        const event = typeof request.headers["x-event-key"] === "string" ? request.headers["x-event-key"] : typeof request.headers["x-azure-event-type"] === "string" ? request.headers["x-azure-event-type"] : undefined;
+        respond(response, 202, { accepted: true });
+        void processProviderWebhookPayload(providerRoute.provider, payload, { ...options, event }).catch((error) => options.log?.(`MergeProof ${providerRoute.provider} webhook failed: ${error instanceof Error ? error.message : "unknown error"}`));
+      } catch (error) {
+        respond(response, 400, { error: error instanceof Error ? error.message : "Invalid provider webhook request" });
       }
       return;
     }

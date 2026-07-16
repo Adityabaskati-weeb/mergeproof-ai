@@ -24,6 +24,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Generate test-only unified-diff suggestions without editing production code
 - Apply a proposed fix only with an explicit local checkout and `git apply --check`
 - Detect high-confidence credential and dangerous-sink patterns on added lines before model review
+- Optionally run `npm audit`, Semgrep, and an existing CodeQL database with normalized findings
 - Persist bounded, repository-scoped review memory locally for future context
 - Accept signed GitHub pull-request webhooks for automatic review runs
 - Emit a reproducible SHA-256 attestation for each decision and evidence set
@@ -72,6 +73,8 @@ Run the CLI directly during development:
 ```text
 npm run cli -- analyze https://github.com/owner/repo/pull/123
 npm run cli -- review . -- --criteria "API behavior is preserved|New behavior has focused tests"
+npm run cli -- review . -- --external-security
+npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --external-security --codeql-db .codeql/db
 npm run cli -- agent . -- --verify "npm test"
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --json
 npm run cli -- index .
@@ -98,9 +101,9 @@ The desktop shell invokes the same CLI engine through the local `tsx` runner dur
 
 Copy `.github/workflows/mergeproof.yml` into a repository and add an `OPENAI_API_KEY` repository secret. The workflow runs on pull-request updates and publishes a `MergeProof evidence gate` Check. A `ready` result succeeds; `needs-evidence` fails; `needs-owner` is neutral. The workflow intentionally does not auto-merge or modify code.
 
-For repository retrieval, check out the PR head locally and run `npm run cli -- index .`, then analyze with `--repo .`. Evidence is only accepted when the indexed commit SHA exactly matches the PR head, preventing stale local files from becoming citations.
+For repository retrieval, check out the PR head locally and run `npm run cli -- index .`, then analyze with `--repo .`. Evidence is only accepted when the indexed commit SHA exactly matches the PR head, preventing stale local files from becoming citations. External security tools are opt-in; missing binaries are reported as unavailable rather than treated as a clean scan.
 
-The included workflow reviews opened, synchronized, reopened, and ready-for-review pull requests, and supports manual `workflow_dispatch` runs. It checks out the PR head, publishes a Check and review, runs the deterministic security gate, and records memory for that repository. Add `OPENAI_API_KEY`; if your token cannot publish reviews, the workflow still retains the Check/status fallback. For a deployable GitHub App receiver, configure `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_PRIVATE_KEY`; `GITHUB_TOKEN` takes precedence for local and Actions runs.
+The included workflow reviews opened, synchronized, reopened, and ready-for-review pull requests, and supports manual `workflow_dispatch` runs. It checks out the PR head, publishes a Check and review, runs the deterministic security gate, and records memory for that repository. Add `OPENAI_API_KEY`; if your token cannot publish reviews, the workflow still retains the Check/status fallback. For a deployable GitHub App receiver, configure `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_PRIVATE_KEY`; `GITHUB_TOKEN` takes precedence for local and Actions runs. The `serve` command also accepts signed GitLab, Bitbucket, and Azure DevOps webhook events at `/gitlab/webhook`, `/bitbucket/webhook`, and `/azure-devops/webhook` when their provider webhook secrets are configured.
 
 Repository policy lives in `.mergeproof/config.json`; team review guidance can be added to `.mergeproof/instructions.md`. Supported policy keys are `provider`, `model`, `retrievalTopK`, and `minCitationsPerCriterion`.
 
@@ -110,7 +113,7 @@ For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` 
 
 Mutation actions are explicit: `--publish-review` posts a GitHub review or fallback PR comment, and `--create-jira` creates a Jira follow-up using `JIRA_PROJECT_KEY`. These flags are never enabled by default.
 
-Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. The store is bounded and contains review summaries, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof plan`, and `/mergeproof issue` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands`: `review <PR URL>`, `plan <PR URL>`, and explicit `issue <PR URL>` commands. Slack and GitHub writes are never enabled without the command and credentials.
+Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. The store is bounded and contains review summaries, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof plan`, and `/mergeproof issue` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands`: `review`, `investigate`, and `plan` accept GitHub, GitLab, Bitbucket, and Azure DevOps change-request URLs; explicit `issue` creation remains GitHub-only. Slack and GitHub writes are never enabled without the command and credentials.
 
 The VS Code extension exposes the same `review`, `analyze`, `plan`, and `fix` commands from the command palette. Local review includes uncommitted files and uses the same validator as PR analysis, so desktop, terminal, CI, and editor results share one evidence contract.
 

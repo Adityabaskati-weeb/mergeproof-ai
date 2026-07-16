@@ -2,9 +2,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { analyzePullRequest } from "./analyze";
 import { createGithubIssueFromAnalysis } from "./github-issues";
 import { planPullRequest } from "./plan";
+import { parseChangeRequestUrl } from "./change-request";
 
 export type SlackAgentOptions = { signingSecret: string; repoPath?: string; model?: string; provider?: string; log?: (message: string) => void };
-export type SlackCommand = { action: "review" | "plan" | "issue"; prUrl: string };
+export type SlackCommand = { action: "review" | "investigate" | "plan" | "issue"; prUrl: string };
 
 export function verifySlackRequestSignature(body: string, timestamp: string | undefined, signature: string | undefined, secret: string, now = Date.now()): boolean {
   if (!timestamp || !signature || !secret || Math.abs(now - Number(timestamp) * 1000) > 5 * 60 * 1000) return false;
@@ -15,9 +16,15 @@ export function verifySlackRequestSignature(body: string, timestamp: string | un
 }
 
 export function parseSlackCommand(text: string): SlackCommand | undefined {
-  const match = text.trim().match(/^(review|plan|issue)\s+(https:\/\/github\.com\/[^\s]+\/pull\/\d+\/?)(?:\s|$)/i);
+  const match = text.trim().match(/^(review|investigate|plan|issue)\s+(https:\/\/\S+)(?:\s|$)/i);
   if (!match) return undefined;
-  return { action: match[1].toLowerCase() as SlackCommand["action"], prUrl: match[2].replace(/\/$/, "") };
+  const prUrl = match[2].replace(/\/$/, "");
+  try {
+    parseChangeRequestUrl(prUrl);
+  } catch {
+    return undefined;
+  }
+  return { action: match[1].toLowerCase() as SlackCommand["action"], prUrl };
 }
 
 function resultText(action: SlackCommand["action"], prUrl: string, value: Awaited<ReturnType<typeof analyzePullRequest>> | Awaited<ReturnType<typeof planPullRequest>> | string): string {
@@ -34,14 +41,17 @@ function resultText(action: SlackCommand["action"], prUrl: string, value: Awaite
 export async function runSlackCommand(command: SlackCommand, options: SlackAgentOptions): Promise<string> {
   if (command.action === "plan") return resultText(command.action, command.prUrl, await planPullRequest(command.prUrl, options.model, options.provider));
   const analysis = await analyzePullRequest(command.prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
-  if (command.action === "issue") return resultText(command.action, command.prUrl, await createGithubIssueFromAnalysis(command.prUrl, analysis));
+  if (command.action === "issue") {
+    if (parseChangeRequestUrl(command.prUrl).provider !== "github") throw new Error("Slack issue creation currently supports GitHub pull requests only.");
+    return resultText(command.action, command.prUrl, await createGithubIssueFromAnalysis(command.prUrl, analysis));
+  }
   return resultText(command.action, command.prUrl, analysis);
 }
 
 export async function processSlackCommand(body: string, options: SlackAgentOptions): Promise<{ text: string; responseUrl?: string }> {
   const params = new URLSearchParams(body);
   const command = parseSlackCommand(params.get("text") ?? "");
-  if (!command) return { text: "Usage: `review <GitHub PR URL>`, `plan <GitHub PR URL>`, or `issue <GitHub PR URL>`." };
+  if (!command) return { text: "Usage: `review|investigate|plan <GitHub, GitLab, Bitbucket, or Azure DevOps change-request URL>`, or `issue <GitHub PR URL>`." };
   const responseUrl = params.get("response_url") ?? undefined;
   try {
     const text = await runSlackCommand(command, options);
