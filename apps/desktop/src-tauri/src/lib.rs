@@ -17,6 +17,7 @@ fn cli_args(
     criteria: Option<String>,
     verify: Option<String>,
     external_security: bool,
+    codeql_database: Option<String>,
     apply: bool,
     remember: bool,
 ) -> Result<Vec<String>, String> {
@@ -41,6 +42,9 @@ fn cli_args(
         if external_security {
             args.push(String::from("--external-security"));
         }
+        if let Some(database) = codeql_database.filter(|value| !value.trim().is_empty()) {
+            args.extend(["--codeql-db".to_string(), database]);
+        }
         args.push(String::from("--json"));
         return Ok(args);
     }
@@ -53,6 +57,15 @@ fn cli_args(
     }
     if command == "analyze" && external_security {
         args.push(String::from("--external-security"));
+    }
+    if let Some(database) = codeql_database
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        if !matches!(command, "analyze" | "review" | "agent") {
+            return Err(String::from("--codeql-db is only valid for analyze, review, and agent."));
+        }
+        args.extend(["--codeql-db".to_string(), database.to_string()]);
     }
     if let Some(repo_path) = repo_path
         .as_deref()
@@ -89,6 +102,7 @@ async fn run_cli(
     criteria: Option<String>,
     verify: Option<String>,
     external_security: bool,
+    codeql_database: Option<String>,
     apply: bool,
     remember: bool,
 ) -> Result<serde_json::Value, String> {
@@ -101,6 +115,7 @@ async fn run_cli(
         criteria,
         verify,
         external_security,
+        codeql_database,
         apply,
         remember,
     )?;
