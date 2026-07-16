@@ -7,5 +7,6 @@
     <actions>
         <action id="MergeProof.AnalyzePullRequest" class="ai.mergeproof.jetbrains.AnalyzePullRequestAction" text="MergeProof: Analyze Pull Request" description="Analyze a GitHub pull request with MergeProof" />
         <action id="MergeProof.ReviewWorkingTree" class="ai.mergeproof.jetbrains.ReviewWorkingTreeAction" text="MergeProof: Review Working Tree" description="Review local changes with MergeProof" />
+        <action id="MergeProof.Autofix" class="ai.mergeproof.jetbrains.AutofixAction" text="MergeProof: Autofix Review Threads" description="Verify a review-thread fix in a detached worktree" />
     </actions>
 </idea-plugin>

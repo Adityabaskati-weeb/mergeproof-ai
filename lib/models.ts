@@ -31,6 +31,12 @@ const planResponseSchema = { type: "object", additionalProperties: false, proper
 }, required: ["summary", "risks", "steps"] };
 const fixResponseSchema = { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, patch: { type: "string" } }, required: ["summary", "patch"] };
 
+function openAiClient(compatible: boolean): OpenAI {
+  const apiKey = process.env.OPENAI_API_KEY || (compatible && process.env.OPENAI_BASE_URL ? "local-compatible-endpoint" : undefined);
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured.");
+  return new OpenAI({ apiKey, baseURL: process.env.OPENAI_BASE_URL || undefined });
+}
+
 function analysisPrompt(context: PullRequestContext, criteria: string[]): string {
   const effort = context.reviewEffort ?? "medium";
   return JSON.stringify({ title: context.title, criteria, reviewEffort: effort, reviewGuidance: reviewEffortGuidance(effort), files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], reviewThreads: context.reviewThreads ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], reviewMemory: context.reviewMemory ?? [], knowledge: context.knowledge ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
@@ -59,7 +65,7 @@ function parseJson(text: string): ModelAnalysis {
 }
 
 async function analyzeWithOpenAI(model: string, context: PullRequestContext, criteria: string[], compatible: boolean, signal?: AbortSignal): Promise<ModelAnalysis> {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: process.env.OPENAI_BASE_URL || undefined });
+  const client = openAiClient(compatible);
   if (compatible) {
     const response = await client.chat.completions.create({ model, messages: [{ role: "system", content: `${systemPrompt()} Return valid JSON without markdown fences.` }, { role: "user", content: analysisPrompt(context, criteria) }], response_format: { type: "json_object" } }, { signal });
     return parseJson(response.choices[0]?.message.content ?? "");
@@ -76,7 +82,7 @@ async function analyzeWithAnthropic(model: string, context: PullRequestContext, 
 }
 
 async function planWithOpenAI(model: string, context: PullRequestContext, criteria: string[], compatible: boolean, signal?: AbortSignal): Promise<ModelPlan> {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: process.env.OPENAI_BASE_URL || undefined });
+  const client = openAiClient(compatible);
   if (compatible) {
     const response = await client.chat.completions.create({ model, messages: [{ role: "system", content: `${systemPrompt()} Return a structured implementation plan as JSON without markdown fences.` }, { role: "user", content: planPrompt(context, criteria) }], response_format: { type: "json_object" } }, { signal });
     return modelPlanSchema.parse(JSON.parse(response.choices[0]?.message.content ?? ""));
@@ -93,7 +99,7 @@ async function planWithAnthropic(model: string, context: PullRequestContext, cri
 }
 
 async function fixWithOpenAI(model: string, context: PullRequestContext, criteria: string[], compatible: boolean, signal?: AbortSignal, prompt = fixPrompt): Promise<ModelFix> {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: process.env.OPENAI_BASE_URL || undefined });
+  const client = openAiClient(compatible);
   if (compatible) {
     const response = await client.chat.completions.create({ model, messages: [{ role: "system", content: `${systemPrompt()} Return a minimal unified diff JSON without markdown fences.` }, { role: "user", content: prompt(context, criteria) }], response_format: { type: "json_object" } }, { signal });
     return modelFixSchema.parse(JSON.parse(response.choices[0]?.message.content ?? ""));
@@ -117,7 +123,7 @@ export function createModelProvider(model = process.env.OPENAI_MODEL || "gpt-5.6
     if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not configured.");
     return { name: `anthropic:${model}`, analyze: (context, criteria, signal) => analyzeWithAnthropic(model, context, criteria, signal), plan: (context, criteria, signal) => planWithAnthropic(model, context, criteria, signal), fix: (context, criteria, signal) => fixWithAnthropic(model, context, criteria, signal), tests: (context, criteria, signal) => fixWithAnthropic(model, context, criteria, signal, testPrompt) };
   }
-  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured.");
   if (normalizedProvider !== "openai" && normalizedProvider !== "openai-compatible") throw new Error(`Unsupported model provider: ${provider}`);
+  if (!process.env.OPENAI_API_KEY && !(normalizedProvider === "openai-compatible" && process.env.OPENAI_BASE_URL)) throw new Error("OPENAI_API_KEY is not configured. For a local OpenAI-compatible endpoint, set OPENAI_BASE_URL.");
   return { name: `${normalizedProvider}:${model}`, analyze: (context, criteria, signal) => analyzeWithOpenAI(model, context, criteria, normalizedProvider === "openai-compatible", signal), plan: (context, criteria, signal) => planWithOpenAI(model, context, criteria, normalizedProvider === "openai-compatible", signal), fix: (context, criteria, signal) => fixWithOpenAI(model, context, criteria, normalizedProvider === "openai-compatible", signal), tests: (context, criteria, signal) => fixWithOpenAI(model, context, criteria, normalizedProvider === "openai-compatible", signal, testPrompt) };
 }

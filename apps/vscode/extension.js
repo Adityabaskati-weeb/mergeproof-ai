@@ -17,7 +17,7 @@ function runMergeProof(command, url, cwd) {
 async function analyze(command) {
   const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!folder) return vscode.window.showErrorMessage("Open a repository folder before running MergeProof.");
-  const url = await vscode.window.showInputBox({ prompt: "GitHub pull request URL", placeHolder: "https://github.com/owner/repo/pull/123" });
+  const url = await vscode.window.showInputBox({ prompt: "Pull request or Jira/Linear issue URL", placeHolder: "https://github.com/owner/repo/pull/123" });
   if (!url) return;
   const channel = vscode.window.createOutputChannel("MergeProof");
   channel.show(true);

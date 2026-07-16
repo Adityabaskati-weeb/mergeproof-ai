@@ -8,6 +8,7 @@ import { planPullRequest } from "./plan";
 import { processSlackCommand, processSlackEvent, verifySlackRequestSignature } from "./slack-agent";
 import { processProviderWebhookPayload, verifyProviderWebhookSignature, type ProviderWebhook } from "./provider-webhook";
 import type { Analysis } from "./types";
+import { processWebhookAutomationPayload, verifyWebhookAutomationSignature } from "./webhook-automations";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -24,6 +25,7 @@ export type GithubWebhookOptions = {
   gitlabWebhookSecret?: string;
   bitbucketWebhookSecret?: string;
   azureDevopsWebhookSecret?: string;
+  automationWebhookSecret?: string;
   log?: (message: string) => void;
 };
 
@@ -92,8 +94,25 @@ async function readBody(request: IncomingMessage): Promise<string> {
 }
 
 export function startGithubWebhookServer(options: GithubWebhookOptions): Server {
-  if (!options.secret && !options.slackSigningSecret && !options.gitlabWebhookSecret && !options.bitbucketWebhookSecret && !options.azureDevopsWebhookSecret) throw new Error("At least one webhook signing secret is required.");
+  if (!options.secret && !options.slackSigningSecret && !options.gitlabWebhookSecret && !options.bitbucketWebhookSecret && !options.azureDevopsWebhookSecret && !options.automationWebhookSecret) throw new Error("At least one webhook signing secret is required.");
   const server = createServer(async (request, response) => {
+    if (request.method === "POST" && request.url === "/automation/webhook") {
+      try {
+        const body = await readBody(request);
+        const signature = request.headers["x-mergeproof-signature"];
+        if (!options.automationWebhookSecret || typeof signature !== "string" || !verifyWebhookAutomationSignature(body, signature, options.automationWebhookSecret)) {
+          respond(response, 401, { error: "Invalid automation webhook signature" });
+          return;
+        }
+        const payload = JSON.parse(body) as unknown;
+        const event = typeof request.headers["x-mergeproof-event"] === "string" ? request.headers["x-mergeproof-event"] : undefined;
+        respond(response, 202, { accepted: true });
+        void processWebhookAutomationPayload(payload, { root: options.repoPath || process.cwd(), event, model: options.model, provider: options.provider }).then((result) => options.log?.(`MergeProof automation result: ${result.text ?? result.reason ?? "ignored"}`)).catch((error) => options.log?.(`MergeProof automation webhook failed: ${error instanceof Error ? error.message : "unknown error"}`));
+      } catch (error) {
+        respond(response, 400, { error: error instanceof Error ? error.message : "Invalid automation webhook request" });
+      }
+      return;
+    }
     if (request.method === "POST" && request.url === "/slack/commands") {
       try {
         const body = await readBody(request);

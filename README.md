@@ -38,6 +38,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Store explicitly approved, repository- and path-scoped knowledge facts locally
 - Accept signed GitHub pull-request webhooks for automatic review runs
 - Run governed Slack message automations configured by channel, author, and text match
+- Accept signed custom automation webhooks with event, nested-field, and change-request URL matching
 - Emit a reproducible SHA-256 attestation for each decision and evidence set
 - Give local reviews a working-tree digest so citations and decisions are tied to the exact uncommitted snapshot
 - Generate a proposed fix inside an ephemeral Git worktree without mutating the developer checkout
@@ -83,7 +84,7 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123
 npm run desktop:dev
 ```
 
-The CLI also loads values from `.env`. Never commit the real `.env` file. `GITHUB_TOKEN` is optional for public repositories but helps avoid API rate limits. The model is configurable per command, so teams can choose their preferred provider-compatible model name. `analyze` accepts GitHub PR, GitLab MR, Bitbucket PR, and Azure DevOps PR URLs. Set `GITLAB_TOKEN`, `BITBUCKET_TOKEN` or Bitbucket app-password fields, and `AZURE_DEVOPS_TOKEN` only when private-provider access or publication is required. CodeQL creation is opt-in and requires the CodeQL CLI; specify `--codeql-languages` and a query suite when the repository is not covered by the defaults.
+The CLI also loads values from `.env`. Never commit the real `.env` file. `GITHUB_TOKEN` is optional for public repositories but helps avoid API rate limits. The model is configurable per command, so teams can choose their preferred provider-compatible model name. For local models such as Ollama or LM Studio, set `MERGEPROOF_PROVIDER=openai-compatible`, `OPENAI_BASE_URL=http://127.0.0.1:11434/v1`, and `OPENAI_MODEL` to the local model name; no cloud API key is required. `analyze` accepts GitHub PR, GitLab MR, Bitbucket PR, and Azure DevOps PR URLs. Set `GITLAB_TOKEN`, `BITBUCKET_TOKEN` or Bitbucket app-password fields, and `AZURE_DEVOPS_TOKEN` only when private-provider access or publication is required. CodeQL creation is opt-in and requires the CodeQL CLI; specify `--codeql-languages` and a query suite when the repository is not covered by the defaults.
 
 For GitHub review-thread access, `GITHUB_TOKEN`, `GH_TOKEN`, a GitHub App installation, or a local `gh auth login` session is used. If thread access is unavailable, MergeProof records that provenance instead of treating the PR as thread-clean.
 
@@ -93,7 +94,7 @@ To use the safe autofix path, check out the exact PR head SHA and run:
 npm run cli -- autofix https://github.com/owner/repo/pull/123 --repo . --verify "npm test" --re-review
 ```
 
-Add `--create-pr` only when you want MergeProof to push a new branch and open a separate PR after verification. The original branch is never modified by this command.
+Add `--thread-id <id>` to approve only selected unresolved review threads, or `--create-pr` when you want MergeProof to push a new branch and open a separate PR after verification. The original branch is never modified by this command.
 
 Lifecycle hooks are opt-in and use the allowlisted command IDs in `.mergeproof/hooks.example.json`; pass `--hooks` to `analyze` to run configured before/after hooks. Arbitrary shell commands are rejected.
 
@@ -138,6 +139,7 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --prov
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --save analysis.json
 npm run cli -- evaluate analysis.json
 npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json
+npm run cli -- plan https://acme.atlassian.net/browse/PLAT-42 -- --save plan.json
 npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --patch proposed-fix.patch
 npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --apply
 npm run cli -- tests https://github.com/owner/repo/pull/123 -- --repo . --patch proposed-tests.patch
@@ -175,11 +177,11 @@ For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` 
 
 Mutation actions are explicit: `--publish-review` posts a GitHub review or fallback PR comment, and `--create-jira` creates a Jira follow-up using `JIRA_PROJECT_KEY`. These flags are never enabled by default.
 
-Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. Explicit knowledge facts are stored separately at `.mergeproof/knowledge.jsonl` and can only be added by a human through `knowledge --add`; both stores are bounded and contain summaries/facts, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof plan`, and `/mergeproof issue` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands` and `/slack/events`: `review`, `investigate`, `plan`, `fix`, and `tests` accept GitHub, GitLab, Bitbucket, and Azure DevOps change-request URLs; explicit `issue` creation remains GitHub-only. Configure `SLACK_BOT_TOKEN` for threaded Events API replies. Thread-local state stores only the last change-request URL, so follow-up messages can say `review` or `plan` without resending the URL. Slack and GitHub writes are never enabled without the command and credentials, and Slack fixes are suggestions only.
+Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. Explicit knowledge facts are stored separately at `.mergeproof/knowledge.jsonl` and can only be added by a human through `knowledge --add` or Slack `learn`; both stores are bounded and contain summaries/facts, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof plan`, and `/mergeproof issue` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands` and `/slack/events`: `review`, `investigate`, `plan`, `fix`, `tests`, `learn`, `rate`, and `autofix` accept the supported commands; explicit `issue` creation remains GitHub-only. Configure `SLACK_BOT_TOKEN` for threaded Events API replies. Thread-local state stores only the last change-request URL, so follow-up messages can say `review` or `plan` without resending the URL. Slack and GitHub writes are never enabled without the command and credentials. Slack autofix additionally requires `MERGEPROOF_SLACK_AUTOFIX_ENABLED=true`, an explicit checkout, and an allowlisted verification command, then opens a separate PR.
 
-Slack message automations are opt-in through `.mergeproof/automations.json`, using the shape in `.mergeproof/automations.example.json`. Each rule can constrain `channelIds`, `authorIds`, `contains`, and `topLevelOnly`; supported actions are review, investigate, plan, fix, and tests. Automations require a change-request URL in the message or an existing thread reference, and never create issues, apply patches, merge, or push code.
+Slack message automations are opt-in through `.mergeproof/automations.json`, using the shape in `.mergeproof/automations.example.json`. Each rule can constrain `channelIds`, `authorIds`, `contains`, and `topLevelOnly`; supported actions are review, investigate, plan, fix, tests, and learn. Automations require a change-request URL in the message or an existing thread reference, and never create issues, apply patches, merge, or push code. Signed external automations can use `/automation/webhook` with `.mergeproof/webhook-automations.json` to match an event and payload field before running a read-only review, investigation, plan, or fix suggestion.
 
-The VS Code extension exposes the same `review`, `analyze`, `plan`, and `fix` commands from the command palette. Local review includes uncommitted files and uses the same validator as PR analysis, so desktop, terminal, CI, and editor results share one evidence contract.
+The VS Code extension exposes `review`, `analyze`, `plan`, `fix`, `tests`, and guarded `autofix` commands from the command palette. Local review includes uncommitted files and uses the same validator as PR analysis, so desktop, terminal, CI, and editor results share one evidence contract.
 
 Fix suggestions are not silently committed, pushed, or posted to GitHub. Without `--apply`, MergeProof only emits a patch. With `--apply`, it rejects absolute or traversal paths and requires Git to accept the patch with whitespace errors treated as failures. The `agent` command is safer by default: it applies the patch only in an ephemeral Git worktree and can run only the explicitly supported verification commands.
 

@@ -10,6 +10,7 @@ import { publishChangeRequestCheck, publishChangeRequestReview } from "../lib/ch
 import { createJiraIssue, createLinearIssue } from "../lib/issues";
 import { indexRepository } from "../lib/retrieval";
 import { planPullRequest } from "../lib/plan";
+import { parseIssueUrl, planIssue } from "../lib/issue-plan";
 import { publishSlackSummary } from "../lib/slack";
 import { readRepositoryMemory } from "../lib/memory";
 import { addKnowledge, readKnowledge } from "../lib/knowledge";
@@ -119,6 +120,10 @@ function parseRepository(value: string): PullRequestRef {
   return { owner: match[1], repo: match[2], number: 0, url: `https://github.com/${match[1]}/${match[2]}` };
 }
 
+function isIssuePlanningUrl(value: string): boolean {
+  try { parseIssueUrl(value); return true; } catch { return false; }
+}
+
 const program = new Command();
 program.name("mergeproof").description("Evidence-backed merge decisions for software change requests").version("0.4.0");
 
@@ -160,10 +165,10 @@ program.command("knowledge").description("Inspect or explicitly add repository-s
   }
 });
 
-program.command("serve").description("Run GitHub, GitLab, Bitbucket, Azure DevOps, and optional Slack webhook receivers").option("--host <host>", "Bind host", process.env.MERGEPROOF_WEBHOOK_HOST || "127.0.0.1").option("--port <number>", "Bind port", process.env.MERGEPROOF_WEBHOOK_PORT || "8787").option("--secret <secret>", "GitHub webhook signing secret", process.env.GITHUB_WEBHOOK_SECRET).option("--slack-signing-secret <secret>", "Slack signing secret", process.env.SLACK_SIGNING_SECRET).option("--slack-bot-token <token>", "Slack bot token for Events API replies", process.env.SLACK_BOT_TOKEN).option("--gitlab-webhook-secret <secret>", "GitLab webhook secret", process.env.GITLAB_WEBHOOK_SECRET).option("--bitbucket-webhook-secret <secret>", "Bitbucket webhook secret", process.env.BITBUCKET_WEBHOOK_SECRET).option("--azure-devops-webhook-secret <secret>", "Azure DevOps webhook secret", process.env.AZURE_DEVOPS_WEBHOOK_SECRET).option("--repo <path>", "Local repository path for retrieval and memory").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--publish-review", "Publish a PR review in addition to the provider status/check").action(async (options) => {
+program.command("serve").description("Run GitHub, provider, Slack, and custom automation webhook receivers").option("--host <host>", "Bind host", process.env.MERGEPROOF_WEBHOOK_HOST || "127.0.0.1").option("--port <number>", "Bind port", process.env.MERGEPROOF_WEBHOOK_PORT || "8787").option("--secret <secret>", "GitHub webhook signing secret", process.env.GITHUB_WEBHOOK_SECRET).option("--slack-signing-secret <secret>", "Slack signing secret", process.env.SLACK_SIGNING_SECRET).option("--slack-bot-token <token>", "Slack bot token for Events API replies", process.env.SLACK_BOT_TOKEN).option("--gitlab-webhook-secret <secret>", "GitLab webhook secret", process.env.GITLAB_WEBHOOK_SECRET).option("--bitbucket-webhook-secret <secret>", "Bitbucket webhook secret", process.env.BITBUCKET_WEBHOOK_SECRET).option("--azure-devops-webhook-secret <secret>", "Azure DevOps webhook secret", process.env.AZURE_DEVOPS_WEBHOOK_SECRET).option("--automation-webhook-secret <secret>", "Custom automation webhook HMAC secret", process.env.MERGEPROOF_AUTOMATION_WEBHOOK_SECRET).option("--repo <path>", "Local repository path for retrieval and memory").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--publish-review", "Publish a PR review in addition to the provider status/check").action(async (options) => {
   try {
-    const server = startGithubWebhookServer({ secret: options.secret, slackSigningSecret: options.slackSigningSecret, slackBotToken: options.slackBotToken, gitlabWebhookSecret: options.gitlabWebhookSecret, bitbucketWebhookSecret: options.bitbucketWebhookSecret, azureDevopsWebhookSecret: options.azureDevopsWebhookSecret, host: options.host, port: Number(options.port), repoPath: options.repo, model: options.model, provider: options.provider, publishReview: options.publishReview, log: (message) => console.error(message) });
-    console.error(`MergeProof webhook listening on http://${options.host}:${options.port}/github/webhook, /gitlab/webhook, /bitbucket/webhook, /azure-devops/webhook, /slack/commands, and /slack/events`);
+    const server = startGithubWebhookServer({ secret: options.secret, slackSigningSecret: options.slackSigningSecret, slackBotToken: options.slackBotToken, gitlabWebhookSecret: options.gitlabWebhookSecret, bitbucketWebhookSecret: options.bitbucketWebhookSecret, azureDevopsWebhookSecret: options.azureDevopsWebhookSecret, automationWebhookSecret: options.automationWebhookSecret, host: options.host, port: Number(options.port), repoPath: options.repo, model: options.model, provider: options.provider, publishReview: options.publishReview, log: (message) => console.error(message) });
+    console.error(`MergeProof webhook listening on http://${options.host}:${options.port}/github/webhook, /gitlab/webhook, /bitbucket/webhook, /azure-devops/webhook, /automation/webhook, /slack/commands, and /slack/events`);
     await new Promise<void>((resolve, reject) => { server.on("error", reject); server.on("close", resolve); });
   } catch (error) {
     console.error(`MergeProof serve error: ${error instanceof Error ? error.message : "Webhook server failed."}`);
@@ -173,7 +178,7 @@ program.command("serve").description("Run GitHub, GitLab, Bitbucket, Azure DevOp
 
 program.command("plan").description("Generate a citation-aware implementation plan for a change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--repo <path>", "Local repository containing the profile").action(async (prUrl, options) => {
   try {
-    const plan = await planPullRequest(prUrl, options.model, options.provider, { repoPath: options.repo, agent: options.agent });
+    const plan = await (isIssuePlanningUrl(prUrl) ? planIssue(prUrl, options.model, options.provider, { repoPath: options.repo, agent: options.agent }) : planPullRequest(prUrl, options.model, options.provider, { repoPath: options.repo, agent: options.agent }));
     if (options.save) await writeFile(options.save, JSON.stringify(plan, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(plan, null, 2));
     else printPlan(plan);
@@ -196,9 +201,9 @@ program.command("fix").description("Suggest or explicitly apply a validated unif
   }
 });
 
-program.command("autofix").description("Fix unresolved GitHub review threads in an ephemeral worktree").argument("<pull-request-url>", "GitHub pull request URL").requiredOption("--repo <path>", "Checkout at the exact pull-request head SHA").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the autofix JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--verify <command>", "Allowlisted verification command").option("--re-review", "Re-review the applied patch before reporting success").option("--create-pr", "Push a new branch and open a PR; never modify the original branch").option("--branch <name>", "Branch name when --create-pr is enabled").action(async (prUrl, options) => {
+program.command("autofix").description("Fix unresolved GitHub review threads in an ephemeral worktree").argument("<pull-request-url>", "GitHub pull request URL").requiredOption("--repo <path>", "Checkout at the exact pull-request head SHA").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the autofix JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--thread-id <id...>", "Only address explicitly selected review-thread IDs").option("--verify <command>", "Allowlisted verification command").option("--re-review", "Re-review the applied patch before reporting success").option("--create-pr", "Push a new branch and open a PR; never modify the original branch").option("--branch <name>", "Branch name when --create-pr is enabled").action(async (prUrl, options) => {
   try {
-    const autofix = await autofixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, agent: options.agent, verify: parseVerificationCommand(options.verify), reReview: options.reReview, createPr: options.createPr, branch: options.branch });
+    const autofix = await autofixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, agent: options.agent, threadIds: options.threadId, verify: parseVerificationCommand(options.verify), reReview: options.reReview, createPr: options.createPr, branch: options.branch });
     if (options.patch) await writeFile(options.patch, autofix.patch, "utf8");
     if (options.save) await writeFile(options.save, JSON.stringify(autofix, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(autofix, null, 2));

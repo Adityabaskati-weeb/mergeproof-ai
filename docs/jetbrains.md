@@ -2,7 +2,7 @@
 
 MergeProof includes a small native IntelliJ Platform plugin source under `apps/jetbrains`. Build it with `./gradlew buildPlugin` from that directory and install the generated ZIP through **Settings > Plugins > Install Plugin from Disk**. The actions invoke the same CLI and preserve the evidence engine and safety gates rather than maintaining a second analyzer implementation.
 
-MergeProof is available in JetBrains IDEs through the native plugin source in `apps/jetbrains`, the built-in Terminal, or External Tools. From the project root, use:
+MergeProof is available in JetBrains IDEs through the native plugin source in `apps/jetbrains`, the built-in Terminal, or External Tools. The plugin exposes PR analysis, working-tree review, and guarded review-thread autofix; from the project root, use:
 
 ```text
 npm run cli -- review . -- --json

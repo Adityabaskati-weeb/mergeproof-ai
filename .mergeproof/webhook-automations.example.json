@@ -1,0 +1,12 @@
+{
+  "automations": [
+    {
+      "id": "incident-review",
+      "action": "review",
+      "event": "incident.created",
+      "field": "data.service",
+      "equals": "payments",
+      "urlField": "data.pullRequestUrl"
+    }
+  ]
+}

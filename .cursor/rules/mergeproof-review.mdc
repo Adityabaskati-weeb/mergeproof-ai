@@ -10,5 +10,6 @@ When reviewing a change, prefer the repository's MergeProof commands:
 - `npm run cli -- review . -- --json` for local changes
 - `npm run cli -- analyze <PR_URL> -- --json --repo . --mcp` for a pull request
 - `npm run cli -- agent . -- --json --verify "npm test"` for a sandboxed fix proposal
+- `npm run cli -- autofix <PR_URL> --repo . --verify "npm test" --re-review` for verified review-thread fixes
 
 Preserve the decision, citations, head SHA or working-tree digest, unsupported-claim count, security findings, and attestation. Never describe `needs-evidence` or `needs-owner` as approval, and never apply a patch without explicit user approval.

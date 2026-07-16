@@ -22,16 +22,16 @@ const agentProfile = document.querySelector("#agent-profile");
 const relatedRepos = document.querySelector("#related-repos");
 
 function updateActionLabel() {
-  const labels = { analyze: "Analyze change", review: "Review local changes", agent: "Sandbox fix and verify", plan: "Generate plan", fix: "Suggest safe fix", tests: "Generate tests" };
+  const labels = { analyze: "Analyze change", review: "Review local changes", agent: "Sandbox fix and verify", autofix: "Review-thread autofix", plan: "Generate plan", fix: "Suggest safe fix", tests: "Generate tests" };
   button.innerHTML = `${labels[action.value]} <span>&rarr;</span>`;
   const local = action.value === "review" || action.value === "agent";
-  targetLabel.textContent = local ? "Repository path" : "GitHub pull request";
+  targetLabel.textContent = local ? "Repository path" : action.value === "plan" ? "Change request or issue" : "GitHub pull request";
   input.placeholder = local ? "C:\\path\\to\\repository" : "https://github.com/owner/repo/pull/123";
   apply.disabled = action.value !== "fix";
   if (action.value !== "fix") apply.checked = false;
   remember.disabled = action.value !== "analyze";
   if (action.value !== "analyze") remember.checked = false;
-  verify.disabled = action.value !== "agent";
+  verify.disabled = !["agent", "autofix"].includes(action.value);
   if (action.value !== "agent") verify.value = "";
   externalSecurity.disabled = !["analyze", "review", "agent"].includes(action.value);
   if (externalSecurity.disabled) externalSecurity.checked = false;
@@ -43,7 +43,7 @@ function updateActionLabel() {
   if (webSearch.disabled) webSearch.checked = false;
   directories.disabled = !["review", "agent"].includes(action.value);
   if (directories.disabled) directories.value = "";
-  reReview.disabled = action.value !== "agent";
+  reReview.disabled = !["agent", "autofix"].includes(action.value);
   if (reReview.disabled) reReview.checked = false;
   relatedRepos.disabled = action.value !== "analyze";
   if (relatedRepos.disabled) relatedRepos.value = "";
@@ -74,8 +74,10 @@ button.addEventListener("click", async () => {
       const retrieval = output.trace.retrieval?.enabled ? ` &middot; ${output.trace.retrieval.selectedChunks}/${output.trace.retrieval.indexedChunks} repository chunks` : "";
       const security = (output.securityFindings || []).map((finding) => `<div class="row security"><span>${escapeHtml(finding.title)}</span><code>${escapeHtml(finding.path)}:${escapeHtml(finding.line)}</code><span class="badge">${escapeHtml(finding.severity.toUpperCase())}</span></div>`).join("");
       result.innerHTML = `<h2>${escapeHtml(output.decision.replaceAll("-", " ").toUpperCase())}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; Effort: ${escapeHtml(output.trace.reviewEffort || "medium")} &middot; ${output.trace.citedSources} cited sources${retrieval} &middot; ${output.trace.elapsedMs}ms</p>${security ? `<h3>Security gate</h3><div class="evidence">${security}</div>` : ""}<div class="evidence">${output.rows.map((row) => `<div class="row"><span>${escapeHtml(row.criterion)}</span><code>${escapeHtml(row.citations[0]?.path ?? "No citation")}</code><span class="badge">${escapeHtml(row.state.toUpperCase())}</span></div>`).join("")}</div>`;
-    } else if (action.value === "agent") {
-      result.innerHTML = `<h2>SANDBOX AGENT ${output.trace.verified && output.trace.reReviewPassed !== false ? "VERIFIED" : "SUGGESTED"}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.changedPaths.length} changed paths &middot; ${output.trace.verificationCommand ? escapeHtml(output.trace.verificationCommand) : "no verification"}${output.trace.reReviewDecision ? ` &middot; Re-review: ${escapeHtml(output.trace.reReviewDecision)}` : ""}</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No patch was proposed.")}</pre>`;
+    } else if (action.value === "agent" || action.value === "autofix") {
+      const title = action.value === "autofix" ? "REVIEW-THREAD AUTOFIX" : `SANDBOX AGENT ${output.trace.verified && output.trace.reReviewPassed !== false ? "VERIFIED" : "SUGGESTED"}`;
+      const detail = action.value === "autofix" ? `Unresolved threads: ${output.trace.unresolvedThreads ?? 0}${output.trace.pullRequestUrl ? ` &middot; Created PR: ${escapeHtml(output.trace.pullRequestUrl)}` : ""}` : `${output.trace.changedPaths.length} changed paths &middot; ${output.trace.verificationCommand ? escapeHtml(output.trace.verificationCommand) : "no verification"}${output.trace.reReviewDecision ? ` &middot; Re-review: ${escapeHtml(output.trace.reReviewDecision)}` : ""}`;
+      result.innerHTML = `<h2>${title}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${detail}</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No patch was proposed.")}</pre>`;
     } else if (action.value === "plan") {
       result.innerHTML = `<h2>IMPLEMENTATION PLAN</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.citedSources}/${output.trace.fetchedSources} citations verified</p><p>${escapeHtml(output.summary)}</p><div class="evidence">${output.steps.map((step, index) => `<div class="row"><span>${index + 1}. ${escapeHtml(step.title)}<br /><small>${escapeHtml(step.detail)}</small></span><code>${escapeHtml(step.citations[0]?.path ?? "No citation")}</code><span class="badge">PLAN</span></div>`).join("")}</div>`;
     } else if (action.value === "fix") {

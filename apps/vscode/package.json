@@ -15,8 +15,8 @@
       { "command": "mergeproof.runSandboxAgent", "title": "MergeProof: Run Sandbox Agent" },
       { "command": "mergeproof.generatePlan", "title": "MergeProof: Generate Evidence Plan" },
       { "command": "mergeproof.suggestFix", "title": "MergeProof: Suggest Safe Fix" },
-      { "command": "mergeproof.generateTests", "title": "MergeProof: Generate Test Patch" }
-      ,{ "command": "mergeproof.autofix", "title": "MergeProof: Autofix Review Threads" }
+      { "command": "mergeproof.generateTests", "title": "MergeProof: Generate Test Patch" },
+      { "command": "mergeproof.autofix", "title": "MergeProof: Autofix Review Threads" }
     ],
     "configuration": {
       "title": "MergeProof",

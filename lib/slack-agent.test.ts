@@ -13,6 +13,9 @@ describe("Slack agent boundary", () => {
     expect(parseSlackCommand("Can you review this PR? https://github.com/acme/payments/pull/42")).toEqual({ action: "review", prUrl: "https://github.com/acme/payments/pull/42" });
     expect(parseSlackCommand("What changed? https://gitlab.com/acme/payments/-/merge_requests/7")).toEqual({ action: "investigate", prUrl: "https://gitlab.com/acme/payments/-/merge_requests/7" });
     expect(parseSlackCommand("hello")).toBeUndefined();
+    expect(parseSlackCommand("learn Always validate audience claims https://github.com/acme/payments/pull/42")).toEqual({ action: "learn", fact: "Always validate audience claims", prUrl: "https://github.com/acme/payments/pull/42" });
+    expect(parseSlackCommand("rate")).toEqual({ action: "rate" });
+    expect(parseSlackCommand("autofix https://github.com/acme/payments/pull/42")).toEqual({ action: "autofix", prUrl: "https://github.com/acme/payments/pull/42" });
   });
 
   it("ignores bot events without invoking tools", async () => {

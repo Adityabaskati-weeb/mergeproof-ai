@@ -7,9 +7,14 @@ import { fixPullRequest } from "./fix";
 import { generateTestsPullRequest } from "./tests";
 import { readSlackThread, recordSlackThread } from "./slack-memory";
 import { loadSlackAutomations, matchSlackAutomation } from "./slack-automations";
+import { addKnowledge } from "./knowledge";
+import { createGithubClient } from "./github-auth";
+import { autofixPullRequest } from "./autofix";
+import { VERIFICATION_COMMANDS, type VerificationCommand } from "./local-agent";
+import { parseIssueUrl, planIssue } from "./issue-plan";
 
 export type SlackAgentOptions = { signingSecret: string; botToken?: string; repoPath?: string; model?: string; provider?: string; log?: (message: string) => void };
-export type SlackCommand = { action: "review" | "investigate" | "plan" | "fix" | "tests" | "issue"; prUrl: string };
+export type SlackCommand = { action: "review" | "investigate" | "plan" | "fix" | "tests" | "issue" | "learn" | "rate" | "autofix"; prUrl?: string; fact?: string };
 
 export function verifySlackRequestSignature(body: string, timestamp: string | undefined, signature: string | undefined, secret: string, now = Date.now()): boolean {
   if (!timestamp || !signature || !secret || Math.abs(now - Number(timestamp) * 1000) > 5 * 60 * 1000) return false;
@@ -21,18 +26,25 @@ export function verifySlackRequestSignature(body: string, timestamp: string | un
 
 export function parseSlackCommand(text: string, fallbackPrUrl?: string): SlackCommand | undefined {
   const normalized = text.trim().replace(/^<@[^>]+>\s*/, "");
-  const actionMatch = normalized.match(/\b(review|investigate|plan|fix|tests|issue)\b/i);
+  const actionMatch = normalized.match(/\b(review|investigate|plan|fix|tests|issue|learn|rate(?:\s+limit)?|autofix)\b/i);
   const urlMatch = normalized.match(/https:\/\/\S+/i);
-  const action = actionMatch?.[1] ?? (urlMatch ? "investigate" : undefined);
+  const action = actionMatch?.[1]?.toLowerCase() ?? (urlMatch ? "investigate" : undefined);
   if (!action) return undefined;
+  if (action.startsWith("rate")) return { action: "rate" };
+  if (action === "learn") {
+    const prUrl = (urlMatch?.[0] ?? fallbackPrUrl)?.replace(/[),.;]+$/, "").replace(/\/$/, "");
+    const fact = normalized.replace(actionMatch![0], "").replace(urlMatch?.[0] ?? "", "").trim();
+    if (!prUrl || !fact) return undefined;
+    try { parseChangeRequestUrl(prUrl); } catch { return undefined; }
+    return { action: "learn", prUrl, fact: fact.slice(0, 2_000) };
+  }
   const prUrl = (urlMatch?.[0] ?? fallbackPrUrl)?.replace(/[),.;]+$/, "").replace(/\/$/, "");
   if (!prUrl) return undefined;
-  try {
-    parseChangeRequestUrl(prUrl);
-  } catch {
-    return undefined;
+  try { parseChangeRequestUrl(prUrl); } catch {
+    if (action !== "plan") return undefined;
+    try { parseIssueUrl(prUrl); } catch { return undefined; }
   }
-  return { action: action.toLowerCase() as SlackCommand["action"], prUrl };
+  return { action: action as Exclude<SlackCommand["action"], "learn" | "rate">, prUrl };
 }
 
 function resultText(action: SlackCommand["action"], prUrl: string, value: Awaited<ReturnType<typeof analyzePullRequest>> | Awaited<ReturnType<typeof planPullRequest>> | Awaited<ReturnType<typeof fixPullRequest>> | Awaited<ReturnType<typeof generateTestsPullRequest>> | string): string {
@@ -51,21 +63,46 @@ function resultText(action: SlackCommand["action"], prUrl: string, value: Awaite
 }
 
 export async function runSlackCommand(command: SlackCommand, options: SlackAgentOptions): Promise<string> {
-  if (command.action === "plan") return resultText(command.action, command.prUrl, await planPullRequest(command.prUrl, options.model, options.provider));
-  if (command.action === "fix") return resultText(command.action, command.prUrl, await fixPullRequest(command.prUrl, options.model, { provider: options.provider, repoPath: options.repoPath }));
-  if (command.action === "tests") return resultText(command.action, command.prUrl, await generateTestsPullRequest(command.prUrl, options.model, { provider: options.provider, repoPath: options.repoPath }));
-  const analysis = await analyzePullRequest(command.prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
-  if (command.action === "issue") {
-    if (parseChangeRequestUrl(command.prUrl).provider !== "github") throw new Error("Slack issue creation currently supports GitHub pull requests only.");
-    return resultText(command.action, command.prUrl, await createGithubIssueFromAnalysis(command.prUrl, analysis));
+  if (command.action === "rate") {
+    const client = await createGithubClient(true);
+    const result = await client.rest.rateLimit.get();
+    const core = result.data.resources.core;
+    return `GitHub API rate limit: ${core.remaining}/${core.limit} remaining; resets ${new Date(core.reset * 1000).toISOString()}.`;
   }
-  return resultText(command.action, command.prUrl, analysis);
+  if (command.action === "learn") {
+    if (!command.prUrl || !command.fact) throw new Error("Learn requires a fact and a change-request URL in the message or thread.");
+    const target = parseChangeRequestUrl(command.prUrl);
+    const fact = await addKnowledge(options.repoPath || process.cwd(), target.ref, command.fact);
+    return `MergeProof learned for ${fact.repository}: ${fact.content}`;
+  }
+  if (!command.prUrl) throw new Error(`${command.action} requires a change-request URL.`);
+  const prUrl = command.prUrl;
+  if (command.action === "autofix") {
+    if (process.env.MERGEPROOF_SLACK_AUTOFIX_ENABLED !== "true") throw new Error("Slack autofix is disabled. Set MERGEPROOF_SLACK_AUTOFIX_ENABLED=true only for an explicitly trusted workspace.");
+    if (!options.repoPath) throw new Error("Slack autofix requires the server to have an explicit repository checkout.");
+    const verify = process.env.MERGEPROOF_SLACK_AUTOFIX_VERIFY as VerificationCommand | undefined;
+    if (!verify || !VERIFICATION_COMMANDS.includes(verify)) throw new Error(`Slack autofix requires MERGEPROOF_SLACK_AUTOFIX_VERIFY to be one of: ${VERIFICATION_COMMANDS.join(", ")}.`);
+    const result = await autofixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, verify, reReview: true, createPr: true });
+    return `MergeProof autofix for ${prUrl}\n${result.summary}\nVerification: ${result.trace.verified ? "passed" : "failed"}\nCreated PR: ${result.trace.pullRequestUrl ?? "none"}`;
+  }
+  if (command.action === "plan") {
+    try { parseIssueUrl(prUrl); } catch { return resultText(command.action, prUrl, await planPullRequest(prUrl, options.model, options.provider)); }
+    return resultText(command.action, prUrl, await planIssue(prUrl, options.model, options.provider, { repoPath: options.repoPath }));
+  }
+  if (command.action === "fix") return resultText(command.action, prUrl, await fixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath }));
+  if (command.action === "tests") return resultText(command.action, prUrl, await generateTestsPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath }));
+  const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
+  if (command.action === "issue") {
+    if (parseChangeRequestUrl(prUrl).provider !== "github") throw new Error("Slack issue creation currently supports GitHub pull requests only.");
+    return resultText(command.action, prUrl, await createGithubIssueFromAnalysis(prUrl, analysis));
+  }
+  return resultText(command.action, prUrl, analysis);
 }
 
 export async function processSlackCommand(body: string, options: SlackAgentOptions): Promise<{ text: string; responseUrl?: string }> {
   const params = new URLSearchParams(body);
   const command = parseSlackCommand(params.get("text") ?? "");
-  if (!command) return { text: "Usage: `review|investigate|plan|fix|tests <GitHub, GitLab, Bitbucket, or Azure DevOps change-request URL>`, or `issue <GitHub PR URL>`." };
+  if (!command) return { text: "Usage: `review|investigate|plan|fix|tests|autofix <change-request URL>`, `learn <fact> <change-request URL>`, `rate`, or `issue <GitHub PR URL>`." };
   const responseUrl = params.get("response_url") ?? undefined;
   try {
     const text = await runSlackCommand(command, options);
@@ -88,9 +125,9 @@ export async function processSlackEvent(payload: unknown, options: SlackAgentOpt
   const previous = threadKey ? await readSlackThread(options.repoPath || process.cwd(), threadKey) : undefined;
   const automation = matchSlackAutomation(await loadSlackAutomations(options.repoPath || process.cwd()), event);
   const command = parseSlackCommand(event.text ?? "", previous?.prUrl) ?? (automation ? parseSlackCommand(`${automation.action} ${event.text ?? ""}`, previous?.prUrl) : undefined);
-  if (!command) return { accepted: true, ignored: true, text: "Mention MergeProof with `review`, `investigate`, `plan`, `fix`, or `tests` followed by a change-request URL." };
+  if (!command) return { accepted: true, ignored: true, text: "Mention MergeProof with `review`, `investigate`, `plan`, `fix`, `tests`, `autofix`, `learn`, or `rate`." };
   const text = await runSlackCommand(command, options);
-  if (threadKey) await recordSlackThread(options.repoPath || process.cwd(), threadKey, command.prUrl);
+  if (threadKey && command.prUrl) await recordSlackThread(options.repoPath || process.cwd(), threadKey, command.prUrl);
   if (options.botToken && event.channel) {
     const response = await fetch("https://slack.com/api/chat.postMessage", { method: "POST", headers: { authorization: `Bearer ${options.botToken}`, "content-type": "application/json" }, body: JSON.stringify({ channel: event.channel, thread_ts: event.thread_ts ?? event.ts, text }) });
     if (!response.ok) throw new Error(`Slack message publication failed with HTTP ${response.status}.`);

@@ -7,7 +7,7 @@ import { loadPolicy } from "./policy";
 import { retrieveRepositoryEvidence } from "./retrieval";
 import { combineInstructions, loadAgentProfile } from "./agents";
 
-export type FixOptions = { provider?: string; repoPath?: string; apply?: boolean; agent?: string };
+export type FixOptions = { provider?: string; repoPath?: string; apply?: boolean; agent?: string; threadIds?: string[] };
 export type FixSuggestion = ModelFix & { trace: { model: string; headSha: string; changedPaths: string[]; applied: boolean } };
 
 export function extractPatchPaths(patch: string): string[] {
@@ -32,7 +32,8 @@ export async function fixPullRequest(prUrl: string, model?: string, options: Fix
   const ref = target.ref;
   const policy = await loadPolicy(options.repoPath || process.cwd());
   const agentProfile = await loadAgentProfile(options.repoPath || process.cwd(), options.agent);
-  const context = await fetchChangeRequest(target);
+  const fetchedContext = await fetchChangeRequest(target);
+  const context = options.threadIds?.length && fetchedContext.reviewThreads ? { ...fetchedContext, reviewThreads: fetchedContext.reviewThreads.filter((thread) => options.threadIds!.includes(thread.id)) } : fetchedContext;
   const issues = await fetchLinkedIssues(context.body);
   const criteria = [...extractAcceptanceCriteria(context.body).criteria, ...issues.flatMap((issue) => issue.acceptanceCriteria)].filter((criterion, index, values) => values.findIndex((candidate) => candidate.toLowerCase() === criterion.toLowerCase()) === index);
   if (!criteria.length) throw new Error("Cannot suggest a fix because no acceptance criteria were found.");

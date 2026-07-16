@@ -8,7 +8,7 @@ import { fixPullRequest, type FixOptions } from "./fix";
 import { reviewWorkingTree } from "./local-review";
 import { runVerificationCommand, type VerificationCommand } from "./local-agent";
 
-export type AutofixOptions = FixOptions & { verify?: VerificationCommand; reReview?: boolean; createPr?: boolean; branch?: string };
+export type AutofixOptions = FixOptions & { verify?: VerificationCommand; reReview?: boolean; createPr?: boolean; branch?: string; threadIds?: string[] };
 export type AutofixResult = {
   summary: string;
   patch: string;
@@ -48,8 +48,10 @@ export async function autofixPullRequest(prUrl: string, model?: string, options:
   const context = await fetchChangeRequest(target);
   const localHead = git(options.repoPath, ["rev-parse", "HEAD"]);
   if (localHead !== context.headSha) throw new Error(`Checkout SHA ${localHead} does not match pull-request head ${context.headSha}. Refusing to autofix the wrong revision.`);
-  const fix = await fixPullRequest(prUrl, model, { provider: options.provider, repoPath: options.repoPath, agent: options.agent, apply: false });
-  const baseTrace = { model: fix.trace.model, headSha: fix.trace.headSha, changedPaths: fix.trace.changedPaths, unresolvedThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, sandboxed: true as const };
+  const selectedThreads = context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated && (!options.threadIds?.length || options.threadIds.includes(thread.id))) ?? [];
+  if (options.threadIds?.length && !selectedThreads.length) throw new Error("None of the selected review-thread IDs are unresolved and current.");
+  const fix = await fixPullRequest(prUrl, model, { provider: options.provider, repoPath: options.repoPath, agent: options.agent, threadIds: options.threadIds, apply: false });
+  const baseTrace = { model: fix.trace.model, headSha: fix.trace.headSha, changedPaths: fix.trace.changedPaths, unresolvedThreads: selectedThreads.length, sandboxed: true as const };
   if (!fix.patch) return { summary: fix.summary, patch: "", trace: { ...baseTrace, verified: false } };
 
   const sandbox = await mkdtemp(join(tmpdir(), "mergeproof-autofix-"));

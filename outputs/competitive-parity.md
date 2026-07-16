@@ -11,7 +11,9 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Local uncommitted review | Yes: staged, unstaged, and untracked changes | IDE and CLI surfaces | IDE and CLI surfaces |
 | Agent handoff / fix verification | Yes: local ephemeral Git worktree, optional one-pass re-review, manual ephemeral GitHub Actions runner, and review-thread autofix with explicit new-PR handoff | Cloud-agent handoff | Agent handoff, Autofix, and autonomous fix/review cycles |
 | Automatic review trigger | GitHub Actions, signed webhook, and opt-in hourly scheduled review | Yes | Yes: GitHub, GitLab, Bitbucket, and Azure DevOps signed receivers plus Actions |
+| Governed external automations | Signed `/automation/webhook` with event, nested-field, and URL matching; read-only review/plan/fix actions | Actions, MCP, and cloud-agent workflows | Scheduled, message-triggered, and custom webhook automations |
 | Full PR context | Files, commits, checks, discussion, Jira/Linear, local and explicitly linked repositories, opt-in read-only MCP tools, and labeled web search | Full changeset, repository, and MCP context | PR, issue, repository, knowledge base context |
+| Direct issue planning | Jira and Linear issue URL to acceptance criteria, evidence plan, and citations | Issue and task workflows | Issue planning and task actions |
 | Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files, and named custom-agent profiles | Custom instructions, custom agents, skills, MCP | Repository and path-based instructions |
 | Citation-backed decision | Exact head-SHA citations and source validation | Actionable suggestions | Review findings and summaries |
 | Durable memory | Local bounded review JSONL, explicit approved knowledge JSONL, plus bounded Slack thread reference state | Copilot Memory | Knowledge Base and learnings |
@@ -20,8 +22,8 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Safe fixes | Unified-diff suggestion; explicit checked apply; unresolved-thread autofix in a detached worktree with optional verification, re-review, and new PR | Suggested multi-line fixes and cloud-agent handoff | Autofix and agent handoff |
 | Test generation | Test-only unified-diff suggestion | Agent/code generation workflows | Generate unit tests |
 | Issue creation | GitHub, Jira, and Linear | GitHub task workflows | GitHub, GitLab, Jira, Linear |
-| Slack | Signed slash commands, Events API mentions, bounded thread follow-ups, and governed message automations | GitHub ecosystem integrations | Conversational Slack agent and automations |
-| Model choice | OpenAI, OpenAI-compatible, Anthropic | GitHub-managed model controls | Product-managed model controls |
+| Slack | Signed slash commands, Events API mentions, thread follow-ups, `learn`, rate-limit visibility, governed automations, and guarded stacked-PR autofix | GitHub ecosystem integrations | Conversational agent, learning, automations, and PR actions |
+| Model choice | OpenAI, OpenAI-compatible including local endpoints, Anthropic | GitHub-managed model controls | Product-managed model controls |
 | Client surfaces | CLI, native Windows desktop, VS Code, Cursor plugin metadata/rule, JetBrains plugin source, CI, and installable agent skill | GitHub, IDE, CLI, cloud agent | Git platforms, IDE, CLI, Slack |
 
 ## Differentiation
