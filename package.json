@@ -5,6 +5,8 @@
   "bin": { "mergeproof": "dist/cli.js" },
   "scripts": {
     "build": "tsc --noEmit",
+    "desktop:dev": "tauri dev --config apps/desktop/src-tauri/tauri.conf.json",
+    "desktop:build": "tauri build --config apps/desktop/src-tauri/tauri.conf.json",
     "cli": "tsx bin/mergeproof.ts",
     "cli:json": "tsx bin/mergeproof.ts analyze",
     "typecheck": "tsc --noEmit",
@@ -18,6 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.21",
+    "@tauri-apps/cli": "^2.5.0",
     "typescript": "^5.8.3",
     "tsx": "^4.20.3",
     "vitest": "^3.2.4"

@@ -32,6 +32,14 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123
 npm run cli -- analyze https://github.com/owner/repo/pull/123 --json
 ```
 
+The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running:
+
+```powershell
+npm run desktop:dev
+```
+
+The desktop shell invokes the same CLI engine through the `MERGEPROOF_CLI` environment variable or the `mergeproof` executable on `PATH`.
+
 ## Planned integrations
 
 - GitHub App + Octokit for pull request webhooks, diffs, checks, and comments

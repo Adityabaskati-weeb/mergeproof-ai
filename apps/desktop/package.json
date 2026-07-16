@@ -1,0 +1,10 @@
+{
+  "name": "mergeproof-desktop",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev --config src-tauri/tauri.conf.json",
+    "build": "tauri build --config src-tauri/tauri.conf.json"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

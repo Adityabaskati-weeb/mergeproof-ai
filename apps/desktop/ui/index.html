@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MergeProof Desktop</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <aside class="rail">
+      <div class="logo">merge<span>proof</span></div>
+      <div class="rail-label">Workspace</div>
+      <button class="nav active">Analyze PR</button>
+      <button class="nav">History</button>
+      <button class="nav">Model policy</button>
+      <div class="rail-footer">Local-first<br />Human approval required</div>
+    </aside>
+    <main class="main">
+      <header><div class="kicker">Desktop analysis workspace</div><h1>Prove the change<br /><em>before</em> you merge.</h1><p>MergeProof traces pull-request intent to implementation evidence, tests, and release readiness.</p></header>
+      <section class="input-card">
+        <label for="pr-url">GitHub pull request</label>
+        <div class="input-row"><input id="pr-url" placeholder="https://github.com/owner/repo/pull/123" /><button id="analyze">Analyze change <span>→</span></button></div>
+        <small>Runs locally through the shared MergeProof engine. No code is uploaded to a hosted dashboard.</small>
+      </section>
+      <section id="result" class="result hidden"></section>
+      <section class="empty" id="empty"><div class="mark">◎</div><h2>Ready for a pull request</h2><p>Paste a public GitHub PR URL to generate an evidence-backed merge decision.</p></section>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

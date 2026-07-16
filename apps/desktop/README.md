@@ -1,6 +1,6 @@
 # MergeProof Desktop
 
-MergeProof Desktop is the planned native desktop shell for the shared MergeProof engine. It is intentionally not a hosted website.
+MergeProof Desktop is a native Tauri 2 shell for the shared MergeProof engine. It is intentionally not a hosted website.
 
 The desktop client will provide:
 
@@ -10,4 +10,4 @@ The desktop client will provide:
 - evidence trace and citation inspection
 - human approval for Jira and Slack actions
 
-The CLI and desktop client must call the same `lib/analyze.ts` engine and share the same `Analysis` contract. The desktop shell will be added with Tauri when the Rust toolchain is available; until then, the CLI is the executable reference client.
+The CLI and desktop client call the same `lib/analyze.ts` engine and share the same `Analysis` contract. Install Rust and Tauri prerequisites, then run `npm run desktop:dev` from the repository root. The shell invokes the `mergeproof` CLI through `MERGEPROOF_CLI` or the executable on `PATH`.
