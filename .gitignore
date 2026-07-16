@@ -5,6 +5,7 @@ target
 apps/desktop/src-tauri/gen
 out
 dist
+.mergeproof/index.json
 apps/desktop/src-tauri/binaries
 .env*
 !.env.example

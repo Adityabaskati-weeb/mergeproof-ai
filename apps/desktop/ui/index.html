@@ -20,7 +20,7 @@
       <section class="input-card">
         <label for="pr-url">GitHub pull request</label>
         <div class="input-row"><input id="pr-url" placeholder="https://github.com/owner/repo/pull/123" /><button id="analyze">Analyze change <span>&rarr;</span></button></div>
-        <div class="settings-row"><label for="model">Analysis model</label><select id="model"><option value="gpt-5.6">GPT-5.6 &middot; deep</option><option value="gpt-5.6-terra">GPT-5.6 Terra &middot; fast</option><option value="">Use environment default</option></select></div>
+        <div class="settings-row"><label for="provider">Provider</label><select id="provider"><option value="openai">OpenAI</option><option value="openai-compatible">OpenAI-compatible endpoint</option><option value="anthropic">Anthropic</option></select><label for="model">Model</label><input id="model" value="gpt-5.6" placeholder="provider model name" /></div>
         <small>Runs locally through the shared MergeProof engine. No code is uploaded to a hosted dashboard.</small>
       </section>
       <section id="result" class="result hidden"></section>

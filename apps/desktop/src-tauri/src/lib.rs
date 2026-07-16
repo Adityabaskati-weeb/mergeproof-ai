@@ -13,12 +13,16 @@ async fn analyze_pr(
     app: tauri::AppHandle,
     pr_url: String,
     model: Option<String>,
+    provider: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let mut args = vec!["analyze".to_string(), pr_url, "--json".to_string()];
+    let mut args = vec!["analyze".to_string(), pr_url];
     if let Some(model) = model.as_deref().filter(|value| !value.trim().is_empty()) {
-        args.insert(2, "--model".to_string());
-        args.insert(3, model.to_string());
+        args.extend(["--model".to_string(), model.to_string()]);
     }
+    if let Some(provider) = provider.as_deref().filter(|value| !value.trim().is_empty()) {
+        args.extend(["--provider".to_string(), provider.to_string()]);
+    }
+    args.push("--json".to_string());
 
     if let Ok(sidecar) = app.shell().sidecar("mergeproof-cli") {
         let output = sidecar

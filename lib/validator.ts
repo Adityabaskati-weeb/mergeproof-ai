@@ -12,7 +12,7 @@ function canonicalizeUrl(value: string): string {
   }
 }
 
-export function validateAnalysis(result: ModelAnalysis, context: PullRequestContext, criteria: string[], model: string, elapsedMs: number): Analysis {
+export function validateAnalysis(result: ModelAnalysis, context: PullRequestContext, criteria: string[], model: string, elapsedMs: number, retrieval?: Analysis["trace"]["retrieval"], minCitationsPerCriterion = 0): Analysis {
   const validRows = result.rows.filter((row) => criteria.some((criterion) => criterion.toLowerCase() === row.criterion.toLowerCase()));
   const unsupportedClaims = result.rows.length - validRows.length;
   const fetchedSources = new Set([...context.sources].map(canonicalizeUrl));
@@ -23,6 +23,6 @@ export function validateAnalysis(result: ModelAnalysis, context: PullRequestCont
     return { ...row, citations, state: citations.length === row.citations.length ? row.state : "warn" as const };
   });
   const citedSources = rows.reduce((count, row) => count + row.citations.length, 0);
-  const decision = unsupportedClaims || rows.some((row) => row.state === "fail" || row.citations.length === 0) ? "needs-evidence" : rows.some((row) => row.state === "warn") ? "needs-evidence" : "ready";
-  return { decision, contract: result.contract, rows, trace: { fetchedSources: context.sources.size, citedSources, unsupportedClaims, model, elapsedMs } };
+  const decision = unsupportedClaims || rows.some((row) => row.state === "fail" || row.citations.length < minCitationsPerCriterion) ? "needs-evidence" : rows.some((row) => row.state === "warn") ? "needs-evidence" : "ready";
+  return { decision, contract: result.contract, rows, trace: { fetchedSources: context.sources.size, citedSources, unsupportedClaims, model, elapsedMs, headSha: context.headSha, retrieval, linkedIssues: context.issues?.length ?? 0 } };
 }

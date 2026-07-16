@@ -1,5 +1,6 @@
 import { Octokit } from "@octokit/rest";
 import { z } from "zod";
+import type { EvidenceChunk, LinkedIssue } from "./types";
 
 const pullRequestUrlSchema = z.string().url().regex(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i, "Expected a GitHub pull request URL");
 
@@ -13,6 +14,9 @@ export type PullRequestContext = {
   files: Array<{ path: string; patch: string; status: string; additions: number; deletions: number; url: string }>;
   checks: Array<{ name: string; status: string; conclusion: string | null; url: string }>;
   sources: Set<string>;
+  repositoryEvidence?: EvidenceChunk[];
+  issues?: LinkedIssue[];
+  customInstructions?: string;
 };
 
 export function parsePullRequestUrl(value: string): PullRequestRef {
@@ -41,5 +45,5 @@ export async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest
   const checkData = checks.data.check_runs.map((check) => ({ name: check.name, status: check.status, conclusion: check.conclusion, url: check.html_url ?? ref.url }));
   checkData.forEach((check) => sources.add(check.url));
   sources.add(ref.url);
-  return { ref, title: pull.data.title, body: pull.data.body ?? "", headSha: pull.data.head.sha, baseSha: pull.data.base.sha, files: filesData, checks: checkData, sources };
+  return { ref, title: pull.data.title, body: pull.data.body ?? "", headSha: pull.data.head.sha, baseSha: pull.data.base.sha, files: filesData, checks: checkData, sources, repositoryEvidence: [], issues: [] };
 }

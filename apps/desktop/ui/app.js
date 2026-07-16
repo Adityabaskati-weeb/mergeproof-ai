@@ -3,6 +3,12 @@ const button = document.querySelector("#analyze");
 const empty = document.querySelector("#empty");
 const result = document.querySelector("#result");
 const model = document.querySelector("#model");
+const provider = document.querySelector("#provider");
+
+provider.addEventListener("change", () => {
+  if (provider.value === "anthropic" && model.value.startsWith("gpt")) model.value = "claude-sonnet-4-20250514";
+  if (provider.value !== "anthropic" && model.value.startsWith("claude")) model.value = "gpt-5.6";
+});
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
@@ -14,9 +20,10 @@ button.addEventListener("click", async () => {
   button.textContent = "Analyzing...";
   result.classList.add("hidden");
   try {
-    const analysis = await window.__TAURI__.core.invoke("analyze_pr", { prUrl: input.value.trim(), model: model.value || null });
+    const analysis = await window.__TAURI__.core.invoke("analyze_pr", { prUrl: input.value.trim(), model: model.value || null, provider: provider.value || null });
     empty.classList.add("hidden");
-    result.innerHTML = `<h2>${escapeHtml(analysis.decision.replaceAll("-", " ").toUpperCase())}</h2><p>Model: ${escapeHtml(analysis.trace.model)} &middot; ${analysis.trace.citedSources} cited sources &middot; ${analysis.trace.elapsedMs}ms</p><div class="evidence">${analysis.rows.map((row) => `<div class="row"><span>${escapeHtml(row.criterion)}</span><code>${escapeHtml(row.citations[0]?.path ?? "No citation")}</code><span class="badge">${escapeHtml(row.state.toUpperCase())}</span></div>`).join("")}</div>`;
+    const retrieval = analysis.trace.retrieval?.enabled ? ` &middot; ${analysis.trace.retrieval.selectedChunks}/${analysis.trace.retrieval.indexedChunks} repository chunks` : "";
+    result.innerHTML = `<h2>${escapeHtml(analysis.decision.replaceAll("-", " ").toUpperCase())}</h2><p>Model: ${escapeHtml(analysis.trace.model)} &middot; ${analysis.trace.citedSources} cited sources${retrieval} &middot; ${analysis.trace.elapsedMs}ms</p><div class="evidence">${analysis.rows.map((row) => `<div class="row"><span>${escapeHtml(row.criterion)}</span><code>${escapeHtml(row.citations[0]?.path ?? "No citation")}</code><span class="badge">${escapeHtml(row.state.toUpperCase())}</span></div>`).join("")}</div>`;
     result.classList.remove("hidden");
   } catch (error) {
     empty.classList.add("hidden");
