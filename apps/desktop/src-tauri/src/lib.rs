@@ -15,8 +15,9 @@ fn cli_args(
     provider: Option<String>,
     repo_path: Option<String>,
     apply: bool,
+    remember: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "plan" | "fix") {
+    if !matches!(command, "analyze" | "plan" | "fix" | "tests") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     let mut args = vec![command.to_string(), pr_url];
@@ -38,6 +39,14 @@ fn cli_args(
         }
         args.push(String::from("--apply"));
     }
+    if remember {
+        if command != "analyze" {
+            return Err(String::from(
+                "--remember is only valid for the analyze command.",
+            ));
+        }
+        args.push(String::from("--remember"));
+    }
     args.push(String::from("--json"));
     Ok(args)
 }
@@ -51,8 +60,17 @@ async fn run_cli(
     provider: Option<String>,
     repo_path: Option<String>,
     apply: bool,
+    remember: bool,
 ) -> Result<serde_json::Value, String> {
-    let args = cli_args(&command_name, pr_url, model, provider, repo_path, apply)?;
+    let args = cli_args(
+        &command_name,
+        pr_url,
+        model,
+        provider,
+        repo_path,
+        apply,
+        remember,
+    )?;
 
     if let Ok(sidecar) = app.shell().sidecar("mergeproof-cli") {
         let output = sidecar

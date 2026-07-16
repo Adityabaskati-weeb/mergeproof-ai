@@ -7,12 +7,15 @@ const provider = document.querySelector("#provider");
 const action = document.querySelector("#action");
 const repo = document.querySelector("#repo");
 const apply = document.querySelector("#apply");
+const remember = document.querySelector("#remember");
 
 function updateActionLabel() {
-  const labels = { analyze: "Analyze change", plan: "Generate plan", fix: "Suggest safe fix" };
+  const labels = { analyze: "Analyze change", plan: "Generate plan", fix: "Suggest safe fix", tests: "Generate tests" };
   button.innerHTML = `${labels[action.value]} <span>&rarr;</span>`;
   apply.disabled = action.value !== "fix";
   if (action.value !== "fix") apply.checked = false;
+  remember.disabled = action.value !== "analyze";
+  if (action.value !== "analyze") remember.checked = false;
 }
 
 action.addEventListener("change", updateActionLabel);
@@ -33,15 +36,18 @@ button.addEventListener("click", async () => {
   button.textContent = "Working...";
   result.classList.add("hidden");
   try {
-    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: input.value.trim(), model: model.value || null, provider: provider.value || null, repoPath: repo.value || null, apply: apply.checked });
+    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: input.value.trim(), model: model.value || null, provider: provider.value || null, repoPath: repo.value || null, apply: apply.checked, remember: remember.checked });
     empty.classList.add("hidden");
     if (action.value === "analyze") {
       const retrieval = output.trace.retrieval?.enabled ? ` &middot; ${output.trace.retrieval.selectedChunks}/${output.trace.retrieval.indexedChunks} repository chunks` : "";
-      result.innerHTML = `<h2>${escapeHtml(output.decision.replaceAll("-", " ").toUpperCase())}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.citedSources} cited sources${retrieval} &middot; ${output.trace.elapsedMs}ms</p><div class="evidence">${output.rows.map((row) => `<div class="row"><span>${escapeHtml(row.criterion)}</span><code>${escapeHtml(row.citations[0]?.path ?? "No citation")}</code><span class="badge">${escapeHtml(row.state.toUpperCase())}</span></div>`).join("")}</div>`;
+      const security = (output.securityFindings || []).map((finding) => `<div class="row security"><span>${escapeHtml(finding.title)}</span><code>${escapeHtml(finding.path)}:${escapeHtml(finding.line)}</code><span class="badge">${escapeHtml(finding.severity.toUpperCase())}</span></div>`).join("");
+      result.innerHTML = `<h2>${escapeHtml(output.decision.replaceAll("-", " ").toUpperCase())}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.citedSources} cited sources${retrieval} &middot; ${output.trace.elapsedMs}ms</p>${security ? `<h3>Security gate</h3><div class="evidence">${security}</div>` : ""}<div class="evidence">${output.rows.map((row) => `<div class="row"><span>${escapeHtml(row.criterion)}</span><code>${escapeHtml(row.citations[0]?.path ?? "No citation")}</code><span class="badge">${escapeHtml(row.state.toUpperCase())}</span></div>`).join("")}</div>`;
     } else if (action.value === "plan") {
       result.innerHTML = `<h2>IMPLEMENTATION PLAN</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.citedSources}/${output.trace.fetchedSources} citations verified</p><p>${escapeHtml(output.summary)}</p><div class="evidence">${output.steps.map((step, index) => `<div class="row"><span>${index + 1}. ${escapeHtml(step.title)}<br /><small>${escapeHtml(step.detail)}</small></span><code>${escapeHtml(step.citations[0]?.path ?? "No citation")}</code><span class="badge">PLAN</span></div>`).join("")}</div>`;
-    } else {
+    } else if (action.value === "fix") {
       result.innerHTML = `<h2>SAFE FIX ${output.trace.applied ? "APPLIED" : "SUGGESTED"}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.changedPaths.length} changed paths</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No patch was proposed.")}</pre>`;
+    } else {
+      result.innerHTML = `<h2>TESTS SUGGESTED</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.changedPaths.length} test paths</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No test patch was proposed.")}</pre>`;
     }
     result.classList.remove("hidden");
   } catch (error) {

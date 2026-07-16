@@ -16,6 +16,6 @@ describe("loadPolicy", () => {
     await fs.mkdir(join(root, ".mergeproof"));
     await fs.writeFile(join(root, ".mergeproof", "config.json"), JSON.stringify({ provider: "anthropic", minCitationsPerCriterion: 1 }), "utf8");
     await fs.writeFile(join(root, ".mergeproof", "instructions.md"), "Prefer explicit rollback evidence.", "utf8");
-    await expect(loadPolicy(root)).resolves.toEqual({ provider: "anthropic", minCitationsPerCriterion: 1, instructions: "Prefer explicit rollback evidence." });
+    await expect(loadPolicy(root)).resolves.toEqual({ provider: "anthropic", minCitationsPerCriterion: 1, instructions: "## .mergeproof/instructions.md\nPrefer explicit rollback evidence." });
   });
 });

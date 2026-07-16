@@ -19,7 +19,11 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Optionally notify a Slack incoming webhook
 - Generate citation-aware implementation plans from a PR
 - Suggest minimal unified-diff fixes from the same evidence context
+- Generate test-only unified-diff suggestions without editing production code
 - Apply a proposed fix only with an explicit local checkout and `git apply --check`
+- Detect high-confidence credential and dangerous-sink patterns on added lines before model review
+- Persist bounded, repository-scoped review memory locally for future context
+- Accept signed GitHub pull-request webhooks for automatic review runs
 - Three-state decision model: ready, needs evidence, needs owner decision
 - Provenance metrics for fetched sources, cited sources, unsupported claims, model, and latency
 
@@ -69,6 +73,9 @@ npm run cli -- evaluate analysis.json
 npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json
 npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --patch proposed-fix.patch
 npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --apply
+npm run cli -- tests https://github.com/owner/repo/pull/123 -- --repo . --patch proposed-tests.patch
+npm run cli -- memory owner/repo -- --repo . --query retry
+npm run cli -- serve -- --secret your-webhook-secret --repo . --publish-review
 ```
 
 Replace the example PR URL with a real pull request. `https://github.com/owner/repo/pull/123` is only a placeholder.
@@ -85,6 +92,8 @@ Copy `.github/workflows/mergeproof.yml` into a repository and add an `OPENAI_API
 
 For repository retrieval, check out the PR head locally and run `npm run cli -- index .`, then analyze with `--repo .`. Evidence is only accepted when the indexed commit SHA exactly matches the PR head, preventing stale local files from becoming citations.
 
+The included workflow reviews opened, synchronized, reopened, and ready-for-review pull requests, and supports manual `workflow_dispatch` runs. It checks out the PR head, publishes a Check and review, runs the deterministic security gate, and records memory for that repository. Add `OPENAI_API_KEY`; if your token cannot publish reviews, the workflow still retains the Check/status fallback.
+
 Repository policy lives in `.mergeproof/config.json`; team review guidance can be added to `.mergeproof/instructions.md`. Supported policy keys are `provider`, `model`, `retrievalTopK`, and `minCitationsPerCriterion`.
 
 Save a machine-readable run with `-- --json` and use `evaluate` to report criterion coverage, citation coverage, abstention, unsupported claims, and retrieval usage. This makes MergeProof quality measurable instead of relying on an attractive demo transcript.
@@ -92,6 +101,8 @@ Save a machine-readable run with `-- --json` and use `evaluate` to report criter
 For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` in `.env`; link an issue in the PR body using a Jira URL or issue key. For Slack notifications, pass `--slack-webhook` explicitly; webhook URLs are never persisted by MergeProof.
 
 Mutation actions are explicit: `--publish-review` posts a GitHub review or fallback PR comment, and `--create-jira` creates a Jira follow-up using `JIRA_PROJECT_KEY`. These flags are never enabled by default.
+
+Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. The store is bounded and contains review summaries, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof plan`, and `/mergeproof issue` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands`: `review <PR URL>`, `plan <PR URL>`, and explicit `issue <PR URL>` commands. Slack and GitHub writes are never enabled without the command and credentials.
 
 The VS Code extension exposes the same `analyze`, `plan`, and `fix` commands from the command palette. It is intentionally a thin client over the CLI so desktop, terminal, CI, and editor results share the same validator.
 

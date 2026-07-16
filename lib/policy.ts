@@ -12,11 +12,22 @@ export async function loadPolicy(root?: string): Promise<MergeProofPolicy> {
   } catch {
     // Policy is optional; defaults keep the analyzer usable in any checkout.
   }
-  try {
-    const instructions = await fs.readFile(join(repositoryRoot, ".mergeproof", "instructions.md"), "utf8");
-    policy.instructions = instructions.slice(0, 20000);
-  } catch {
-    // Instructions are optional.
+  const instructionFiles = [
+    [join(repositoryRoot, ".mergeproof", "instructions.md"), ".mergeproof/instructions.md"],
+    [join(repositoryRoot, ".github", "copilot-instructions.md"), ".github/copilot-instructions.md"],
+    [join(repositoryRoot, "AGENTS.md"), "AGENTS.md"],
+    [join(repositoryRoot, "CLAUDE.md"), "CLAUDE.md"],
+    [join(repositoryRoot, ".cursorrules"), ".cursorrules"],
+  ] as const;
+  const sections: string[] = [];
+  for (const [path, label] of instructionFiles) {
+    try {
+      const instructions = await fs.readFile(path, "utf8");
+      sections.push(`## ${label}\n${instructions.slice(0, 12000)}`);
+    } catch {
+      // Instruction files are optional.
+    }
   }
+  if (sections.length) policy.instructions = sections.join("\n\n").slice(0, 30000);
   return policy;
 }

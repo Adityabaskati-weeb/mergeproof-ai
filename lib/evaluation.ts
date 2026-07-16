@@ -9,6 +9,8 @@ export type EvaluationReport = {
   unsupportedClaims: number;
   abstained: boolean;
   retrievalChunks: number;
+  securityFindings: number;
+  securityBlocking: boolean;
 };
 
 export function evaluateAnalysis(analysis: Analysis): EvaluationReport {
@@ -23,5 +25,7 @@ export function evaluateAnalysis(analysis: Analysis): EvaluationReport {
     unsupportedClaims: analysis.trace.unsupportedClaims,
     abstained: analysis.decision !== "ready",
     retrievalChunks: analysis.trace.retrieval?.selectedChunks ?? 0,
+    securityFindings: analysis.securityFindings?.length ?? 0,
+    securityBlocking: (analysis.securityFindings ?? []).some((finding) => finding.severity === "high" || finding.severity === "medium"),
   };
 }

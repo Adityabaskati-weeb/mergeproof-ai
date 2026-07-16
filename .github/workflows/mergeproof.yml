@@ -3,6 +3,12 @@ name: MergeProof evidence gate
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_url:
+        description: Public GitHub pull request URL to review
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -19,8 +25,10 @@ jobs:
       MERGEPROOF_PROVIDER: openai
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout MergeProof
+      - name: Checkout pull request head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -33,7 +41,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          npm run cli -- analyze "${{ github.event.pull_request.html_url }}" -- --json --publish-check
+          PR_URL="${{ github.event.pull_request.html_url || inputs.pr_url }}"
+          npm run cli -- analyze "$PR_URL" -- --json --repo . --remember --publish-check --publish-review
           status=$?
           if [ "$status" -eq 1 ]; then
             exit 1

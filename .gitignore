@@ -6,6 +6,7 @@ apps/desktop/src-tauri/gen
 out
 dist
 .mergeproof/index.json
+.mergeproof/memory.jsonl
 apps/desktop/src-tauri/binaries
 .env*
 !.env.example

@@ -1,6 +1,6 @@
 import { Octokit } from "@octokit/rest";
 import { z } from "zod";
-import type { EvidenceChunk, LinkedIssue } from "./types";
+import type { EvidenceChunk, LinkedIssue, ReviewMemoryEntry, SecurityFinding } from "./types";
 
 const pullRequestUrlSchema = z.string().url().regex(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i, "Expected a GitHub pull request URL");
 
@@ -13,10 +13,14 @@ export type PullRequestContext = {
   baseSha: string;
   files: Array<{ path: string; patch: string; status: string; additions: number; deletions: number; url: string }>;
   checks: Array<{ name: string; status: string; conclusion: string | null; url: string }>;
+  commits?: Array<{ sha: string; message: string; url: string }>;
+  discussion?: Array<{ author: string; body: string; url: string }>;
   sources: Set<string>;
   repositoryEvidence?: EvidenceChunk[];
   issues?: LinkedIssue[];
   customInstructions?: string;
+  securityFindings?: SecurityFinding[];
+  reviewMemory?: ReviewMemoryEntry[];
 };
 
 export function parsePullRequestUrl(value: string): PullRequestRef {
@@ -32,9 +36,12 @@ export async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest
     request: { timeout: 15_000 },
   });
   const pull = await octokit.rest.pulls.get({ owner: ref.owner, repo: ref.repo, pull_number: ref.number });
-  const [files, checks] = await Promise.all([
+  const [files, checks, commits, issueComments, reviewComments] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listFiles, { owner: ref.owner, repo: ref.repo, pull_number: ref.number, per_page: 100 }),
     octokit.rest.checks.listForRef({ owner: ref.owner, repo: ref.repo, ref: pull.data.head.sha, per_page: 100 }).catch(() => ({ data: { check_runs: [] } })),
+    octokit.paginate(octokit.rest.pulls.listCommits, { owner: ref.owner, repo: ref.repo, pull_number: ref.number, per_page: 100 }).catch(() => []),
+    octokit.paginate(octokit.rest.issues.listComments, { owner: ref.owner, repo: ref.repo, issue_number: ref.number, per_page: 100 }).catch(() => []),
+    octokit.paginate(octokit.rest.pulls.listReviewComments, { owner: ref.owner, repo: ref.repo, pull_number: ref.number, per_page: 100 }).catch(() => []),
   ]);
   const sources = new Set<string>();
   const filesData = files.map((file) => {
@@ -44,6 +51,10 @@ export async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest
   });
   const checkData = checks.data.check_runs.map((check) => ({ name: check.name, status: check.status, conclusion: check.conclusion, url: check.html_url ?? ref.url }));
   checkData.forEach((check) => sources.add(check.url));
+  const commitData = commits.slice(0, 100).map((commit) => ({ sha: commit.sha, message: commit.commit.message.slice(0, 2000), url: commit.html_url ?? `${ref.url}/commits/${commit.sha}` }));
+  commitData.forEach((commit) => sources.add(commit.url));
+  const discussion = [...issueComments.map((comment) => ({ author: comment.user?.login ?? "unknown", body: (comment.body ?? "").slice(0, 4000), url: comment.html_url ?? ref.url })), ...reviewComments.map((comment) => ({ author: comment.user?.login ?? "unknown", body: (comment.body ?? "").slice(0, 4000), url: comment.html_url ?? ref.url }))].slice(0, 100);
+  discussion.forEach((comment) => sources.add(comment.url));
   sources.add(ref.url);
-  return { ref, title: pull.data.title, body: pull.data.body ?? "", headSha: pull.data.head.sha, baseSha: pull.data.base.sha, files: filesData, checks: checkData, sources, repositoryEvidence: [], issues: [] };
+  return { ref, title: pull.data.title, body: pull.data.body ?? "", headSha: pull.data.head.sha, baseSha: pull.data.base.sha, files: filesData, checks: checkData, commits: commitData, discussion, sources, repositoryEvidence: [], issues: [] };
 }
