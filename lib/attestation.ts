@@ -12,6 +12,8 @@ export function attestAnalysis(analysis: Analysis): AnalysisAttestation {
     headSha: analysis.trace.headSha ?? "unknown",
     scope: analysis.trace.scope ?? "pull-request",
     workingTreeDigest: analysis.trace.workingTreeDigest ?? null,
+    externalSecurity: analysis.trace.externalSecurity ?? null,
+    mcp: analysis.trace.mcp ?? null,
   });
   return { algorithm: "sha256", digest: createHash("sha256").update(payload).digest("hex") };
 }

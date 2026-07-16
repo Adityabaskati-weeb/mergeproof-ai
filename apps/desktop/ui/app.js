@@ -13,6 +13,7 @@ const targetLabel = document.querySelector("#target-label");
 const verify = document.querySelector("#verify");
 const externalSecurity = document.querySelector("#external-security");
 const codeqlDatabase = document.querySelector("#codeql-db");
+const mcp = document.querySelector("#mcp");
 
 function updateActionLabel() {
   const labels = { analyze: "Analyze change", review: "Review local changes", agent: "Sandbox fix and verify", plan: "Generate plan", fix: "Suggest safe fix", tests: "Generate tests" };
@@ -30,6 +31,8 @@ function updateActionLabel() {
   if (externalSecurity.disabled) externalSecurity.checked = false;
   codeqlDatabase.disabled = !["analyze", "review", "agent"].includes(action.value);
   if (codeqlDatabase.disabled) codeqlDatabase.value = "";
+  mcp.disabled = action.value !== "analyze";
+  if (mcp.disabled) mcp.checked = false;
 }
 
 action.addEventListener("change", updateActionLabel);
@@ -51,7 +54,7 @@ button.addEventListener("click", async () => {
   button.textContent = "Working...";
   result.classList.add("hidden");
   try {
-    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: target, model: model.value || null, provider: provider.value || null, repoPath: action.value === "review" || action.value === "agent" ? null : (repo.value || null), criteria: criteria.value || null, verify: verify.value || null, externalSecurity: externalSecurity.checked, codeqlDatabase: codeqlDatabase.value || null, apply: apply.checked, remember: remember.checked });
+    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: target, model: model.value || null, provider: provider.value || null, repoPath: action.value === "review" || action.value === "agent" ? null : (repo.value || null), criteria: criteria.value || null, verify: verify.value || null, externalSecurity: externalSecurity.checked, codeqlDatabase: codeqlDatabase.value || null, mcp: mcp.checked, apply: apply.checked, remember: remember.checked });
     empty.classList.add("hidden");
     if (action.value === "analyze" || action.value === "review") {
       const retrieval = output.trace.retrieval?.enabled ? ` &middot; ${output.trace.retrieval.selectedChunks}/${output.trace.retrieval.indexedChunks} repository chunks` : "";

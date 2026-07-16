@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
@@ -7,7 +7,7 @@ import type { SecurityFinding } from "./types";
 
 const MAX_OUTPUT_BYTES = 12 * 1024 * 1024;
 
-export type ExternalSecurityOptions = { repoPath: string; commitSha: string; semgrep?: boolean; npmAudit?: boolean; codeqlDatabase?: string };
+export type ExternalSecurityOptions = { repoPath: string; commitSha: string; semgrep?: boolean; npmAudit?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string };
 export type ExternalSecurityReport = { findings: SecurityFinding[]; tools: string[]; unavailable: string[] };
 
 type SarifResult = {
@@ -22,12 +22,12 @@ type SarifRun = {
   results?: SarifResult[];
 };
 
-function commandOutput(executable: string, args: string[], cwd: string): { stdout: string; stderr: string; available: boolean } {
+function commandOutput(executable: string, args: string[], cwd: string): { stdout: string; stderr: string; available: boolean; success: boolean } {
   try {
-    return { stdout: execFileSync(executable, args, { cwd, encoding: "utf8", maxBuffer: MAX_OUTPUT_BYTES, stdio: ["ignore", "pipe", "pipe"] }).toString(), stderr: "", available: true };
+    return { stdout: execFileSync(executable, args, { cwd, encoding: "utf8", maxBuffer: MAX_OUTPUT_BYTES, stdio: ["ignore", "pipe", "pipe"] }).toString(), stderr: "", available: true, success: true };
   } catch (error) {
     const value = error as { stdout?: string | Buffer; stderr?: string | Buffer; code?: string | number };
-    return { stdout: value.stdout?.toString() ?? "", stderr: value.stderr?.toString() ?? "", available: value.code !== "ENOENT" };
+    return { stdout: value.stdout?.toString() ?? "", stderr: value.stderr?.toString() ?? "", available: value.code !== "ENOENT", success: false };
   }
 }
 
@@ -44,6 +44,24 @@ function localPath(root: string, value: string): string {
 
 function citation(root: string, path: string, line: number, commitSha: string): SecurityFinding["citation"] {
   return { path, commitSha, url: `${pathToFileURL(join(resolve(root), path)).toString()}#L${line}` };
+}
+
+export function detectCodeqlLanguages(root: string): string[] {
+  const languages: string[] = [];
+  const exists = (name: string) => existsSync(join(root, name));
+  if (exists("package.json") || exists("tsconfig.json")) languages.push("javascript-typescript");
+  if (exists("pyproject.toml") || exists("requirements.txt")) languages.push("python");
+  if (exists("go.mod")) languages.push("go");
+  if (exists("Cargo.toml")) languages.push("rust");
+  if (exists("pom.xml") || exists("build.gradle")) languages.push("java-kotlin");
+  if (exists("Gemfile")) languages.push("ruby");
+  return languages.length ? languages : ["javascript-typescript"];
+}
+
+export function defaultCodeqlQuery(language: string): string {
+  const normalized = language.split(",")[0].trim();
+  const names: Record<string, string> = { "javascript-typescript": "javascript-code-scanning.qls", python: "python-code-scanning.qls", go: "go-code-scanning.qls", rust: "rust-code-scanning.qls", "java-kotlin": "java-code-scanning.qls", ruby: "ruby-code-scanning.qls" };
+  return names[normalized] ?? "security-and-quality.qls";
 }
 
 export function parseNpmAuditOutput(value: string, root: string, commitSha: string): SecurityFinding[] {
@@ -117,12 +135,29 @@ export async function scanExternalSecurity(options: ExternalSecurityOptions): Pr
   if (options.codeqlDatabase) {
     const temporary = await fs.mkdtemp(join(tmpdir(), "mergeproof-codeql-"));
     const sarifPath = join(temporary, "results.sarif");
-    const result = commandOutput("codeql", ["database", "analyze", resolve(options.codeqlDatabase), "--format=sarif-latest", `--output=${sarifPath}`], root);
-    if (!result.available) unavailable.push("codeql");
-    else {
-      tools.push("codeql");
+    const database = resolve(options.codeqlDatabase);
+    const databaseExists = await fs.stat(database).then(() => true).catch(() => false);
+    let ready = databaseExists;
+    if (!databaseExists && options.codeqlCreate) {
+      const languages = options.codeqlLanguages || detectCodeqlLanguages(root).join(",");
+      const create = commandOutput("codeql", ["database", "create", database, `--language=${languages}`, `--source-root=${root}`, "--build-mode=none"], root);
+      ready = create.available && create.success && await fs.stat(database).then(() => true).catch(() => false);
+      if (!create.available) unavailable.push("codeql");
+      else if (!ready) unavailable.push("codeql database creation");
+    } else if (!databaseExists) {
+      unavailable.push("codeql database");
+    }
+    if (ready) {
+      const language = (options.codeqlLanguages || detectCodeqlLanguages(root).join(",")).split(",")[0];
+      const query = options.codeqlQuery || defaultCodeqlQuery(language);
+      const result = commandOutput("codeql", ["database", "analyze", database, query, "--format=sarif-latest", `--output=${sarifPath}`], root);
       const sarif = await fs.readFile(sarifPath, "utf8").catch(() => "");
-      findings.push(...parseSarifOutput(sarif, root, options.commitSha));
+      if (!result.available || (!result.success && !sarif)) unavailable.push("codeql");
+      else if (!sarif) unavailable.push("codeql results");
+      else {
+        tools.push("codeql");
+        findings.push(...parseSarifOutput(sarif, root, options.commitSha));
+      }
     }
     await fs.rm(temporary, { recursive: true, force: true });
   }

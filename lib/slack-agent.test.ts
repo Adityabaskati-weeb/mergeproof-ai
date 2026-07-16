@@ -1,14 +1,19 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { parseSlackCommand, verifySlackRequestSignature } from "./slack-agent";
+import { parseSlackCommand, processSlackEvent, verifySlackRequestSignature } from "./slack-agent";
 
 describe("Slack agent boundary", () => {
-  it("parses explicit provider-neutral review, plan, investigate, and issue commands", () => {
+  it("parses explicit provider-neutral conversational commands", () => {
     expect(parseSlackCommand("review https://github.com/acme/payments/pull/42")).toEqual({ action: "review", prUrl: "https://github.com/acme/payments/pull/42" });
     expect(parseSlackCommand("plan https://github.com/acme/payments/pull/42")).toEqual({ action: "plan", prUrl: "https://github.com/acme/payments/pull/42" });
     expect(parseSlackCommand("investigate https://gitlab.com/acme/payments/-/merge_requests/7")).toEqual({ action: "investigate", prUrl: "https://gitlab.com/acme/payments/-/merge_requests/7" });
     expect(parseSlackCommand("review https://bitbucket.org/acme/payments/pull-requests/9")).toEqual({ action: "review", prUrl: "https://bitbucket.org/acme/payments/pull-requests/9" });
+    expect(parseSlackCommand("<@U123> tests https://dev.azure.com/acme/payments/_git/api/pullrequest/11")).toEqual({ action: "tests", prUrl: "https://dev.azure.com/acme/payments/_git/api/pullrequest/11" });
     expect(parseSlackCommand("hello")).toBeUndefined();
+  });
+
+  it("ignores bot events without invoking tools", async () => {
+    await expect(processSlackEvent({ event: { type: "message", bot_id: "B123", text: "review https://github.com/acme/payments/pull/42" } }, { signingSecret: "secret" })).resolves.toEqual({ accepted: true, ignored: true });
   });
 
   it("verifies Slack signatures and rejects stale requests", () => {

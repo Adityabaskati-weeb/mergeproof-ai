@@ -62,5 +62,6 @@ export type Analysis = {
     scope?: "pull-request" | "working-tree";
     workingTreeDigest?: string;
     externalSecurity?: { tools: string[]; unavailable: string[] };
+    mcp?: { successful: string[]; failed: string[] };
   };
 };

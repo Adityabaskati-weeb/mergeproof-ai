@@ -18,6 +18,7 @@ fn cli_args(
     verify: Option<String>,
     external_security: bool,
     codeql_database: Option<String>,
+    mcp: bool,
     apply: bool,
     remember: bool,
 ) -> Result<Vec<String>, String> {
@@ -57,6 +58,9 @@ fn cli_args(
     }
     if command == "analyze" && external_security {
         args.push(String::from("--external-security"));
+    }
+    if command == "analyze" && mcp {
+        args.push(String::from("--mcp"));
     }
     if let Some(database) = codeql_database
         .as_deref()
@@ -103,6 +107,7 @@ async fn run_cli(
     verify: Option<String>,
     external_security: bool,
     codeql_database: Option<String>,
+    mcp: bool,
     apply: bool,
     remember: bool,
 ) -> Result<serde_json::Value, String> {
@@ -116,6 +121,7 @@ async fn run_cli(
         verify,
         external_security,
         codeql_database,
+        mcp,
         apply,
         remember,
     )?;

@@ -5,7 +5,7 @@ import { publishPullRequestCheck } from "./github-publish";
 import { publishPullRequestComment, publishPullRequestReview } from "./github-review";
 import { createGithubIssueFromAnalysis } from "./github-issues";
 import { planPullRequest } from "./plan";
-import { processSlackCommand, verifySlackRequestSignature } from "./slack-agent";
+import { processSlackCommand, processSlackEvent, verifySlackRequestSignature } from "./slack-agent";
 import { processProviderWebhookPayload, verifyProviderWebhookSignature, type ProviderWebhook } from "./provider-webhook";
 import type { Analysis } from "./types";
 
@@ -20,6 +20,7 @@ export type GithubWebhookOptions = {
   repoPath?: string;
   publishReview?: boolean;
   slackSigningSecret?: string;
+  slackBotToken?: string;
   gitlabWebhookSecret?: string;
   bitbucketWebhookSecret?: string;
   azureDevopsWebhookSecret?: string;
@@ -103,9 +104,30 @@ export function startGithubWebhookServer(options: GithubWebhookOptions): Server 
           return;
         }
         respond(response, 200, { response_type: "ephemeral", text: "MergeProof is reviewing the request. Results will be posted here." });
-        void processSlackCommand(body, { signingSecret: options.slackSigningSecret, repoPath: options.repoPath, model: options.model, provider: options.provider, log: options.log }).catch((error) => options.log?.(`MergeProof Slack command failed: ${error instanceof Error ? error.message : "unknown error"}`));
+        void processSlackCommand(body, { signingSecret: options.slackSigningSecret, botToken: options.slackBotToken, repoPath: options.repoPath, model: options.model, provider: options.provider, log: options.log }).catch((error) => options.log?.(`MergeProof Slack command failed: ${error instanceof Error ? error.message : "unknown error"}`));
       } catch (error) {
         respond(response, 400, { error: error instanceof Error ? error.message : "Invalid Slack request" });
+      }
+      return;
+    }
+    if (request.method === "POST" && request.url === "/slack/events") {
+      try {
+        const body = await readBody(request);
+        const timestamp = request.headers["x-slack-request-timestamp"];
+        const signature = request.headers["x-slack-signature"];
+        if (!options.slackSigningSecret || typeof timestamp !== "string" || typeof signature !== "string" || !verifySlackRequestSignature(body, timestamp, signature, options.slackSigningSecret)) {
+          respond(response, 401, { error: "Invalid Slack signature" });
+          return;
+        }
+        const payload = JSON.parse(body) as { type?: string; challenge?: string };
+        if (payload.type === "url_verification" && payload.challenge) {
+          respond(response, 200, { challenge: payload.challenge });
+          return;
+        }
+        respond(response, 200, { ok: true });
+        void processSlackEvent(payload, { signingSecret: options.slackSigningSecret, botToken: options.slackBotToken, repoPath: options.repoPath, model: options.model, provider: options.provider, log: options.log }).catch((error) => options.log?.(`MergeProof Slack event failed: ${error instanceof Error ? error.message : "unknown error"}`));
+      } catch (error) {
+        respond(response, 400, { error: error instanceof Error ? error.message : "Invalid Slack event" });
       }
       return;
     }

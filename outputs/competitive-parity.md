@@ -9,19 +9,19 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | GitHub PR review | Yes | Yes | Yes |
 | GitLab / Bitbucket / Azure DevOps ingestion | Yes: normalized read-only analysis | Azure DevOps and broader provider support | GitLab, Bitbucket, and Azure DevOps support |
 | Local uncommitted review | Yes: staged, unstaged, and untracked changes | IDE and CLI surfaces | IDE and CLI surfaces |
-| Agent handoff / fix verification | Yes: ephemeral Git worktree with explicit verification | Cloud-agent handoff | Agent handoff and Autofix |
+| Agent handoff / fix verification | Yes: local ephemeral Git worktree plus manual ephemeral GitHub Actions runner with artifact/comment output | Cloud-agent handoff | Agent handoff and Autofix |
 | Automatic review trigger | GitHub Actions and signed webhook | Yes | Yes: GitHub, GitLab, Bitbucket, and Azure DevOps signed receivers plus Actions |
-| Full PR context | Files, commits, checks, discussion, Jira, local repository | Full changeset and repository context | PR, issue, repository, knowledge base context |
+| Full PR context | Files, commits, checks, discussion, Jira/Linear, local repository, opt-in read-only MCP tools | Full changeset, repository, and MCP context | PR, issue, repository, knowledge base context |
 | Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files | Custom instructions, skills, MCP | Repository and path-based instructions |
 | Citation-backed decision | Exact head-SHA citations and source validation | Actionable suggestions | Review findings and summaries |
 | Durable memory | Local bounded JSONL, opt-in | Copilot Memory | Knowledge Base and learnings |
-| Security gate | Deterministic scanner plus optional npm audit, Semgrep, and CodeQL SARIF adapters | Security risk review and GitHub security ecosystem | Security Agent and built-in checks |
+| Security gate | Deterministic scanner plus optional npm audit, Semgrep, and CodeQL database creation/SARIF adapters | Security risk review and GitHub security ecosystem | Security Agent and built-in checks |
 | Safe fixes | Unified-diff suggestion; explicit checked apply | Suggested multi-line fixes and cloud-agent handoff | Autofix and agent handoff |
 | Test generation | Test-only unified-diff suggestion | Agent/code generation workflows | Generate unit tests |
 | Issue creation | GitHub, Jira, and Linear | GitHub task workflows | GitHub, GitLab, Jira, Linear |
-| Slack | Signed slash commands for review, plan, issue | GitHub ecosystem integrations | Conversational Slack agent |
+| Slack | Signed slash commands and Events API mentions for review, investigate, plan, safe fix, test patch, and issue | GitHub ecosystem integrations | Conversational Slack agent |
 | Model choice | OpenAI, OpenAI-compatible, Anthropic | GitHub-managed model controls | Product-managed model controls |
-| Client surfaces | CLI, native Windows desktop, VS Code, CI | GitHub, IDE, CLI, cloud agent | Git platforms, IDE, CLI, Slack |
+| Client surfaces | CLI, native Windows desktop, VS Code, CI, installable agent skill for compatible editors | GitHub, IDE, CLI, cloud agent | Git platforms, IDE, CLI, Slack |
 
 ## Differentiation
 
@@ -37,4 +37,4 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 
 ## Remaining Deliberate Gaps
 
-MergeProof is not yet a complete replacement for the surrounding GitHub platform or CodeRabbit product. JetBrains/Cursor-native clients, managed CodeQL execution, remote cloud execution, MCP/web-search context, and full Slack conversational tool orchestration remain separate implementation tracks. The product should claim "evidence-backed, provider-neutral merge control" rather than "all competitor features" until those tracks are shipped and independently tested.
+MergeProof is not yet a complete replacement for the surrounding GitHub platform or CodeRabbit product. Native JetBrains/Cursor UI plugins, automatic remote agent scheduling, and web-search context remain separate implementation tracks. Slack now supports conversational entry points, but it does not yet provide governed multi-turn knowledge, automation scheduling, or automatic PR creation.

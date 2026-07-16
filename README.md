@@ -24,13 +24,16 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Generate test-only unified-diff suggestions without editing production code
 - Apply a proposed fix only with an explicit local checkout and `git apply --check`
 - Detect high-confidence credential and dangerous-sink patterns on added lines before model review
-- Optionally run `npm audit`, Semgrep, and an existing CodeQL database with normalized findings
+- Optionally run `npm audit`, Semgrep, and an existing or explicitly created CodeQL database with normalized findings
+- Optionally call explicitly configured read-only MCP tools and include their responses as cited review context
 - Persist bounded, repository-scoped review memory locally for future context
 - Accept signed GitHub pull-request webhooks for automatic review runs
 - Emit a reproducible SHA-256 attestation for each decision and evidence set
 - Give local reviews a working-tree digest so citations and decisions are tied to the exact uncommitted snapshot
 - Generate a proposed fix inside an ephemeral Git worktree without mutating the developer checkout
 - Run an explicit allowlisted verification command inside that sandbox before reporting success
+- Run the same sandbox agent in an ephemeral GitHub Actions runner through manual `workflow_dispatch`
+- Reuse the evidence contract from compatible agent surfaces through `skills/mergeproof-review/SKILL.md`
 - Three-state decision model: ready, needs evidence, needs owner decision
 - Provenance metrics for fetched sources, cited sources, unsupported claims, model, and latency
 
@@ -66,7 +69,25 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123
 npm run desktop:dev
 ```
 
-The CLI also loads values from `.env`. Never commit the real `.env` file. `GITHUB_TOKEN` is optional for public repositories but helps avoid API rate limits. The model is configurable per command, so teams can choose their preferred provider-compatible model name. `analyze` accepts GitHub PR, GitLab MR, Bitbucket PR, and Azure DevOps PR URLs. Set `GITLAB_TOKEN`, `BITBUCKET_TOKEN` or Bitbucket app-password fields, and `AZURE_DEVOPS_TOKEN` only when private-provider access or publication is required.
+The CLI also loads values from `.env`. Never commit the real `.env` file. `GITHUB_TOKEN` is optional for public repositories but helps avoid API rate limits. The model is configurable per command, so teams can choose their preferred provider-compatible model name. `analyze` accepts GitHub PR, GitLab MR, Bitbucket PR, and Azure DevOps PR URLs. Set `GITLAB_TOKEN`, `BITBUCKET_TOKEN` or Bitbucket app-password fields, and `AZURE_DEVOPS_TOKEN` only when private-provider access or publication is required. CodeQL creation is opt-in and requires the CodeQL CLI; specify `--codeql-languages` and a query suite when the repository is not covered by the defaults.
+
+### Read-only MCP context
+
+To use MCP context, create `.mergeproof/mcp.json` and invoke `analyze --mcp`. MergeProof initializes each configured HTTP MCP server, requires the named tool to advertise `readOnlyHint: true`, calls only that tool, bounds its response to 20,000 characters, and records the server/tool URL in the analysis provenance. Header and argument strings may reference environment variables such as `${LINEAR_API_KEY}` and review fields such as `{{title}}`, `{{criteria}}`, `{{prUrl}}`, and `{{headSha}}`.
+
+```json
+{
+  "servers": [
+    {
+      "name": "issue-tracker",
+      "url": "https://mcp.example.com/mcp",
+      "tool": "search_issues",
+      "headers": { "Authorization": "Bearer ${ISSUE_TRACKER_TOKEN}" },
+      "arguments": { "query": "{{title}} {{criteria}}" }
+    }
+  ]
+}
+```
 
 Run the CLI directly during development:
 
@@ -74,7 +95,9 @@ Run the CLI directly during development:
 npm run cli -- analyze https://github.com/owner/repo/pull/123
 npm run cli -- review . -- --criteria "API behavior is preserved|New behavior has focused tests"
 npm run cli -- review . -- --external-security
+npm run cli -- review . -- --codeql-db .codeql/db --codeql-create --codeql-query javascript-code-scanning.qls
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --external-security --codeql-db .codeql/db
+npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --mcp
 npm run cli -- agent . -- --verify "npm test"
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --json
 npm run cli -- index .
@@ -105,6 +128,8 @@ For repository retrieval, check out the PR head locally and run `npm run cli -- 
 
 The included workflow reviews opened, synchronized, reopened, and ready-for-review pull requests, and supports manual `workflow_dispatch` runs. It checks out the PR head, publishes a Check and review, runs the deterministic security gate, and records memory for that repository. Add `OPENAI_API_KEY`; if your token cannot publish reviews, the workflow still retains the Check/status fallback. For a deployable GitHub App receiver, configure `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_PRIVATE_KEY`; `GITHUB_TOKEN` takes precedence for local and Actions runs. The `serve` command also accepts signed GitLab, Bitbucket, and Azure DevOps webhook events at `/gitlab/webhook`, `/bitbucket/webhook`, and `/azure-devops/webhook` when their provider webhook secrets are configured.
 
+The manual `.github/workflows/mergeproof-agent.yml` workflow checks out a selected PR into an ephemeral Actions runner, runs the sandbox agent with an allowlisted verification command, uploads the JSON result as an artifact, and posts a summary comment. It never applies the patch to the PR branch. Agent-compatible editors can use `skills/mergeproof-review/SKILL.md` to invoke the same CLI contract.
+
 Repository policy lives in `.mergeproof/config.json`; team review guidance can be added to `.mergeproof/instructions.md`. Supported policy keys are `provider`, `model`, `retrievalTopK`, and `minCitationsPerCriterion`.
 
 Save a machine-readable run with `-- --json` and use `evaluate` to report criterion coverage, citation coverage, abstention, unsupported claims, and retrieval usage. This makes MergeProof quality measurable instead of relying on an attractive demo transcript.
@@ -113,7 +138,7 @@ For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` 
 
 Mutation actions are explicit: `--publish-review` posts a GitHub review or fallback PR comment, and `--create-jira` creates a Jira follow-up using `JIRA_PROJECT_KEY`. These flags are never enabled by default.
 
-Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. The store is bounded and contains review summaries, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof plan`, and `/mergeproof issue` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands`: `review`, `investigate`, and `plan` accept GitHub, GitLab, Bitbucket, and Azure DevOps change-request URLs; explicit `issue` creation remains GitHub-only. Slack and GitHub writes are never enabled without the command and credentials.
+Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. The store is bounded and contains review summaries, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof plan`, and `/mergeproof issue` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands` and `/slack/events`: `review`, `investigate`, `plan`, `fix`, and `tests` accept GitHub, GitLab, Bitbucket, and Azure DevOps change-request URLs; explicit `issue` creation remains GitHub-only. Configure `SLACK_BOT_TOKEN` for threaded Events API replies. Slack and GitHub writes are never enabled without the command and credentials, and Slack fixes are suggestions only.
 
 The VS Code extension exposes the same `review`, `analyze`, `plan`, and `fix` commands from the command palette. Local review includes uncommitted files and uses the same validator as PR analysis, so desktop, terminal, CI, and editor results share one evidence contract.
 

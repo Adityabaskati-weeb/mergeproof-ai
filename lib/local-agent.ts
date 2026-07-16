@@ -36,7 +36,9 @@ function runGit(root: string, args: string[], input?: string): string {
 function runVerification(root: string, command: VerificationCommand): string {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const [executable, args] = command === "npm test" ? [npm, ["test"]] : command === "npm run build" ? [npm, ["run", "build"]] : command === "npm run typecheck" ? [npm, ["run", "typecheck"]] : command === "pytest" ? ["pytest", []] : command === "cargo test" ? ["cargo", ["test"]] : ["go", ["test", "./..."]];
-  return execFileSync(executable, args, { cwd: root, encoding: "utf8", timeout: 120_000, maxBuffer: MAX_OUTPUT_BYTES, stdio: ["ignore", "pipe", "pipe"] }).toString();
+  const environment = { ...process.env };
+  for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "GITLAB_TOKEN", "BITBUCKET_TOKEN", "BITBUCKET_APP_PASSWORD", "AZURE_DEVOPS_TOKEN", "JIRA_API_TOKEN", "LINEAR_API_KEY"]) delete environment[key];
+  return execFileSync(executable, args, { cwd: root, env: environment, encoding: "utf8", timeout: 120_000, maxBuffer: MAX_OUTPUT_BYTES, stdio: ["ignore", "pipe", "pipe"] }).toString();
 }
 
 export async function runLocalAgent(model?: string, options: LocalAgentOptions = {}): Promise<LocalAgentRun> {

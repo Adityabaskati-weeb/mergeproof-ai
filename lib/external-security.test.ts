@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseNpmAuditOutput, parseSarifOutput, parseSemgrepOutput } from "./external-security";
+import { promises as fs } from "node:fs";
+import { join } from "node:path";
+import { defaultCodeqlQuery, detectCodeqlLanguages, parseNpmAuditOutput, parseSarifOutput, parseSemgrepOutput, scanExternalSecurity } from "./external-security";
 
 describe("external security adapters", () => {
   it("normalizes npm audit, Semgrep, and SARIF findings", () => {
@@ -9,5 +11,20 @@ describe("external security adapters", () => {
     expect(npmFindings[0]).toMatchObject({ severity: "high", path: "package-lock.json" });
     expect(semgrepFindings[0]).toMatchObject({ severity: "high", path: "src/a.ts", line: 4 });
     expect(sarifFindings[0]).toMatchObject({ severity: "high", path: "src/a.ts", line: 9 });
+  });
+
+  it("selects a deterministic CodeQL language and query suite", () => {
+    expect(detectCodeqlLanguages("C:/repo")).toEqual(["javascript-typescript"]);
+    expect(defaultCodeqlQuery("javascript-typescript")).toBe("javascript-code-scanning.qls");
+    expect(defaultCodeqlQuery("python")).toBe("python-code-scanning.qls");
+  });
+
+  it("does not treat a missing CodeQL database as a clean scan", async () => {
+    const root = await fs.mkdtemp(join(process.env.TEMP ?? ".", "mergeproof-codeql-missing-"));
+    try {
+      await expect(scanExternalSecurity({ repoPath: root, commitSha: "sha", codeqlDatabase: join(root, ".codeql", "db") })).resolves.toMatchObject({ tools: [], unavailable: ["codeql database"], findings: [] });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 });

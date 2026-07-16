@@ -1,0 +1,80 @@
+name: MergeProof sandbox agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_url:
+        description: Public GitHub pull request URL
+        required: true
+        type: string
+      verify:
+        description: Allowlisted verification command
+        required: true
+        default: npm test
+        type: choice
+        options:
+          - npm test
+          - npm run build
+          - npm run typecheck
+          - pytest
+          - cargo test
+          - go test ./...
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sandbox-agent:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: gpt-5.6
+      MERGEPROOF_PROVIDER: openai
+      PR_URL: ${{ inputs.pr_url }}
+      VERIFY_COMMAND: ${{ inputs.verify }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout pull request head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=$(gh pr view "$PR_URL" --json headRepository --jq '.headRepository.nameWithOwner')
+          sha=$(gh pr view "$PR_URL" --json headRefOid --jq '.headRefOid')
+          gh repo clone "$repo" mergeproof-target -- --filter=blob:none
+          git -C mergeproof-target fetch origin "$sha"
+          git -C mergeproof-target checkout --detach "$sha"
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Generate and verify isolated fix
+        id: agent
+        shell: bash
+        run: |
+          set +e
+          npm run cli -- agent mergeproof-target -- --json --verify "$VERIFY_COMMAND" > mergeproof-agent.json
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload sandbox result
+        uses: actions/upload-artifact@v4
+        with:
+          name: mergeproof-sandbox-agent
+          path: mergeproof-agent.json
+          if-no-files-found: error
+      - name: Publish result to pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("mergeproof-agent.json","utf8")); const trace=value.trace||{}; const body=["## MergeProof sandbox agent", value.summary||"No summary returned.", `Verification: ${trace.verificationCommand||"not requested"} (${trace.verified?"passed":"failed"})`, `Changed paths: ${(trace.changedPaths||[]).join(", ")||"none"}`, "The proposed patch is attached as a workflow artifact and was not applied to the pull-request branch."].join("\n\n"); fs.writeFileSync("mergeproof-agent-comment.md", body);'
+          gh pr comment "$PR_URL" --body-file mergeproof-agent-comment.md
