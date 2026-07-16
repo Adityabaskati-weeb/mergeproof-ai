@@ -1,0 +1,79 @@
+name: MergeProof scheduled review
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      max_prs:
+        description: Maximum number of open pull requests to review
+        required: false
+        default: "5"
+        type: string
+      publish_review:
+        description: Publish a pull-request review in addition to the check
+        required: false
+        default: false
+        type: boolean
+
+# Scheduled reviews are disabled unless the repository variable is explicitly enabled.
+# This workflow never applies patches, merges, or pushes to a pull-request branch.
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  scheduled-review:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.MERGEPROOF_SCHEDULE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ vars.MERGEPROOF_MODEL || 'gpt-5.6' }}
+      GITHUB_TOKEN: ${{ github.token }}
+      MAX_PRS: ${{ inputs.max_prs || '5' }}
+      PUBLISH_REVIEW: ${{ inputs.publish_review || 'false' }}
+    steps:
+      - name: Checkout MergeProof
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Select open pull requests
+        shell: bash
+        run: gh pr list --state open --limit "$MAX_PRS" --json url --jq '.[].url' > pr_urls.txt
+
+      - name: Analyze and publish evidence checks
+        shell: bash
+        run: |
+          set +e
+          mkdir -p results
+          index=0
+          while IFS= read -r pr_url; do
+            [[ -z "$pr_url" ]] && continue
+            index=$((index + 1))
+            review_args=()
+            if [[ "$PUBLISH_REVIEW" == "true" ]]; then
+              review_args+=(--publish-review)
+            fi
+            npm run cli -- analyze "$pr_url" --json --publish-check "${review_args[@]}" > "results/analysis-$index.json"
+            status=$?
+            printf '%s\t%s\n' "$status" "$pr_url" >> results/status.tsv
+          done < pr_urls.txt
+          exit 0
+
+      - name: Upload scheduled review results
+        uses: actions/upload-artifact@v4
+        with:
+          name: mergeproof-scheduled-reviews
+          path: |
+            pr_urls.txt
+            results/
+          if-no-files-found: warn

@@ -10,6 +10,8 @@ describe("Slack agent boundary", () => {
     expect(parseSlackCommand("review https://bitbucket.org/acme/payments/pull-requests/9")).toEqual({ action: "review", prUrl: "https://bitbucket.org/acme/payments/pull-requests/9" });
     expect(parseSlackCommand("<@U123> tests https://dev.azure.com/acme/payments/_git/api/pullrequest/11")).toEqual({ action: "tests", prUrl: "https://dev.azure.com/acme/payments/_git/api/pullrequest/11" });
     expect(parseSlackCommand("review", "https://github.com/acme/payments/pull/42")).toEqual({ action: "review", prUrl: "https://github.com/acme/payments/pull/42" });
+    expect(parseSlackCommand("Can you review this PR? https://github.com/acme/payments/pull/42")).toEqual({ action: "review", prUrl: "https://github.com/acme/payments/pull/42" });
+    expect(parseSlackCommand("What changed? https://gitlab.com/acme/payments/-/merge_requests/7")).toEqual({ action: "investigate", prUrl: "https://gitlab.com/acme/payments/-/merge_requests/7" });
     expect(parseSlackCommand("hello")).toBeUndefined();
   });
 

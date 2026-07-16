@@ -34,6 +34,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Generate a proposed fix inside an ephemeral Git worktree without mutating the developer checkout
 - Run an explicit allowlisted verification command inside that sandbox before reporting success
 - Run the same sandbox agent in an ephemeral GitHub Actions runner through manual `workflow_dispatch`
+- Run safe, read-only scheduled reviews for open pull requests through an opt-in GitHub Actions workflow
 - Reuse the evidence contract from compatible agent surfaces through `skills/mergeproof-review/SKILL.md`
 - Use the same engine from Cursor through `.cursor/rules/mergeproof-review.mdc` or JetBrains through `docs/jetbrains.md`
 - Three-state decision model: ready, needs evidence, needs owner decision
@@ -134,6 +135,8 @@ For repository retrieval, check out the PR head locally and run `npm run cli -- 
 The included workflow reviews opened, synchronized, reopened, and ready-for-review pull requests, and supports manual `workflow_dispatch` runs. It checks out the PR head, publishes a Check and review, runs the deterministic security gate, and records memory for that repository. Add `OPENAI_API_KEY`; if your token cannot publish reviews, the workflow still retains the Check/status fallback. For a deployable GitHub App receiver, configure `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_PRIVATE_KEY`; `GITHUB_TOKEN` takes precedence for local and Actions runs. The `serve` command also accepts signed GitLab, Bitbucket, and Azure DevOps webhook events at `/gitlab/webhook`, `/bitbucket/webhook`, and `/azure-devops/webhook` when their provider webhook secrets are configured.
 
 The manual `.github/workflows/mergeproof-agent.yml` workflow checks out a selected PR into an ephemeral Actions runner, runs the sandbox agent with an allowlisted verification command, uploads the JSON result as an artifact, and posts a summary comment. Its default-off `create_pr` input can apply the already-verified patch to a new branch and open a separate handoff PR; it never mutates the original PR branch. Agent-compatible editors can use `skills/mergeproof-review/SKILL.md` to invoke the same CLI contract.
+
+The `.github/workflows/mergeproof-scheduled.yml` workflow reviews up to five open pull requests hourly when the repository variable `MERGEPROOF_SCHEDULE_ENABLED=true` is set, or immediately through `workflow_dispatch`. It publishes evidence checks, optionally publishes reviews when selected at dispatch time, uploads machine-readable results, and never applies code or merges a pull request. Scheduled model usage is opt-in because it can incur API cost.
 
 Repository policy lives in `.mergeproof/config.json`; team review guidance can be added to `.mergeproof/instructions.md`. Supported policy keys are `provider`, `model`, `retrievalTopK`, and `minCitationsPerCriterion`.
 

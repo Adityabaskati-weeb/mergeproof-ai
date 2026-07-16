@@ -20,16 +20,18 @@ export function verifySlackRequestSignature(body: string, timestamp: string | un
 
 export function parseSlackCommand(text: string, fallbackPrUrl?: string): SlackCommand | undefined {
   const normalized = text.trim().replace(/^<@[^>]+>\s*/, "");
-  const match = normalized.match(/^(review|investigate|plan|fix|tests|issue)(?:\s+(https:\/\/\S+))?(?:\s|$)/i);
-  if (!match) return undefined;
-  const prUrl = (match[2] ?? fallbackPrUrl)?.replace(/\/$/, "");
+  const actionMatch = normalized.match(/\b(review|investigate|plan|fix|tests|issue)\b/i);
+  const urlMatch = normalized.match(/https:\/\/\S+/i);
+  const action = actionMatch?.[1] ?? (urlMatch ? "investigate" : undefined);
+  if (!action) return undefined;
+  const prUrl = (urlMatch?.[0] ?? fallbackPrUrl)?.replace(/[),.;]+$/, "").replace(/\/$/, "");
   if (!prUrl) return undefined;
   try {
     parseChangeRequestUrl(prUrl);
   } catch {
     return undefined;
   }
-  return { action: match[1].toLowerCase() as SlackCommand["action"], prUrl };
+  return { action: action.toLowerCase() as SlackCommand["action"], prUrl };
 }
 
 function resultText(action: SlackCommand["action"], prUrl: string, value: Awaited<ReturnType<typeof analyzePullRequest>> | Awaited<ReturnType<typeof planPullRequest>> | Awaited<ReturnType<typeof fixPullRequest>> | Awaited<ReturnType<typeof generateTestsPullRequest>> | string): string {
