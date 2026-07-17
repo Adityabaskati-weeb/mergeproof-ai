@@ -14,6 +14,7 @@ import { parseIssueUrl, planIssue } from "../lib/issue-plan";
 import { publishSlackSummary } from "../lib/slack";
 import { readRepositoryMemory } from "../lib/memory";
 import { readAuditEvents } from "../lib/audit";
+import { inspectConflicts, resolveConflicts, type ConflictReport, type ConflictResolution } from "../lib/conflicts";
 import { addKnowledge, readKnowledge } from "../lib/knowledge";
 import { startGithubWebhookServer } from "../lib/webhook";
 import { createGithubIssueFromAnalysis } from "../lib/github-issues";
@@ -83,6 +84,18 @@ function printConsensus(result: ConsensusResult) {
   if (result.disagreements.length) console.log(`\nDisagreements: ${result.disagreements.map((item) => `${item.criterion}: ${item.states.join(", ")}`).join("; ")}`);
   console.log(`Agents: ${result.trace.agents} | Agreement: ${Math.round(result.trace.agreement * 100)}% | Sources cited: ${result.trace.citedSources}`);
   console.log(`Models: ${result.analyses.map((analysis) => `${analysis.model}=${analysis.decision}`).join(", ")}\n`);
+}
+
+function printConflicts(report: ConflictReport) {
+  console.log(`\nMERGEPROOF CONFLICTS: ${report.conflictCount}\n`);
+  for (const file of report.files) console.log(`- ${file.path}: ${file.hunks.length} conflict hunk(s)`);
+  console.log(`Repository: ${report.repository} | HEAD: ${report.headSha}\n`);
+}
+
+function printConflictResolution(result: ConflictResolution) {
+  console.log(`\nMERGEPROOF CONFLICT RESOLUTION (${result.trace.model})\n\n${result.summary}\n`);
+  console.log(result.patch || "No resolution patch was proposed.");
+  console.log(`\nApplied: ${result.trace.applied ? "yes" : "no"}\n`);
 }
 
 function printSimplify(fix: SimplifySuggestion) {
@@ -172,6 +185,26 @@ program.command("audit").description("Inspect the local bounded review metadata 
   const events = await readAuditEvents(options.repo, Number(options.limit));
   if (options.json) console.log(JSON.stringify(events, null, 2));
   else for (const event of events) console.log(`${event.recordedAt} ${event.action} ${event.decision ?? "-"} ${event.target} ${event.attestation ? `sha256:${event.attestation}` : ""}`.trim());
+});
+
+program.command("conflicts").description("Inspect active Git merge conflicts or generate a guarded resolution patch").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--model <model>", "Model name for resolution").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--criteria <criteria>", "Pipe-separated resolution criteria").option("--patch <path>", "Save the resolution patch").option("--resolve", "Ask the configured model for a resolution patch").option("--apply", "Apply the resolution with git apply --3way and stage resolved paths").action(async (repoPath, options) => {
+  try {
+    if (!options.resolve) {
+      const report = await inspectConflicts(repoPath);
+      if (options.json) console.log(JSON.stringify(report, null, 2));
+      else printConflicts(report);
+      process.exitCode = report.conflictCount ? 2 : 0;
+      return;
+    }
+    const resolution = await resolveConflicts(repoPath, options.model, { provider: options.provider, criteria: parseCriteria(options.criteria), apply: options.apply });
+    if (options.patch) await writeFile(options.patch, resolution.patch, "utf8");
+    if (options.json) console.log(JSON.stringify(resolution, null, 2));
+    else printConflictResolution(resolution);
+    process.exitCode = resolution.trace.applied ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof conflicts error: ${error instanceof Error ? error.message : "Conflict workflow failed."}`);
+    process.exitCode = 1;
+  }
 });
 
 program.command("knowledge").description("Inspect or explicitly add repository-scoped review knowledge").argument("<repository>", "GitHub repository, for example owner/repo").option("--repo <path>", "Repository path", process.cwd()).option("--query <text>", "Filter facts by content").option("--limit <number>", "Maximum facts", "20").option("--add <fact>", "Add an explicitly approved human fact").option("--path <path...>", "Optional changed-file paths this fact applies to").option("--json", "Print machine-readable JSON").action(async (repository, options) => {

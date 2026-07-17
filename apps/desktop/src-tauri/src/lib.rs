@@ -29,7 +29,7 @@ fn cli_args(
     remember: bool,
     re_review: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "plan" | "fix" | "simplify" | "tests" | "review" | "agent" | "autofix") {
+    if !matches!(command, "analyze" | "consensus" | "plan" | "fix" | "simplify" | "tests" | "review" | "agent" | "autofix" | "conflicts") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -82,6 +82,16 @@ fn cli_args(
         if let Some(verify) = verify.filter(|value| !value.trim().is_empty()) { args.extend(["--verify".to_string(), verify]); }
         if re_review { args.push(String::from("--re-review")); }
         args.push(String::from("--json"));
+        return Ok(args);
+    }
+    if command == "conflicts" {
+        let repo = if !pr_url.trim().is_empty() { pr_url } else { repo_path.unwrap_or_default() };
+        let mut args = vec![command.to_string(), repo, "--resolve".to_string()];
+        if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
+        if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
+        if let Some(criteria) = criteria.filter(|value| !value.trim().is_empty()) { args.extend(["--criteria".to_string(), criteria]); }
+        if apply { args.push("--apply".to_string()); }
+        args.push("--json".to_string());
         return Ok(args);
     }
     let mut args = vec![command.to_string(), pr_url];

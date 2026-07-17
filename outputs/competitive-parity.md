@@ -25,6 +25,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Privacy / slop gate | Deterministic PII-pattern and placeholder/large-change signals, never removable by model output | Security and quality ecosystem | PII and slop detection |
 | Safe fixes | Unified-diff suggestion; explicit checked apply; unresolved-thread autofix in a detached worktree with optional verification, re-review, and new PR | Suggested multi-line fixes and cloud-agent handoff | Autofix and agent handoff |
 | Simplify | Evidence-bounded behavior-preserving refactor patch with checked apply | Agent/code editing workflows | Simplify code command and walkthrough action |
+| Conflict resolution | Read-only conflict inventory plus explicit `git apply --3way` resolution patch and staging gate | Agent workflows | Resolve merge conflicts action |
 | Test generation | Test-only unified-diff suggestion | Agent/code generation workflows | Generate unit tests |
 | Issue creation | GitHub, Jira, and Linear | GitHub task workflows | GitHub, GitLab, Jira, Linear |
 | Slack | Signed slash commands, Events API mentions, thread follow-ups, `learn`, rate-limit visibility, governed automations, and guarded stacked-PR autofix | GitHub ecosystem integrations | Conversational agent, learning, automations, and PR actions |

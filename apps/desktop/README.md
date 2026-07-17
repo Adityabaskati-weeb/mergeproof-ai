@@ -17,6 +17,9 @@ The desktop client currently provides:
 - optional repository-scoped review memory
 - explicit repository knowledge facts with path scoping
 - named repository custom-agent profiles
+- quiet/chill/assertive review profiles
+- reviewer suggestions from CODEOWNERS and `.mergeproof/reviewers.json`
+- privacy and quality signals, consensus gate, simplify, and conflict resolution actions
 - analyze, plan, and guarded fix actions through the bundled CLI
 
 The CLI and desktop client call the same `lib/analyze.ts` engine and share the same `Analysis` contract. Install Rust and Tauri prerequisites, then run `npm run desktop:dev` from the repository root. Development falls back to the local `tsx` runner; `npm run desktop:build` creates a self-contained Windows sidecar and native MSI/NSIS installers. Set `MERGEPROOF_CLI` only when using an installed executable during development.

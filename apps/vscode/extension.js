@@ -46,6 +46,21 @@ async function reviewWorkingTree() {
   }
 }
 
+async function resolveConflicts() {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) return vscode.window.showErrorMessage("Open a repository folder before resolving conflicts.");
+  const channel = vscode.window.createOutputChannel("MergeProof");
+  channel.show(true);
+  try {
+    const result = await runMergeProof("conflicts", folder, folder);
+    channel.appendLine(JSON.stringify(result, null, 2));
+    vscode.window.showInformationMessage(`MergeProof conflicts: ${result.conflictCount ?? result.trace?.changedPaths?.length ?? 0} detected`);
+  } catch (error) {
+    channel.appendLine(String(error));
+    vscode.window.showErrorMessage(`MergeProof conflict inspection failed: ${error.message}`);
+  }
+}
+
 async function runSandboxAgent() {
   const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!folder) return vscode.window.showErrorMessage("Open a repository folder before running MergeProof.");
@@ -65,6 +80,7 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.analyzePullRequest", () => analyze("analyze")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.consensus", () => analyze("consensus")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.reviewWorkingTree", reviewWorkingTree));
+  context.subscriptions.push(vscode.commands.registerCommand("mergeproof.resolveConflicts", resolveConflicts));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.runSandboxAgent", runSandboxAgent));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generatePlan", () => analyze("plan")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.suggestFix", () => analyze("fix")));

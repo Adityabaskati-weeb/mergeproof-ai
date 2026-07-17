@@ -10,6 +10,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof autofix <github-or-gitlab-url> --repo <checkout>` review-thread autofix with optional verification, re-review, and explicit new-PR/MR handoff
 - `mergeproof simplify <change-request-url>` behavior-preserving simplification suggestions
 - `mergeproof consensus <change-request-url> --model <model...>` independent model evidence consensus
+- `mergeproof conflicts [repo-path]` merge-conflict inspection and explicitly gated resolution patches
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
 - Paste a public GitHub pull request URL into the CLI or native desktop client
@@ -153,6 +154,8 @@ npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --apply
 npm run cli -- tests https://github.com/owner/repo/pull/123 -- --repo . --patch proposed-tests.patch
 npm run cli -- memory owner/repo -- --repo . --query retry
 npm run cli -- audit --repo .
+npm run cli -- conflicts .
+npm run cli -- conflicts . --resolve --model gpt-5.6 --patch conflict-resolution.patch
 npm run cli -- knowledge owner/repo --repo . --add "Generated API clients must be changed through the schema" --path src/api
 npm run cli -- knowledge owner/repo --repo . --query schema
 npm run cli -- serve -- --secret your-webhook-secret --repo . --publish-review

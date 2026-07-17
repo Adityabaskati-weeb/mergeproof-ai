@@ -7,11 +7,12 @@
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Linters", "Other"],
   "main": "extension.js",
-  "activationEvents": ["onCommand:mergeproof.analyzePullRequest", "onCommand:mergeproof.consensus", "onCommand:mergeproof.reviewWorkingTree", "onCommand:mergeproof.runSandboxAgent", "onCommand:mergeproof.generatePlan", "onCommand:mergeproof.suggestFix", "onCommand:mergeproof.simplify", "onCommand:mergeproof.generateTests", "onCommand:mergeproof.autofix"],
+  "activationEvents": ["onCommand:mergeproof.analyzePullRequest", "onCommand:mergeproof.consensus", "onCommand:mergeproof.reviewWorkingTree", "onCommand:mergeproof.resolveConflicts", "onCommand:mergeproof.runSandboxAgent", "onCommand:mergeproof.generatePlan", "onCommand:mergeproof.suggestFix", "onCommand:mergeproof.simplify", "onCommand:mergeproof.generateTests", "onCommand:mergeproof.autofix"],
   "contributes": {
     "commands": [
       { "command": "mergeproof.analyzePullRequest", "title": "MergeProof: Analyze Pull Request" },
       { "command": "mergeproof.consensus", "title": "MergeProof: Run Consensus Gate" },
+      { "command": "mergeproof.resolveConflicts", "title": "MergeProof: Resolve Merge Conflicts" },
       { "command": "mergeproof.reviewWorkingTree", "title": "MergeProof: Review Working Tree" },
       { "command": "mergeproof.runSandboxAgent", "title": "MergeProof: Run Sandbox Agent" },
       { "command": "mergeproof.generatePlan", "title": "MergeProof: Generate Evidence Plan" },
