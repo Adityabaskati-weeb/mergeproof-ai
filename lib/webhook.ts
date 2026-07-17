@@ -9,6 +9,8 @@ import { processSlackCommand, processSlackEvent, verifySlackRequestSignature } f
 import { processProviderWebhookPayload, verifyProviderWebhookSignature, type ProviderWebhook } from "./provider-webhook";
 import type { Analysis } from "./types";
 import { processWebhookAutomationPayload, verifyWebhookAutomationSignature } from "./webhook-automations";
+import { renderWalkthroughMarkdown } from "./walkthrough";
+import { reviewSuppression, updateReviewState } from "./review-state";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -43,10 +45,25 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
   if (!payload || typeof payload !== "object") return { accepted: false, reason: "invalid_payload" };
   const value = payload as { action?: string; pull_request?: { html_url?: string }; issue?: { html_url?: string; pull_request?: unknown }; comment?: { body?: string } };
   if (options.event === "issue_comment") {
-    const command = value.comment?.body?.match(/^\s*\/mergeproof\s+(review|plan|issue)\b/im)?.[1]?.toLowerCase();
+    const command = value.comment?.body?.match(/^\s*\/mergeproof\s+(full review|review|plan|issue|summary|diagram|help|pause|resume|ignore|unignore)\b/im)?.[1]?.toLowerCase();
     const issueUrl = value.issue?.html_url?.replace("/issues/", "/pull/");
     if (!command) return { accepted: true, ignored: true, reason: "no_mergeproof_command" };
     if (!value.issue?.pull_request || !issueUrl) return { accepted: true, ignored: true, reason: "comment_not_on_pull_request" };
+    const stateRoot = options.repoPath || process.cwd();
+    if (command === "pause" || command === "resume") {
+      const state = await updateReviewState(stateRoot, { paused: command === "pause", reason: command === "pause" ? "Paused by GitHub command." : "Resumed by GitHub command." });
+      await publishPullRequestComment(issueUrl, `MergeProof automatic reviews are now **${state.paused ? "paused" : "resumed"}** for this repository.`);
+      return { accepted: true, prUrl: issueUrl };
+    }
+    if (command === "ignore" || command === "unignore") {
+      const state = await updateReviewState(stateRoot, command === "ignore" ? { ignorePullRequest: issueUrl, reason: "Ignored by GitHub command." } : { unignorePullRequest: issueUrl, reason: "Unignored by GitHub command." });
+      await publishPullRequestComment(issueUrl, `MergeProof automatic review for this PR is now **${state.ignoredPullRequests.includes(issueUrl) ? "ignored" : "enabled"}**.`);
+      return { accepted: true, prUrl: issueUrl };
+    }
+    if (command === "help") {
+      await publishPullRequestComment(issueUrl, "## MergeProof commands\n\n- `/mergeproof review` - run the evidence gate\n- `/mergeproof full review` - run a complete evidence gate\n- `/mergeproof summary` - publish the cited walkthrough and change stack\n- `/mergeproof diagram` - publish the evidence-derived Mermaid change flow\n- `/mergeproof plan` - publish a cited implementation plan\n- `/mergeproof issue` - create a follow-up GitHub issue\n- `/mergeproof pause` or `/mergeproof resume` - control automatic reviews\n- `/mergeproof ignore` or `/mergeproof unignore` - control this PR's automatic reviews\n\nMergeProof never applies code or merges a pull request from a comment.");
+      return { accepted: true, prUrl: issueUrl };
+    }
     if (command === "plan") {
       const plan = await planPullRequest(issueUrl, options.model, options.provider);
       await publishPullRequestComment(issueUrl, `MergeProof plan\n\n${plan.summary}\n\n${plan.steps.map((step, index) => `${index + 1}. **${step.title}**: ${step.detail}`).join("\n")}`);
@@ -54,6 +71,14 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       return { accepted: true, prUrl: issueUrl };
     }
     const analysis = await analyzePullRequest(issueUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
+    if (command === "summary" || command === "diagram") {
+      const walkthrough = analysis.walkthrough;
+      if (!walkthrough) return { accepted: false, reason: "walkthrough_unavailable", prUrl: issueUrl, analysis };
+      const body = command === "diagram" ? `## MergeProof change flow\n\n\`\`\`mermaid\n${walkthrough.sequenceDiagram}\n\`\`\`\n\nEvidence citations: ${walkthrough.citations.length}` : renderWalkthroughMarkdown(walkthrough, analysis.decision);
+      await publishPullRequestComment(issueUrl, body);
+      options.log?.(`MergeProof published ${command} for ${issueUrl}`);
+      return { accepted: true, prUrl: issueUrl, analysis };
+    }
     if (command === "issue") {
       const url = await createGithubIssueFromAnalysis(issueUrl, analysis);
       await publishPullRequestComment(issueUrl, `MergeProof created a follow-up issue: ${url}`);
@@ -69,6 +94,8 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
   if (!value.action || !REVIEW_ACTIONS.has(value.action)) return { accepted: true, ignored: true, reason: "unsupported_action" };
   const prUrl = value.pull_request?.html_url;
   if (!prUrl) return { accepted: false, reason: "missing_pull_request_url" };
+  const suppression = await reviewSuppression(options.repoPath || process.cwd(), prUrl);
+  if (suppression.suppressed) return { accepted: true, ignored: true, reason: `review_${suppression.reason}` };
   const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
   await publishPullRequestCheck(prUrl, analysis);
   if (options.publishReview) await publishPullRequestReview(prUrl, analysis);

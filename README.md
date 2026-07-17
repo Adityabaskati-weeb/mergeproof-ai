@@ -10,6 +10,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof autofix <github-or-gitlab-url> --repo <checkout>` review-thread autofix with optional verification, re-review, and explicit new-PR/MR handoff
 - `mergeproof simplify <change-request-url>` behavior-preserving simplification suggestions
 - `mergeproof consensus <change-request-url> --model <model...>` independent model evidence consensus
+- `mergeproof walkthrough <change-request-url>` cited PR summary, ordered change stack, effort estimate, and Mermaid change flow
 - `mergeproof conflicts [repo-path]` merge-conflict inspection and explicitly gated resolution patches
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
@@ -42,6 +43,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Persist bounded, repository-scoped review memory locally for future context
 - Store explicitly approved, repository- and path-scoped knowledge facts locally
 - Suggest reviewers from `.github/CODEOWNERS` and `.mergeproof/reviewers.json`
+- Publish an evidence-derived walkthrough with changed-file layers, related issues, reviewer suggestions, and a non-runtime Mermaid change-flow diagram
 - Accept signed GitHub pull-request webhooks for automatic review runs
 - Run governed Slack message automations configured by channel, author, and text match
 - Accept signed custom automation webhooks with event, nested-field, and change-request URL matching
@@ -147,6 +149,7 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --save analysis
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --request-reviewers @alice team:platform
 npm run cli -- evaluate analysis.json
 npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json
+npm run cli -- walkthrough https://github.com/owner/repo/pull/123 -- --publish
 npm run cli -- plan https://acme.atlassian.net/browse/PLAT-42 -- --save plan.json
 npm run cli -- simplify https://github.com/owner/repo/pull/123 -- --repo . --patch simplify.patch
 npm run cli -- consensus https://github.com/owner/repo/pull/123 -- --model gpt-5.6 claude-sonnet-4-20250514 --provider openai anthropic --repo .
@@ -155,6 +158,8 @@ npm run cli -- fix https://github.com/owner/repo/pull/123 -- --repo . --apply
 npm run cli -- tests https://github.com/owner/repo/pull/123 -- --repo . --patch proposed-tests.patch
 npm run cli -- memory owner/repo -- --repo . --query retry
 npm run cli -- audit --repo .
+npm run cli -- state --repo . --json
+npm run cli -- state --repo . --pause --reason "Release freeze"
 npm run cli -- conflicts .
 npm run cli -- conflicts . --resolve --model gpt-5.6 --patch conflict-resolution.patch
 npm run cli -- knowledge owner/repo --repo . --add "Generated API clients must be changed through the schema" --path src/api
@@ -190,11 +195,11 @@ For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` 
 
 Mutation actions are explicit: `--publish-review` posts a GitHub review or fallback PR comment, and `--create-jira` creates a Jira follow-up using `JIRA_PROJECT_KEY`. These flags are never enabled by default.
 
-Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. Explicit knowledge facts are stored separately at `.mergeproof/knowledge.jsonl` and can only be added by a human through `knowledge --add` or Slack `learn`; both stores are bounded and contain summaries/facts, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof plan`, and `/mergeproof issue` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands` and `/slack/events`: `review`, `investigate`, `plan`, `fix`, `tests`, `learn`, `rate`, and `autofix` accept the supported commands; explicit `issue` creation remains GitHub-only. Configure `SLACK_BOT_TOKEN` for threaded Events API replies. Thread-local state stores only the last change-request URL, so follow-up messages can say `review` or `plan` without resending the URL. Slack and GitHub writes are never enabled without the command and credentials. Slack autofix additionally requires `MERGEPROOF_SLACK_AUTOFIX_ENABLED=true`, an explicit checkout, and an allowlisted verification command, then opens a separate PR.
+Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. Automatic review lifecycle state is explicit and local at `.mergeproof/review-state.json`; use `state --pause`, `state --resume`, `state --ignore <PR URL>`, or `state --unignore <PR URL>` to control signed webhook reviews. Explicit knowledge facts are stored separately at `.mergeproof/knowledge.jsonl` and can only be added by a human through `knowledge --add` or Slack `learn`; both stores are bounded and contain summaries/facts, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof full review`, `/mergeproof summary`, `/mergeproof diagram`, `/mergeproof plan`, `/mergeproof issue`, `/mergeproof pause`, `/mergeproof resume`, `/mergeproof ignore`, `/mergeproof unignore`, and `/mergeproof help` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands` and `/slack/events`: `review`, `investigate`, `walkthrough` (also `summary` or `diagram`), `plan`, `fix`, `tests`, `learn`, `pause`, `resume`, `rate`, and `autofix` accept the supported commands; explicit `issue` creation remains GitHub-only. Configure `SLACK_BOT_TOKEN` for threaded Events API replies. Thread-local state stores only the last change-request URL, so follow-up messages can say `review` or `plan` without resending the URL. Slack and GitHub writes are never enabled without the command and credentials. Slack autofix additionally requires `MERGEPROOF_SLACK_AUTOFIX_ENABLED=true`, an explicit checkout, and an allowlisted verification command, then opens a separate PR.
 
 Slack message automations are opt-in through `.mergeproof/automations.json`, using the shape in `.mergeproof/automations.example.json`. Each rule can constrain `channelIds`, `authorIds`, `contains`, and `topLevelOnly`; supported actions are review, investigate, plan, fix, tests, and learn. Automations require a change-request URL in the message or an existing thread reference, and never create issues, apply patches, merge, or push code. Signed external automations can use `/automation/webhook` with `.mergeproof/webhook-automations.json` to match an event and payload field before running a read-only review, investigation, plan, or fix suggestion.
 
-The VS Code extension exposes `review`, `analyze`, `plan`, `fix`, `tests`, and guarded `autofix` commands from the command palette. Local review includes uncommitted files and uses the same validator as PR analysis, so desktop, terminal, CI, and editor results share one evidence contract.
+The VS Code extension exposes `review`, `analyze`, `plan`, `fix`, `tests`, and guarded `autofix` commands from the command palette. Local review includes uncommitted files and uses the same validator as PR analysis, so desktop, terminal, CI, and editor results share one evidence contract. GitHub issue-comment commands include `/mergeproof review`, `/mergeproof full review`, `/mergeproof summary`, `/mergeproof diagram`, `/mergeproof plan`, `/mergeproof issue`, and `/mergeproof help`; comment commands never apply code or merge a pull request.
 
 Fix suggestions are not silently committed, pushed, or posted to GitHub. Without `--apply`, MergeProof only emits a patch. With `--apply`, it rejects absolute or traversal paths and requires Git to accept the patch with whitespace errors treated as failures. The `agent` command is safer by default: it applies the patch only in an ephemeral Git worktree and can run only the explicitly supported verification commands.
 

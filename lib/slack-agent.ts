@@ -13,9 +13,10 @@ import { autofixPullRequest } from "./autofix";
 import { VERIFICATION_COMMANDS, type VerificationCommand } from "./local-agent";
 import { parseIssueUrl, planIssue } from "./issue-plan";
 import { runConsensus } from "./consensus";
+import { updateReviewState } from "./review-state";
 
 export type SlackAgentOptions = { signingSecret: string; botToken?: string; repoPath?: string; model?: string; provider?: string; log?: (message: string) => void };
-export type SlackCommand = { action: "review" | "investigate" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "issue" | "learn" | "rate" | "autofix"; prUrl?: string; fact?: string };
+export type SlackCommand = { action: "review" | "investigate" | "walkthrough" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "issue" | "learn" | "rate" | "autofix" | "pause" | "resume"; prUrl?: string; fact?: string };
 
 export function verifySlackRequestSignature(body: string, timestamp: string | undefined, signature: string | undefined, secret: string, now = Date.now()): boolean {
   if (!timestamp || !signature || !secret || Math.abs(now - Number(timestamp) * 1000) > 5 * 60 * 1000) return false;
@@ -27,11 +28,12 @@ export function verifySlackRequestSignature(body: string, timestamp: string | un
 
 export function parseSlackCommand(text: string, fallbackPrUrl?: string): SlackCommand | undefined {
   const normalized = text.trim().replace(/^<@[^>]+>\s*/, "");
-  const actionMatch = normalized.match(/\b(review|investigate|plan|fix|simplify|tests|consensus|issue|learn|rate(?:\s+limit)?|autofix)\b/i);
+  const actionMatch = normalized.match(/\b(review|investigate|walkthrough|summary|diagram|plan|fix|simplify|tests|consensus|issue|learn|rate(?:\s+limit)?|autofix|pause|resume)\b/i);
   const urlMatch = normalized.match(/https:\/\/\S+/i);
   const action = actionMatch?.[1]?.toLowerCase() ?? (urlMatch ? "investigate" : undefined);
   if (!action) return undefined;
   if (action.startsWith("rate")) return { action: "rate" };
+  if (action === "pause" || action === "resume") return { action };
   if (action === "learn") {
     const prUrl = (urlMatch?.[0] ?? fallbackPrUrl)?.replace(/[),.;]+$/, "").replace(/\/$/, "");
     const fact = normalized.replace(actionMatch![0], "").replace(urlMatch?.[0] ?? "", "").trim();
@@ -45,7 +47,8 @@ export function parseSlackCommand(text: string, fallbackPrUrl?: string): SlackCo
     if (action !== "plan") return undefined;
     try { parseIssueUrl(prUrl); } catch { return undefined; }
   }
-  return { action: action as Exclude<SlackCommand["action"], "learn" | "rate">, prUrl };
+  const normalizedAction = action === "summary" || action === "diagram" ? "walkthrough" : action;
+  return { action: normalizedAction as Exclude<SlackCommand["action"], "learn" | "rate">, prUrl };
 }
 
 function resultText(action: SlackCommand["action"], prUrl: string, value: Awaited<ReturnType<typeof analyzePullRequest>> | Awaited<ReturnType<typeof planPullRequest>> | Awaited<ReturnType<typeof fixPullRequest>> | Awaited<ReturnType<typeof generateTestsPullRequest>> | Awaited<ReturnType<typeof runConsensus>> | string): string {
@@ -61,6 +64,11 @@ function resultText(action: SlackCommand["action"], prUrl: string, value: Awaite
   if (action === "consensus") {
     const consensus = value as Awaited<ReturnType<typeof runConsensus>>;
     return `MergeProof consensus *${consensus.decision}* for ${prUrl}\nAgents: ${consensus.trace.agents} | Agreement: ${Math.round(consensus.trace.agreement * 100)}%\n${consensus.rows.map((row) => `${row.agreement >= 0.67 ? ":white_check_mark:" : ":warning:"} ${row.criterion} (${Math.round(row.agreement * 100)}%)`).join("\n")}`;
+  }
+  if (action === "walkthrough") {
+    const analysis = value as Awaited<ReturnType<typeof analyzePullRequest>>;
+    const walkthrough = analysis.walkthrough;
+    return `MergeProof walkthrough for ${prUrl}\n${walkthrough?.summary ?? "No walkthrough was generated."}\nChange stack: ${walkthrough?.changeStack.map((layer) => `${layer.title} (${layer.files.length})`).join(" -> ") ?? "none"}\nReview effort: ${walkthrough?.effortScore ?? "unknown"}/5\nCited files: ${walkthrough?.citations.length ?? 0}`;
   }
   const analysis = value as Awaited<ReturnType<typeof analyzePullRequest>>;
   const security = (analysis.securityFindings ?? []).map((finding) => `:rotating_light: ${finding.severity} ${finding.path}:${finding.line} ${finding.title}`).join("\n");
@@ -79,6 +87,11 @@ export async function runSlackCommand(command: SlackCommand, options: SlackAgent
     const target = parseChangeRequestUrl(command.prUrl);
     const fact = await addKnowledge(options.repoPath || process.cwd(), target.ref, command.fact);
     return `MergeProof learned for ${fact.repository}: ${fact.content}`;
+  }
+  if (command.action === "pause" || command.action === "resume") {
+    if (!options.repoPath) throw new Error("Slack review lifecycle controls require an explicit repository path.");
+    const state = await updateReviewState(options.repoPath, { paused: command.action === "pause", reason: `${command.action === "pause" ? "Paused" : "Resumed"} by Slack command.` });
+    return `MergeProof automatic reviews are now ${state.paused ? "paused" : "resumed"}.`;
   }
   if (!command.prUrl) throw new Error(`${command.action} requires a change-request URL.`);
   const prUrl = command.prUrl;
@@ -109,7 +122,7 @@ export async function runSlackCommand(command: SlackCommand, options: SlackAgent
 export async function processSlackCommand(body: string, options: SlackAgentOptions): Promise<{ text: string; responseUrl?: string }> {
   const params = new URLSearchParams(body);
   const command = parseSlackCommand(params.get("text") ?? "");
-  if (!command) return { text: "Usage: `review|investigate|plan|fix|simplify|tests|consensus|autofix <change-request URL>`, `learn <fact> <change-request URL>`, `rate`, or `issue <GitHub PR URL>`." };
+  if (!command) return { text: "Usage: `review|investigate|walkthrough|plan|fix|simplify|tests|consensus|autofix <change-request URL>`, `learn <fact> <change-request URL>`, `pause`, `resume`, `rate`, or `issue <GitHub PR URL>`." };
   const responseUrl = params.get("response_url") ?? undefined;
   try {
     const text = await runSlackCommand(command, options);
@@ -132,7 +145,7 @@ export async function processSlackEvent(payload: unknown, options: SlackAgentOpt
   const previous = threadKey ? await readSlackThread(options.repoPath || process.cwd(), threadKey) : undefined;
   const automation = matchSlackAutomation(await loadSlackAutomations(options.repoPath || process.cwd()), event);
   const command = parseSlackCommand(event.text ?? "", previous?.prUrl) ?? (automation ? parseSlackCommand(`${automation.action} ${event.text ?? ""}`, previous?.prUrl) : undefined);
-  if (!command) return { accepted: true, ignored: true, text: "Mention MergeProof with `review`, `investigate`, `plan`, `fix`, `simplify`, `tests`, `consensus`, `autofix`, `learn`, or `rate`." };
+  if (!command) return { accepted: true, ignored: true, text: "Mention MergeProof with `review`, `investigate`, `walkthrough`, `plan`, `fix`, `simplify`, `tests`, `consensus`, `autofix`, `learn`, `pause`, `resume`, or `rate`." };
   const text = await runSlackCommand(command, options);
   if (threadKey && command.prUrl) await recordSlackThread(options.repoPath || process.cwd(), threadKey, command.prUrl);
   if (options.botToken && event.channel) {

@@ -7,7 +7,7 @@ import { evaluateAnalysis } from "../lib/evaluation";
 import { fixPullRequest, simplifyPullRequest } from "../lib/fix";
 import { autofixPullRequest, type AutofixResult } from "../lib/autofix";
 import { publishChangeRequestCheck, publishChangeRequestReview } from "../lib/change-publish";
-import { requestPullRequestReviewers } from "../lib/github-review";
+import { publishPullRequestComment, requestPullRequestReviewers } from "../lib/github-review";
 import { createJiraIssue, createLinearIssue } from "../lib/issues";
 import { indexRepository } from "../lib/retrieval";
 import { planPullRequest } from "../lib/plan";
@@ -15,6 +15,7 @@ import { parseIssueUrl, planIssue } from "../lib/issue-plan";
 import { publishSlackSummary } from "../lib/slack";
 import { readRepositoryMemory } from "../lib/memory";
 import { readAuditEvents } from "../lib/audit";
+import { readReviewState, updateReviewState } from "../lib/review-state";
 import { inspectConflicts, resolveConflicts, type ConflictReport, type ConflictResolution } from "../lib/conflicts";
 import { addKnowledge, readKnowledge } from "../lib/knowledge";
 import { startGithubWebhookServer } from "../lib/webhook";
@@ -28,6 +29,7 @@ import type { ReviewPlan } from "../lib/models";
 import type { FixSuggestion, SimplifySuggestion } from "../lib/fix";
 import type { PullRequestRef } from "../lib/github";
 import type { ReviewEffort } from "../lib/types";
+import { renderWalkthroughMarkdown } from "../lib/walkthrough";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -71,6 +73,19 @@ function printPlan(plan: ReviewPlan) {
   if (plan.risks.length) console.log(`Risks:\n${plan.risks.map((risk) => `- [${risk.severity}] ${risk.risk}`).join("\n")}\n`);
   console.log(`Steps:\n${plan.steps.map((step, index) => `${index + 1}. ${step.title}\n   ${step.detail}${step.citations.length ? `\n   Evidence: ${step.citations.map((citation) => citation.url).join(", ")}` : ""}`).join("\n")}`);
   console.log(`\nCitations verified: ${plan.trace.citedSources}/${plan.trace.fetchedSources}\n`);
+}
+
+function printWalkthrough(analysis: Analysis) {
+  if (!analysis.walkthrough) {
+    console.log("No walkthrough was generated.");
+    return;
+  }
+  console.log(`\nMERGEPROOF WALKTHROUGH (${analysis.decision.toUpperCase()})\n\n${analysis.walkthrough.summary}\n`);
+  console.log(`Change stack:\n${analysis.walkthrough.changeStack.map((layer, index) => `${index + 1}. ${layer.title} - ${layer.files.length} file(s), ${layer.citations.length} citation(s)\n   ${layer.purpose}`).join("\n") || "No changed files returned."}`);
+  console.log(`\nReview effort: ${analysis.walkthrough.effortScore}/5\n${analysis.walkthrough.effortReason}`);
+  if (analysis.walkthrough.relatedIssues.length) console.log(`\nRelated issues: ${analysis.walkthrough.relatedIssues.map((issue) => `${issue.key} (${issue.url})`).join(", ")}`);
+  if (analysis.walkthrough.suggestedReviewers.length) console.log(`Suggested reviewers: ${analysis.walkthrough.suggestedReviewers.join(", ")}`);
+  console.log(`\nVerified file citations: ${analysis.walkthrough.citations.length}\n\n${analysis.walkthrough.sequenceDiagram}\n`);
 }
 
 function printFix(fix: FixSuggestion) {
@@ -188,6 +203,21 @@ program.command("audit").description("Inspect the local bounded review metadata 
   else for (const event of events) console.log(`${event.recordedAt} ${event.action} ${event.decision ?? "-"} ${event.target} ${event.attestation ? `sha256:${event.attestation}` : ""}`.trim());
 });
 
+program.command("state").description("Inspect or control automatic review pause and ignore state").option("--repo <path>", "Repository path", process.cwd()).option("--pause", "Pause automatic reviews for this repository").option("--resume", "Resume automatic reviews for this repository").option("--ignore <pull-request-url>", "Ignore automatic reviews for one pull request").option("--unignore <pull-request-url>", "Re-enable automatic reviews for one pull request").option("--reason <text>", "Bounded human-readable reason").option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    if (options.pause && options.resume) throw new Error("Choose only one of --pause or --resume.");
+    if (options.ignore && options.unignore) throw new Error("Choose only one of --ignore or --unignore.");
+    const state = options.pause || options.resume || options.ignore || options.unignore
+      ? await updateReviewState(options.repo, { ...(options.pause ? { paused: true } : {}), ...(options.resume ? { paused: false } : {}), ...(options.ignore ? { ignorePullRequest: options.ignore } : {}), ...(options.unignore ? { unignorePullRequest: options.unignore } : {}), ...(options.reason ? { reason: options.reason } : {}) })
+      : await readReviewState(options.repo);
+    if (options.json) console.log(JSON.stringify(state, null, 2));
+    else console.log(`Automatic reviews: ${state.paused ? "paused" : "enabled"}\nIgnored pull requests: ${state.ignoredPullRequests.length}${state.reason ? `\nReason: ${state.reason}` : ""}`);
+  } catch (error) {
+    console.error(`MergeProof state error: ${error instanceof Error ? error.message : "Review state operation failed."}`);
+    process.exitCode = 1;
+  }
+});
+
 program.command("conflicts").description("Inspect active Git merge conflicts or generate a guarded resolution patch").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--model <model>", "Model name for resolution").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--criteria <criteria>", "Pipe-separated resolution criteria").option("--patch <path>", "Save the resolution patch").option("--resolve", "Ask the configured model for a resolution patch").option("--apply", "Apply the resolution with git apply --3way and stage resolved paths").action(async (repoPath, options) => {
   try {
     if (!options.resolve) {
@@ -244,6 +274,24 @@ program.command("plan").description("Generate a citation-aware implementation pl
     else printPlan(plan);
   } catch (error) {
     console.error(`MergeProof plan error: ${error instanceof Error ? error.message : "Planning failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("walkthrough").description("Generate an evidence-backed PR summary, change stack, effort estimate, and Mermaid change-flow diagram").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the walkthrough JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--publish", "Publish the walkthrough as a GitHub PR comment").action(async (prUrl, options) => {
+  try {
+    const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, effort: parseReviewEffort(options.effort), profile: options.profile });
+    if (!analysis.walkthrough) throw new Error("Walkthrough generation returned no artifact.");
+    const output = { decision: analysis.decision, walkthrough: analysis.walkthrough, trace: analysis.trace };
+    if (options.save) await writeFile(options.save, JSON.stringify(output, null, 2), "utf8");
+    if (options.publish) {
+      if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i.test(prUrl)) throw new Error("--publish currently supports GitHub pull requests only.");
+      console.error(`Walkthrough published: ${await publishPullRequestComment(prUrl, renderWalkthroughMarkdown(analysis.walkthrough, analysis.decision))}`);
+    }
+    if (options.json) console.log(JSON.stringify(output, null, 2));
+    else printWalkthrough(analysis);
+  } catch (error) {
+    console.error(`MergeProof walkthrough error: ${error instanceof Error ? error.message : "Walkthrough generation failed."}`);
     process.exitCode = 1;
   }
 });

@@ -56,6 +56,32 @@ export type ReviewMemoryEntry = {
   recordedAt: string;
 };
 
+export type WalkthroughCitation = {
+  path: string;
+  commitSha: string;
+  url: string;
+};
+
+export type WalkthroughLayer = {
+  id: string;
+  title: string;
+  purpose: string;
+  files: Array<{ path: string; status: string; additions: number; deletions: number; citation: WalkthroughCitation }>;
+  citations: WalkthroughCitation[];
+};
+
+export type ReviewWalkthrough = {
+  summary: string;
+  changeStack: WalkthroughLayer[];
+  sequenceDiagram: string;
+  effortScore: 1 | 2 | 3 | 4 | 5;
+  effortReason: string;
+  relatedIssues: Array<{ provider: string; key: string; summary: string; url: string }>;
+  suggestedReviewers: string[];
+  citations: WalkthroughCitation[];
+  evidenceMode: "deterministic";
+};
+
 export type Analysis = {
   decision: "ready" | "needs-evidence" | "needs-owner";
   contract: { promise: string; code: string; tests: string; release: string };
@@ -63,6 +89,7 @@ export type Analysis = {
   securityFindings?: SecurityFinding[];
   qualitySignals?: SecurityFinding[];
   suggestedReviewers?: string[];
+  walkthrough?: ReviewWalkthrough;
   trace: {
     fetchedSources: number;
     citedSources: number;

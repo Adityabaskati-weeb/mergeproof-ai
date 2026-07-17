@@ -8,6 +8,7 @@ export function attestAnalysis(analysis: Analysis): AnalysisAttestation {
     decision: analysis.decision,
     contract: analysis.contract,
     rows: analysis.rows,
+    walkthrough: analysis.walkthrough ?? null,
     securityFindings: analysis.securityFindings ?? [],
     qualitySignals: analysis.qualitySignals ?? [],
     suggestedReviewers: analysis.suggestedReviewers ?? [],

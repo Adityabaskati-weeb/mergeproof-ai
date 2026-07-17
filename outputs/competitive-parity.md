@@ -32,6 +32,8 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Model choice | OpenAI, OpenAI-compatible including local endpoints, Anthropic | GitHub-managed model controls | Product-managed model controls |
 | Client surfaces | CLI, native Windows desktop, VS Code, Cursor plugin metadata/rule, JetBrains plugin source, CI, and installable agent skill | GitHub, IDE, CLI, cloud agent | Git platforms, IDE, CLI, Slack |
 | Consensus gate | Parallel provider/model reviews with per-criterion agreement; `ready` requires unanimous evidence | Agent/sub-agent orchestration | Agent workflows and review automation |
+| Walkthrough / change stack | Evidence-derived summary, ordered change layers, review effort, related issues, reviewers, and Mermaid change-flow diagram; citations resolve to fetched files | Repository and PR context, agent workflows | Walkthrough, changed-file summary, sequence diagrams, effort estimate, related issues, labels, reviewers |
+| Review lifecycle controls | Explicit local pause/resume and per-PR ignore/unignore state suppress signed automatic reviews without disabling manual analysis | Pause/resume and repository policy controls | Pause, resume, ignore, and review controls |
 
 ## Differentiation
 
@@ -45,6 +47,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 6. Fixes are tested in an ephemeral Git worktree before they can be reported as verified; the developer checkout is not mutated.
 7. Every completed analysis emits a reproducible SHA-256 attestation over the decision, evidence rows, security findings, and PR head SHA or working-tree digest.
 8. Independent model disagreement is surfaced as a first-class merge risk; consensus never hides minority evidence.
+9. The walkthrough is generated from fetched change evidence rather than invented runtime behavior; its Mermaid diagram is explicitly labeled as a change flow, not a production execution trace.
 
 ## Remaining Deliberate Gaps
 

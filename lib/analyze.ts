@@ -21,6 +21,7 @@ import { combineInstructions, loadAgentProfile } from "./agents";
 import { runHooks, type HookReport } from "./hooks";
 import { suggestReviewers } from "./reviewers";
 import { recordAuditEvent } from "./audit";
+import { buildWalkthrough } from "./walkthrough";
 import type { Analysis } from "./types";
 
 export type AnalyzeOptions = { provider?: string; repoPath?: string; relatedRepos?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; remember?: boolean; memoryRoot?: string; memoryLimit?: number; knowledgeLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; mcp?: boolean; webSearch?: boolean; hooks?: boolean };
@@ -88,6 +89,7 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
       decision: securityFindings.some((finding) => finding.severity !== "low") ? "needs-evidence" : "needs-owner",
       contract: { promise: context.title, code: "Not specified", tests: "Not specified", release: "Not specified" },
       rows: [],
+      walkthrough: buildWalkthrough(context),
       suggestedReviewers,
       securityFindings,
       trace: { fetchedSources: context.sources.size, citedSources: 0, unsupportedClaims: 0, model: `${provider}:${selectedModel}`, elapsedMs: Date.now() - started, headSha: context.headSha, retrieval: retrievalTrace, relatedRepositories: relatedResults.length, linkedIssues: issues.length, securityFindings: securityFindings.length, suggestedReviewers: suggestedReviewers.length, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, agent: agentProfile?.name, scope: "pull-request", unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks: hooksBefore },
@@ -96,8 +98,9 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);
   const result = await modelProvider.analyze(context, criteria, AbortSignal.timeout(45_000));
   const analysis = validateAnalysis(result, context, criteria, modelProvider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings, qualitySignals);
+  const walkthrough = buildWalkthrough(context, analysis);
   const hooksAfter = await runHooks(policyRoot, "afterReview", options.hooks);
   const hooks: HookReport = { enabled: hooksBefore.enabled || hooksAfter.enabled, before: hooksBefore.before, after: hooksAfter.after, failed: [...hooksBefore.failed, ...hooksAfter.failed] };
   const gatedAnalysis = hooks.failed.length ? { ...analysis, decision: analysis.decision === "ready" ? "needs-evidence" as const : analysis.decision } : analysis;
-  return persist({ ...gatedAnalysis, suggestedReviewers, trace: { ...gatedAnalysis.trace, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, suggestedReviewers: suggestedReviewers.length, agent: agentProfile?.name, relatedRepositories: relatedResults.length, unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks } });
+  return persist({ ...gatedAnalysis, walkthrough, suggestedReviewers, trace: { ...gatedAnalysis.trace, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, suggestedReviewers: suggestedReviewers.length, agent: agentProfile?.name, relatedRepositories: relatedResults.length, unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks } });
 }

@@ -19,7 +19,8 @@ export async function publishPullRequestReview(prUrl: string, analysis: Analysis
   const event = analysis.decision === "ready" ? "APPROVE" : analysis.decision === "needs-evidence" ? "REQUEST_CHANGES" : "COMMENT";
   const security = (analysis.securityFindings ?? []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.path}:${finding.line} ${finding.title}`).join("\n");
   const quality = (analysis.qualitySignals ?? []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.path}:${finding.line} ${finding.title}`).join("\n");
-  const body = `MergeProof decision: **${analysis.decision}**\n\n${security ? `Security/privacy findings:\n${security}\n\n` : ""}${quality ? `Quality signals:\n${quality}\n\n` : ""}${rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}`).join("\n")}\n\nProfile: ${profile} | Verified citations: ${analysis.trace.citedSources}`;
+  const walkthrough = analysis.walkthrough ? `\n\n### Walkthrough\n${analysis.walkthrough.summary}\n\nChange stack: ${analysis.walkthrough.changeStack.map((layer) => `${layer.title} (${layer.files.length})`).join(" -> ")}\nReview effort: ${analysis.walkthrough.effortScore}/5` : "";
+  const body = `MergeProof decision: **${analysis.decision}**\n\n${security ? `Security/privacy findings:\n${security}\n\n` : ""}${quality ? `Quality signals:\n${quality}\n\n` : ""}${rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}`).join("\n")}\n\nProfile: ${profile} | Verified citations: ${analysis.trace.citedSources}${walkthrough}`;
   const octokit = await createGithubClient(true);
   try {
     const response = await octokit.rest.pulls.createReview({ owner: ref.owner, repo: ref.repo, pull_number: ref.number, commit_id: context.headSha, body, event, comments: comments.slice(0, 50) });
