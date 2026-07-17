@@ -1,8 +1,8 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { appendSessionTurn, cleanupSessions, deleteAllSessions, deleteSession, forkSession, listSessions, openSession, pruneSessions, readSession, renameSession, renderSessionMarkdown, sessionFiles } from "./sessions";
+import { appendSessionTurn, cleanupSessions, compactSession, deleteAllSessions, deleteSession, forkSession, listSessions, openSession, pruneSessions, readSession, renameSession, renderSessionMarkdown, sessionCheckpoints, sessionFiles } from "./sessions";
 
 describe("persistent chat sessions", () => {
   it("creates, appends, resumes, and lists an inspectable JSONL session", async () => {
@@ -43,5 +43,22 @@ describe("persistent chat sessions", () => {
     expect((await listSessions(root)).length).toBe(1);
     expect((await readSession(root, first.id)) === undefined || (await readSession(root, "second")) === undefined).toBe(true);
     expect(await cleanupSessions(root, 0)).toBe(1);
+  });
+
+  it("compacts old turns into an inspectable archive and checkpoint", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mergeproof-session-compaction-"));
+    try {
+      const session = await openSession(root, "long-lived");
+      for (const request of ["one", "two", "three"]) await appendSessionTurn(root, session.id, { action: "ask", request, outcome: "success", summary: `Answer ${request}` });
+      const compacted = await compactSession(root, session.id, 1);
+      expect(compacted.turns).toHaveLength(1);
+      expect(compacted.checkpoints).toHaveLength(1);
+      expect(compacted.checkpoints[0].archivedTurns).toBe(2);
+      expect(await sessionCheckpoints(root, session.id)).toHaveLength(1);
+      expect(await sessionFiles(root, session.id)).toHaveLength(2);
+      expect(renderSessionMarkdown(compacted)).toContain("## Checkpoints");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

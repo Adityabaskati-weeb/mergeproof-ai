@@ -20,7 +20,7 @@ import { readRepositoryMemory } from "../lib/memory";
 import { readAuditEvents } from "../lib/audit";
 import { readReviewState, updateReviewState } from "../lib/review-state";
 import { inspectConflicts, resolveConflicts, type ConflictReport, type ConflictResolution } from "../lib/conflicts";
-import { addKnowledge, readKnowledge } from "../lib/knowledge";
+import { addKnowledge, approveKnowledge, proposeKnowledge, readKnowledge, readKnowledgeProposals, rejectKnowledge } from "../lib/knowledge";
 import { startGithubWebhookServer } from "../lib/webhook";
 import { createGithubIssueFromAnalysis } from "../lib/github-issues";
 import { fetchGithubReviewThreads, resolveGithubReviewThreads } from "../lib/github-threads";
@@ -49,7 +49,7 @@ import { readPlanHistory, recordPlanVersion } from "../lib/plan-history";
 import { createReviewBundle, verifyReviewBundle } from "../lib/review-bundle";
 import { runInteractiveChat } from "../lib/chat";
 import { runChatTurn, type ChatTurnAction } from "../lib/chat-turn";
-import { cleanupSessions, deleteAllSessions, deleteSession, forkSession, listSessions, pruneSessions, readSession, renameSession, renderSessionMarkdown, sessionFiles } from "../lib/sessions";
+import { cleanupSessions, compactSession, deleteAllSessions, deleteSession, forkSession, listSessions, pruneSessions, readSession, renameSession, renderSessionMarkdown, sessionCheckpoints, sessionFiles } from "../lib/sessions";
 import { runFleetAsk, runFleetPlan, runFleetReview } from "../lib/fleet";
 import { runAcpStdio, startAcpTcpServer } from "../lib/acp";
 import { assertPermission, readPermissionPolicy, renderPermissionPolicy } from "../lib/permissions";
@@ -66,6 +66,7 @@ import { requestRemoteTurn, type RemoteAction } from "../lib/remote";
 import { renderSearchResults, searchWorkspace } from "../lib/search";
 import { discoverWorkspacePlugins, renderWorkspacePlugins } from "../lib/plugins";
 import { cancelTask, isTaskAction, listTasks, readTask, runTaskWorker, startTask, pruneTasks } from "../lib/tasks";
+import { readLspConfig, renderLspConfig, testLspServers } from "../lib/lsp";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -367,6 +368,20 @@ program.command("plugins").alias("extensions").description("Discover local Merge
   }
 });
 
+const lspCommand = program.command("lsp").description("Inspect or test repository-scoped LSP server configuration");
+lspCommand.command("show").description("Show supported .github/lsp.json or .mergeproof/lsp.json configuration").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  const config = await readLspConfig(options.repo);
+  if (options.json) console.log(JSON.stringify(config, null, 2));
+  else console.log(renderLspConfig(config));
+});
+lspCommand.command("test").description("Check configured LSP server executables without starting a persistent server").argument("[server]", "Optional configured server name").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (server, options) => {
+  const config = await readLspConfig(options.repo);
+  const results = testLspServers(config, server);
+  if (options.json) console.log(JSON.stringify(results, null, 2));
+  else console.log(results.map((result) => `${result.available ? "PASS" : "WARN"} ${result.name}: ${result.message}`).join("\n") || "No LSP servers configured.");
+  process.exitCode = results.some((result) => !result.available) ? 2 : 0;
+});
+
 program.command("chat").description("Run an interactive evidence-backed CLI session").option("--repo <path>", "Repository path", process.cwd()).option("--session <id>", "Resume an existing session ID; otherwise create a new session").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--verify <command>", "Sandbox verification for implement actions: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Re-review an implementation patch before reporting success").option("--apply", "Apply an implementation patch only after verification and optional re-review").action(async (options) => {
   try {
     await runInteractiveChat({ repoPath: options.repo, sessionId: options.session, model: options.model, provider: options.provider, agent: options.agent, verify: parseVerificationCommand(options.verify), reReview: options.reReview, apply: options.apply });
@@ -516,6 +531,28 @@ sessionsCommand.command("files").description("Show the local storage files for a
     else console.log(files.join("\n"));
   } catch (error) {
     console.error(`MergeProof session files error: ${error instanceof Error ? error.message : "Session files lookup failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+sessionsCommand.command("compact").description("Archive older turns and retain a recent resumable session window").argument("<session-id>", "Session ID").option("--repo <path>", "Repository path", process.cwd()).option("--keep <number>", "Recent turns to retain", "20").option("--json", "Print machine-readable JSON").action(async (sessionId, options) => {
+  try {
+    const session = await compactSession(options.repo, sessionId, Number(options.keep));
+    if (options.json) console.log(JSON.stringify(session, null, 2));
+    else console.log(`Session ${session.id}: ${session.checkpoints.length} checkpoint(s), ${session.turns.length} active turn(s).`);
+  } catch (error) {
+    console.error(`MergeProof session compact error: ${error instanceof Error ? error.message : "Session compaction failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+sessionsCommand.command("checkpoints").description("List explicit session compaction checkpoints").argument("<session-id>", "Session ID").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (sessionId, options) => {
+  try {
+    const checkpoints = await sessionCheckpoints(options.repo, sessionId);
+    if (options.json) console.log(JSON.stringify(checkpoints, null, 2));
+    else console.log(checkpoints.map((checkpoint) => `${checkpoint.createdAt}\tarchived=${checkpoint.archivedTurns}\tretained=${checkpoint.retainedTurns}\tdigest=${checkpoint.digest}`).join("\n") || "No compaction checkpoints.");
+  } catch (error) {
+    console.error(`MergeProof session checkpoints error: ${error instanceof Error ? error.message : "Session checkpoint lookup failed."}`);
     process.exitCode = 1;
   }
 });
@@ -798,12 +835,29 @@ program.command("resolve").description("Inspect or explicitly resolve current Gi
   }
 });
 
-program.command("knowledge").description("Inspect or explicitly add repository-scoped review knowledge").argument("<repository>", "GitHub repository, for example owner/repo").option("--repo <path>", "Repository path", process.cwd()).option("--query <text>", "Filter facts by content").option("--limit <number>", "Maximum facts", "20").option("--add <fact>", "Add an explicitly approved human fact").option("--path <path...>", "Optional changed-file paths this fact applies to").option("--json", "Print machine-readable JSON").action(async (repository, options) => {
+program.command("knowledge").description("Inspect or govern repository-scoped review knowledge").argument("<repository>", "GitHub repository, for example owner/repo").option("--repo <path>", "Repository path", process.cwd()).option("--query <text>", "Filter facts by content").option("--limit <number>", "Maximum facts", "20").option("--add <fact>", "Add an explicitly approved human fact").option("--propose <fact>", "Create a pending learning proposal").option("--by <identity>", "Proposal author identity", "operator").option("--approve <id>", "Approve a pending proposal").option("--reject <id>", "Reject a pending proposal").option("--reason <text>", "Approval or rejection reason").option("--proposals", "List pending and decided learning proposals").option("--path <path...>", "Optional changed-file paths this fact applies to").option("--json", "Print machine-readable JSON").action(async (repository, options) => {
   try {
     const ref = parseRepository(repository);
     if (options.add) {
       const fact = await addKnowledge(options.repo, ref, options.add, options.path ?? []);
       console.log(options.json ? JSON.stringify(fact, null, 2) : `Knowledge fact ${fact.id} stored for ${fact.repository}.`);
+      return;
+    }
+    if (options.propose) {
+      const proposal = await proposeKnowledge(options.repo, ref, options.propose, options.path ?? [], options.by);
+      console.log(options.json ? JSON.stringify(proposal, null, 2) : `Knowledge proposal ${proposal.id} is ${proposal.status}.`);
+      return;
+    }
+    if (options.approve || options.reject) {
+      if (options.approve && options.reject) throw new Error("Choose either --approve or --reject.");
+      const proposal = options.approve ? await approveKnowledge(options.repo, options.approve, options.reason) : await rejectKnowledge(options.repo, options.reject, options.reason);
+      console.log(options.json ? JSON.stringify(proposal, null, 2) : `Knowledge proposal ${proposal.id}: ${proposal.status}.`);
+      return;
+    }
+    if (options.proposals) {
+      const proposals = await readKnowledgeProposals(options.repo, `${ref.owner}/${ref.repo}`, Number(options.limit));
+      if (options.json) console.log(JSON.stringify(proposals, null, 2));
+      else console.log(proposals.map((proposal) => `${proposal.id}\t${proposal.status}\t${proposal.proposedBy}\t${proposal.content}`).join("\n") || "No knowledge proposals.");
       return;
     }
     const facts = await readKnowledge(options.repo, ref, [], options.query ?? "", Number(options.limit));

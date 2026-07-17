@@ -8,7 +8,7 @@ import { fixPullRequest, simplifyPullRequest } from "./fix";
 import { generateTestsPullRequest } from "./tests";
 import { readSlackThread, recordSlackThread } from "./slack-memory";
 import { loadSlackAutomations, matchSlackAutomation } from "./slack-automations";
-import { addKnowledge } from "./knowledge";
+import { approveKnowledge, proposeKnowledge } from "./knowledge";
 import { createGithubClient } from "./github-auth";
 import { createGitLabIssue, createJiraIssue, createLinearIssue } from "./issues";
 import { autofixPullRequest } from "./autofix";
@@ -101,8 +101,12 @@ export async function runSlackCommand(command: SlackCommand, options: SlackAgent
   if (command.action === "learn") {
     if (!command.prUrl || !command.fact) throw new Error("Learn requires a fact and a change-request URL in the message or thread.");
     const target = parseChangeRequestUrl(command.prUrl);
-    const fact = await addKnowledge(options.repoPath || process.cwd(), target.ref, command.fact);
-    return `MergeProof learned for ${fact.repository}: ${fact.content}`;
+    const proposal = await proposeKnowledge(options.repoPath || process.cwd(), target.ref, command.fact, [], "slack");
+    if (process.env.MERGEPROOF_SLACK_LEARN_AUTO_APPROVE === "true") {
+      const fact = await approveKnowledge(options.repoPath || process.cwd(), proposal.id, "Auto-approved by explicit Slack policy.");
+      return `MergeProof learned for ${fact.repository}: ${fact.content}`;
+    }
+    return `MergeProof learning proposal ${proposal.id} is pending approval for ${proposal.repository}.`;
   }
   if (command.action === "pause" || command.action === "resume") {
     if (!options.repoPath) throw new Error("Slack review lifecycle controls require an explicit repository path.");
