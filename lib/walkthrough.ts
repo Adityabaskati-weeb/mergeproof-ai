@@ -61,6 +61,51 @@ function buildSequenceDiagram(layers: WalkthroughLayer[]): string {
   return ["sequenceDiagram", "  autonumber", "  Note over " + layers[0]?.id + ": Evidence-derived change flow; not a runtime execution trace", participants, notes, edges].filter(Boolean).join("\n");
 }
 
+type EntityEvidence = { name: string; source: string; citation: WalkthroughCitation };
+
+function entityName(value: string): string {
+  const words = value.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[^a-zA-Z0-9]+/).filter(Boolean);
+  const name = words.map((word) => word[0].toUpperCase() + word.slice(1)).join("").replace(/[^a-zA-Z0-9]/g, "");
+  return (name || "Change").slice(0, 32);
+}
+
+function entityEvidenceFor(context: PullRequestContext): EntityEvidence[] {
+  const results: EntityEvidence[] = [];
+  const seen = new Set<string>();
+  for (const file of context.files) {
+    const signal = `${file.path}\n${file.patch ?? ""}`;
+    const candidates = [
+      ...Array.from(signal.matchAll(/\b(?:class|interface|type|model|entity|table)\s+([A-Za-z][A-Za-z0-9_]*)/gi)).map((match) => match[1]),
+      ...(/(?:schema|model|entity|migration|table|database)/i.test(file.path) ? [file.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? file.path] : []),
+    ];
+    for (const candidate of candidates) {
+      const name = entityName(candidate);
+      if (seen.has(name)) continue;
+      seen.add(name);
+      results.push({ name, source: file.path, citation: citationFor(file, context.headSha) });
+    }
+  }
+  return results.slice(0, 32);
+}
+
+function buildEntityRelationshipDiagram(context: PullRequestContext, entities: EntityEvidence[]): string {
+  const lines = ["erDiagram", "  %% Evidence-derived schema impact; not a complete database model"];
+  for (const entity of entities) lines.push(`  ${entity.name} {`, `    string source`, "  }");
+  const byName = new Set(entities.map((entity) => entity.name));
+  const relationships = new Set<string>();
+  for (const file of context.files) {
+    const signal = file.patch ?? "";
+    for (const match of signal.matchAll(/\b([A-Za-z][A-Za-z0-9_]*)\s*(?:belongsTo|hasMany|hasOne|references|foreignKey)\s*[(:=\[]*\s*([A-Za-z][A-Za-z0-9_]*)/gi)) {
+      const left = entityName(match[1]);
+      const right = entityName(match[2]);
+      if (left !== right && byName.has(left) && byName.has(right)) relationships.add(`  ${left} }o--o{ ${right} : explicit_reference`);
+    }
+  }
+  lines.push(...relationships);
+  if (!entities.length) lines.push("  CHANGE {", "    string note", "  }");
+  return lines.join("\n");
+}
+
 export function buildWalkthrough(context: PullRequestContext, analysis?: Pick<Analysis, "contract" | "decision">): ReviewWalkthrough {
   const grouped = new Map<string, { definition: LayerDefinition; files: WalkthroughLayer["files"] }>();
   for (const file of context.files) {
@@ -83,10 +128,13 @@ export function buildWalkthrough(context: PullRequestContext, analysis?: Pick<An
   if (context.securityFindings?.some((finding) => finding.category === "privacy")) labels.add("privacy");
   if (context.checks.some((check) => check.conclusion && !["success", "neutral", "skipped"].includes(check.conclusion.toLowerCase()))) labels.add("needs-evidence");
   if (analysis?.decision === "needs-owner") labels.add("needs-owner");
+  const entityEvidence = entityEvidenceFor(context);
   return {
     summary,
     changeStack: layers,
     sequenceDiagram: buildSequenceDiagram(layers.length ? layers : [{ id: "change", title: "Change", purpose: "Fetched change-request evidence.", files: [], citations: [] }]),
+    entityRelationshipDiagram: buildEntityRelationshipDiagram(context, entityEvidence),
+    entityEvidence,
     effortScore: effort.score,
     effortReason: effort.reason,
     relatedIssues: (context.issues ?? []).map((issue) => ({ provider: issue.provider, key: issue.key, summary: issue.summary, url: issue.url })),
@@ -103,5 +151,6 @@ export function renderWalkthroughMarkdown(walkthrough: ReviewWalkthrough, decisi
   const issues = walkthrough.relatedIssues.length ? `\n### Related issues\n${walkthrough.relatedIssues.map((issue) => `- [${issue.key}](${issue.url}) ${issue.summary}`).join("\n")}` : "";
   const reviewers = walkthrough.suggestedReviewers.length ? `\n### Suggested reviewers\n${walkthrough.suggestedReviewers.map((reviewer) => `- ${reviewer}`).join("\n")}` : "";
   const labels = walkthrough.suggestedLabels.length ? `\n### Suggested labels\n${walkthrough.suggestedLabels.map((label) => `- \`${label}\``).join("\n")}` : "";
-  return ["## MergeProof walkthrough", decision ? `**Decision:** ${decision}` : "", `**Evidence mode:** ${walkthrough.evidenceMode} | **Review effort:** ${walkthrough.effortScore}/5`, `\n${walkthrough.summary}`, `\n### Change stack\n| Layer | Purpose | Files | Citations |\n| --- | --- | ---: | ---: |\n${stack || "| No changed files returned | | 0 | 0 |"}`, `\n### Changed files\n${files || "No changed file evidence was returned."}`, `\n### Change flow\n\n\`\`\`mermaid\n${walkthrough.sequenceDiagram}\n\`\`\``, `\n### Effort rationale\n${walkthrough.effortReason}`, issues, reviewers, labels, `\nVerified file citations: ${walkthrough.citations.length}`].filter(Boolean).join("\n");
+  const entities = walkthrough.entityEvidence.length ? `\n### Schema evidence\n${walkthrough.entityEvidence.map((entity) => `- **${entity.name}** from \`${entity.source}\` [evidence](${entity.citation.url})`).join("\n")}` : "\nNo schema/model entities were detected in the fetched change evidence.";
+  return ["## MergeProof walkthrough", decision ? `**Decision:** ${decision}` : "", `**Evidence mode:** ${walkthrough.evidenceMode} | **Review effort:** ${walkthrough.effortScore}/5`, `\n${walkthrough.summary}`, `\n### Change stack\n| Layer | Purpose | Files | Citations |\n| --- | --- | ---: | ---: |\n${stack || "| No changed files returned | | 0 | 0 |"}`, `\n### Changed files\n${files || "No changed file evidence was returned."}`, `\n### Change flow\n\n\`\`\`mermaid\n${walkthrough.sequenceDiagram}\n\`\`\``, `\n### Schema impact\n\n\`\`\`mermaid\n${walkthrough.entityRelationshipDiagram}\n\`\`\`\n${entities}`, `\n### Effort rationale\n${walkthrough.effortReason}`, issues, reviewers, labels, `\nVerified file citations: ${walkthrough.citations.length}`].filter(Boolean).join("\n");
 }

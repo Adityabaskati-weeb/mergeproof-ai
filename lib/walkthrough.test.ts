@@ -29,6 +29,8 @@ describe("review walkthrough", () => {
     expect(walkthrough.effortScore).toBe(1);
     expect(walkthrough.sequenceDiagram).toContain("sequenceDiagram");
     expect(walkthrough.sequenceDiagram).toContain("Evidence-derived change flow");
+    expect(walkthrough.entityRelationshipDiagram).toContain("erDiagram");
+    expect(walkthrough.entityEvidence.map((entity) => entity.name)).toContain("Payment");
     expect(walkthrough.suggestedReviewers).toEqual(["@payments-team"]);
     expect(walkthrough.suggestedLabels).toEqual(["tests"]);
   });
@@ -41,5 +43,7 @@ describe("review walkthrough", () => {
     expect(markdown).toContain("src/payment/service.ts");
     expect(markdown).toContain("https://github.com/acme/app/blob/head-sha/src/payment/service.ts");
     expect(markdown).toContain("```mermaid");
+    expect(markdown).toContain("### Schema impact");
+    expect(markdown).toContain("src/types/payment.ts");
   });
 });

@@ -29,7 +29,7 @@ fn cli_args(
     remember: bool,
     re_review: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -149,7 +149,7 @@ fn cli_args(
     } else if let Some(provider) = provider.as_deref().filter(|value| !value.trim().is_empty()) {
         args.extend(["--provider".to_string(), provider.to_string()]);
     }
-    if matches!(command, "analyze" | "consensus" | "walkthrough") {
+    if matches!(command, "analyze" | "consensus" | "walkthrough" | "erd") {
         if let Some(effort) = effort.as_deref().filter(|value| !value.trim().is_empty()) {
             args.extend(["--effort".to_string(), effort.to_string()]);
         }

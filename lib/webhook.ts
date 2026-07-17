@@ -53,7 +53,7 @@ export function verifyGithubWebhookSignature(body: string, signature: string | u
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
-const COMMENT_COMMANDS = "full review|review|generate sequence diagram|sequence diagram|generate unit tests|unit tests|generate docstrings|docstrings|plan|issue|summary|diagram|implement|generate configuration|configuration|resolve|autofix stacked pr|autofix|run|help|pause|resume|ignore|unignore";
+const COMMENT_COMMANDS = "full review|review|generate sequence diagram|sequence diagram|entity relationship diagram|generate erd|erd|generate unit tests|unit tests|generate docstrings|docstrings|plan|issue|summary|diagram|implement|generate configuration|configuration|resolve|autofix stacked pr|autofix|run|help|pause|resume|ignore|unignore";
 
 export function parseGithubCommentCommand(body: string | undefined): { command: string; instruction: string } | undefined {
   const match = body?.match(new RegExp(`^\\s*\\/mergeproof\\s+(${COMMENT_COMMANDS})\\b([^\\r\\n]*)`, "im"));
@@ -83,7 +83,7 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       return { accepted: true, prUrl: issueUrl };
     }
     if (command === "help") {
-      await publishPullRequestComment(issueUrl, "## MergeProof commands\n\n- `/mergeproof review` or `/mergeproof full review` - run the evidence gate\n- `/mergeproof summary` - publish the cited walkthrough and change stack\n- `/mergeproof diagram` or `/mergeproof generate sequence diagram` - publish the evidence-derived Mermaid change flow\n- `/mergeproof docstrings` or `/mergeproof generate docstrings` - publish a documentation-only patch suggestion\n- `/mergeproof generate unit tests` - publish a test-only patch suggestion\n- `/mergeproof plan` - publish a cited implementation plan\n- `/mergeproof implement <request>` - create a separate verified PR from an explicit natural-language request\n- `/mergeproof autofix` or `/mergeproof autofix stacked pr` - verify review-thread fixes in a sandbox and optionally open a separate PR\n- `/mergeproof run <recipe>` - execute a configured finishing-touch recipe in a separate verified PR\n- `/mergeproof configuration` or `/mergeproof generate configuration` - inspect or create the repository policy\n- `/mergeproof resolve` - resolve current review threads explicitly requested by the comment\n- `/mergeproof issue` - create a follow-up GitHub issue\n- `/mergeproof pause` or `/mergeproof resume` - control automatic reviews\n- `/mergeproof ignore` or `/mergeproof unignore` - control this PR's automatic reviews\n\nMergeProof never edits the source branch or merges a pull request from a comment.");
+      await publishPullRequestComment(issueUrl, "## MergeProof commands\n\n- `/mergeproof review` or `/mergeproof full review` - run the evidence gate\n- `/mergeproof summary` - publish the cited walkthrough and change stack\n- `/mergeproof diagram` or `/mergeproof generate sequence diagram` - publish the evidence-derived Mermaid change flow\n- `/mergeproof erd` or `/mergeproof entity relationship diagram` - publish the evidence-derived schema impact diagram\n- `/mergeproof docstrings` or `/mergeproof generate docstrings` - publish a documentation-only patch suggestion\n- `/mergeproof generate unit tests` - publish a test-only patch suggestion\n- `/mergeproof plan` - publish a cited implementation plan\n- `/mergeproof implement <request>` - create a separate verified PR from an explicit natural-language request\n- `/mergeproof autofix` or `/mergeproof autofix stacked pr` - verify review-thread fixes in a sandbox and optionally open a separate PR\n- `/mergeproof run <recipe>` - execute a configured finishing-touch recipe in a separate verified PR\n- `/mergeproof configuration` or `/mergeproof generate configuration` - inspect or create the repository policy\n- `/mergeproof resolve` - resolve current review threads explicitly requested by the comment\n- `/mergeproof issue` - create a follow-up GitHub issue\n- `/mergeproof pause` or `/mergeproof resume` - control automatic reviews\n- `/mergeproof ignore` or `/mergeproof unignore` - control this PR's automatic reviews\n\nMergeProof never edits the source branch or merges a pull request from a comment.");
       return { accepted: true, prUrl: issueUrl };
     }
     if (command === "configuration" || command === "generate configuration") {
@@ -149,9 +149,15 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       return { accepted: true, prUrl: issueUrl };
     }
     const analysis = await analyzePullRequest(issueUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
-    if (command === "summary" || command === "diagram" || command === "sequence diagram" || command === "generate sequence diagram") {
+    if (command === "summary" || command === "diagram" || command === "sequence diagram" || command === "generate sequence diagram" || command === "erd" || command === "generate erd" || command === "entity relationship diagram") {
       const walkthrough = analysis.walkthrough;
       if (!walkthrough) return { accepted: false, reason: "walkthrough_unavailable", prUrl: issueUrl, analysis };
+      if (command === "erd" || command === "generate erd" || command === "entity relationship diagram") {
+        const entities = walkthrough.entityEvidence.length ? `\n\n${walkthrough.entityEvidence.map((entity) => `- **${entity.name}** from \`${entity.source}\` [evidence](${entity.citation.url})`).join("\n")}` : "\n\nNo schema/model entities were detected in the fetched change evidence.";
+        await publishPullRequestComment(issueUrl, `## MergeProof schema impact\n\n\`\`\`mermaid\n${walkthrough.entityRelationshipDiagram}\n\`\`\`${entities}`);
+        options.log?.(`MergeProof published ${command} for ${issueUrl}`);
+        return { accepted: true, prUrl: issueUrl, analysis };
+      }
       const diagramCommand = command === "diagram" || command === "sequence diagram" || command === "generate sequence diagram";
       const body = diagramCommand ? `## MergeProof change flow\n\n\`\`\`mermaid\n${walkthrough.sequenceDiagram}\n\`\`\`\n\nEvidence citations: ${walkthrough.citations.length}` : renderWalkthroughMarkdown(walkthrough, analysis.decision);
       await publishPullRequestComment(issueUrl, body);

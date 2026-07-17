@@ -439,6 +439,26 @@ program.command("walkthrough").description("Generate an evidence-backed PR summa
   }
 });
 
+program.command("erd").description("Generate an evidence-backed Mermaid entity relationship impact diagram").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the ERD JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--publish", "Publish the ERD as a GitHub PR comment").action(async (prUrl, options) => {
+  try {
+    const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo });
+    if (!analysis.walkthrough) throw new Error("ERD generation returned no artifact.");
+    const output = { decision: analysis.decision, diagram: analysis.walkthrough.entityRelationshipDiagram, entities: analysis.walkthrough.entityEvidence, trace: analysis.trace };
+    if (options.save) await writeFile(options.save, JSON.stringify(output, null, 2), "utf8");
+    if (options.publish) {
+      if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i.test(prUrl)) throw new Error("--publish currently supports GitHub pull requests only.");
+      const entityLines = output.entities.map((entity) => `- **${entity.name}** from \`${entity.source}\` [evidence](${entity.citation.url})`);
+      const body = ["## MergeProof schema impact", "", "```mermaid", output.diagram, "```", "", entityLines.join("\n") || "No schema/model entities were detected."].join("\n");
+      console.error(`ERD published: ${await publishPullRequestComment(prUrl, body)}`);
+    }
+    if (options.json) console.log(JSON.stringify(output, null, 2));
+    else console.log(`${output.diagram}\n\nEntities: ${output.entities.map((entity) => `${entity.name} (${entity.source})`).join(", ") || "none"}`);
+  } catch (error) {
+    console.error(`MergeProof ERD error: ${error instanceof Error ? error.message : "ERD generation failed."}`);
+    process.exitCode = 1;
+  }
+});
+
 program.command("consensus").description("Run independent model reviews and require evidence consensus").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the consensus JSON to a file").option("--model <model...>", "Two or more model names").option("--provider <provider...>", "Provider for each model").option("--repo <path>", "Local checkout to use for repository retrieval").option("--related-repo <path...>", "Additional local repositories for read-only context").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--mcp", "Use explicitly configured read-only MCP context tools").option("--web-search", "Use opt-in web-search snippets as external context").action(async (prUrl, options) => {
   try {
     const consensus = await runConsensus(prUrl, { models: options.model, providers: options.provider, provider: options.provider?.[0], repoPath: options.repo, relatedRepos: options.relatedRepo, effort: parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, mcp: options.mcp, webSearch: options.webSearch });

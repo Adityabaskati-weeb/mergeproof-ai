@@ -74,6 +74,8 @@ export type ReviewWalkthrough = {
   summary: string;
   changeStack: WalkthroughLayer[];
   sequenceDiagram: string;
+  entityRelationshipDiagram: string;
+  entityEvidence: Array<{ name: string; source: string; citation: WalkthroughCitation }>;
   effortScore: 1 | 2 | 3 | 4 | 5;
   effortReason: string;
   relatedIssues: Array<{ provider: string; key: string; summary: string; url: string }>;

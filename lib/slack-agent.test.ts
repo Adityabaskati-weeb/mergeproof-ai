@@ -18,6 +18,8 @@ describe("Slack agent boundary", () => {
     expect(parseSlackCommand("autofix https://github.com/acme/payments/pull/42")).toEqual({ action: "autofix", prUrl: "https://github.com/acme/payments/pull/42" });
     expect(parseSlackCommand("autofix stacked pr https://github.com/acme/payments/pull/42")).toEqual({ action: "autofix", prUrl: "https://github.com/acme/payments/pull/42", stackedPr: true });
     expect(parseSlackCommand("summary https://github.com/acme/payments/pull/42")).toEqual({ action: "walkthrough", prUrl: "https://github.com/acme/payments/pull/42" });
+    expect(parseSlackCommand("erd https://github.com/acme/payments/pull/42")).toEqual({ action: "erd", prUrl: "https://github.com/acme/payments/pull/42" });
+    expect(parseSlackCommand("entity relationship diagram https://github.com/acme/payments/pull/42")).toEqual({ action: "erd", prUrl: "https://github.com/acme/payments/pull/42" });
     expect(parseSlackCommand("docstrings https://github.com/acme/payments/pull/42")).toEqual({ action: "docstrings", prUrl: "https://github.com/acme/payments/pull/42" });
     expect(parseSlackCommand("pause")).toEqual({ action: "pause" });
     expect(parseSlackCommand("resume")).toEqual({ action: "resume" });

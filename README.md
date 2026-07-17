@@ -14,6 +14,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof docstrings <change-request-url>` documentation-only patch suggestions
 - `mergeproof consensus <change-request-url> --model <model...>` independent model evidence consensus
 - `mergeproof walkthrough <change-request-url>` cited PR summary, ordered change stack, effort estimate, and Mermaid change flow
+- `mergeproof erd <change-request-url>` evidence-backed Mermaid schema/entity impact diagram
 - `mergeproof conflicts [repo-path]` merge-conflict inspection and explicitly gated resolution patches
 - `mergeproof feedback <change-request-url> <label>` and `mergeproof metrics` outcome feedback and ready-decision calibration
 - `mergeproof verify <analysis-json>` to independently verify a saved analysis attestation
@@ -51,7 +52,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Persist bounded, repository-scoped review memory locally for future context
 - Store explicitly approved, repository- and path-scoped knowledge facts locally
 - Suggest reviewers from `.github/CODEOWNERS` and `.mergeproof/reviewers.json`
-- Publish an evidence-derived walkthrough with changed-file layers, related issues, reviewer suggestions, and a non-runtime Mermaid change-flow diagram
+- Publish an evidence-derived walkthrough with changed-file layers, related issues, reviewer suggestions, a non-runtime Mermaid change-flow diagram, and conservative schema impact ERD output
 - Accept signed GitHub pull-request webhooks for automatic review runs
 - Run governed Slack message automations configured by channel, author, and text match
 - Accept signed custom automation webhooks with event, nested-field, and change-request URL matching

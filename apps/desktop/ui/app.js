@@ -23,7 +23,7 @@ const agentProfile = document.querySelector("#agent-profile");
 const relatedRepos = document.querySelector("#related-repos");
 
 function updateActionLabel() {
-  const labels = { analyze: "Analyze change", ask: "Ask repository", report: "Review report", walkthrough: "Generate walkthrough", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
+  const labels = { analyze: "Analyze change", ask: "Ask repository", report: "Review report", walkthrough: "Generate walkthrough", erd: "Generate schema impact", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
   const criteriaLabel = document.querySelector('label[for="criteria"]');
   button.innerHTML = `${labels[action.value]} <span>&rarr;</span>`;
   const local = ["review", "agent", "conflicts", "ask", "report"].includes(action.value);
@@ -80,6 +80,8 @@ button.addEventListener("click", async () => {
     } else if (action.value === "walkthrough") {
       const walkthrough = output.walkthrough;
       result.innerHTML = `<h2>PR WALKTHROUGH</h2><p>Decision: ${escapeHtml(output.decision)} &middot; Effort: ${escapeHtml(walkthrough.effortScore)}/5 &middot; ${walkthrough.citations.length} cited files</p><p>${escapeHtml(walkthrough.summary)}</p><div class="evidence">${walkthrough.changeStack.map((layer, index) => `<div class="row"><span>${index + 1}. ${escapeHtml(layer.title)}<br /><small>${escapeHtml(layer.purpose)}</small></span><code>${layer.files.length} files</code><span class="badge">${layer.citations.length} CITED</span></div>`).join("")}</div><h3>Evidence-derived change flow</h3><pre class="patch">${escapeHtml(walkthrough.sequenceDiagram)}</pre>`;
+    } else if (action.value === "erd") {
+      result.innerHTML = `<h2>SCHEMA IMPACT</h2><p>Decision: ${escapeHtml(output.decision)} &middot; ${output.entities.length} evidence-backed entities</p><pre class="patch">${escapeHtml(output.diagram)}</pre><div class="evidence">${output.entities.map((entity) => `<div class="row"><span>${escapeHtml(entity.name)}</span><code>${escapeHtml(entity.source)}</code><span class="badge">CITED</span></div>`).join("") || "No schema/model entities detected."}</div>`;
     } else if (action.value === "report") {
       const decisions = Object.entries(output.reviews.decisions || {}).map(([key, value]) => `${escapeHtml(key)}=${value}`).join(", ") || "none";
       result.innerHTML = `<h2>REVIEW REPORT</h2><p>${output.reviews.total} reviews &middot; ${output.reviews.targets} targets &middot; ${output.reviews.attested} attested</p><p>Decisions: ${decisions}</p><p>Outcomes: ${output.outcomes.total} &middot; ${output.outcomes.readyCalibration ? `${Math.round(output.outcomes.readyCalibration.rate * 100)}% ready calibration` : "not enough judged outcomes"}</p>`;
