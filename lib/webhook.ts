@@ -27,6 +27,7 @@ import { processDiscordInteraction, verifyDiscordRequestSignature } from "./disc
 import { runChatTurn, type ChatTurnAction } from "./chat-turn";
 import { assertPermission } from "./permissions";
 import { loadPolicy } from "./policy";
+import { runPostMergeActions } from "./post-merge";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -206,6 +207,14 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
     const memory = await readReviewMemory(root, ref, "", 500);
     const analysisEntry = memory.find((entry) => entry.prUrl.replace(/\/$/, "") === ref.url);
     const outcome = await recordOutcome(root, ref, ref.url, value.pull_request.merged === true ? "merged" : "closed-unmerged", analysisEntry ? { predictedDecision: analysisEntry.decision, headSha: analysisEntry.headSha, attestation: undefined } : {});
+    if (value.pull_request.merged === true && process.env.MERGEPROOF_POST_MERGE_ACTIONS === "true") {
+      try {
+        const postMerge = await runPostMergeActions(ref.url, options.model, { repoPath: options.repoPath, provider: options.provider, publishComment: process.env.MERGEPROOF_POST_MERGE_PUBLISH_COMMENT === "true" });
+        options.log?.(`MergeProof ran ${postMerge.results.length} post-merge action(s) for ${ref.url}`);
+      } catch (error) {
+        options.log?.(`MergeProof post-merge actions failed for ${ref.url}: ${error instanceof Error ? error.message : "unknown error"}`);
+      }
+    }
     options.log?.(`MergeProof recorded ${outcome.label} for ${ref.url}`);
     return { accepted: true, prUrl: ref.url };
   }

@@ -7,6 +7,7 @@ export type CheckPublicationOptions = { mode?: ReviewMode };
 
 export function checkConclusionForAnalysis(analysis: Analysis, mode: ReviewMode = analysis.trace.reviewMode ?? "enforce"): "success" | "neutral" | "failure" {
   if (mode === "shadow") return "neutral";
+  if (analysis.trace.blockingFailures === 0 && (analysis.trace.customCheckWarnings ?? 0) > 0) return "neutral";
   return analysis.decision === "ready" ? "success" : analysis.decision === "needs-owner" ? "neutral" : "failure";
 }
 
@@ -30,7 +31,7 @@ export async function publishPullRequestCheck(prUrl: string, analysis: Analysis,
     return response.data.html_url ?? undefined;
   } catch (error) {
     if (!(error instanceof Error) || !/403|forbidden|check/i.test(error.message)) throw error;
-    const status = mode === "shadow" || analysis.decision === "ready" ? "success" : "failure";
+    const status = conclusion === "failure" ? "failure" : "success";
     await octokit.rest.repos.createCommitStatus({ owner: ref.owner, repo: ref.repo, sha: context.headSha, state: status, context: mode === "shadow" ? "MergeProof evidence gate (shadow)" : "MergeProof evidence gate", description: `MergeProof${mode === "shadow" ? " shadow" : ""}: ${analysis.decision}` });
     return ref.url;
   }

@@ -2,10 +2,18 @@ export type EvidenceState = "pass" | "warn" | "fail";
 export type ReviewEffort = "low" | "medium" | "high";
 export type ReviewProfile = "quiet" | "chill" | "assertive";
 export type ReviewMode = "enforce" | "shadow";
+export type PreMergeCheckMode = "off" | "warning" | "error";
 
 export type CustomCheck = {
   name: string;
   instructions: string;
+  mode?: PreMergeCheckMode;
+};
+
+export type PostMergeAction = {
+  name: string;
+  prompt: string;
+  enabled?: boolean;
 };
 
 export type EvidenceChunk = {
@@ -127,6 +135,8 @@ export type Analysis = {
     reviewThreadsUnavailable?: string;
     hooks?: { enabled: boolean; before: string[]; after: string[]; failed: string[] };
     customChecks?: number;
+    customCheckWarnings?: number;
+    blockingFailures?: number;
     reviewMode?: ReviewMode;
   };
 };

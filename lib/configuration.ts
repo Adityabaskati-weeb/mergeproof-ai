@@ -66,5 +66,6 @@ export function renderConfiguration(snapshot: ConfigurationSnapshot): string {
     "Instruction files: " + (snapshot.instructionFiles.length ? snapshot.instructionFiles.join(", ") : "none"),
     "Recipes: " + (snapshot.recipes.length ? snapshot.recipes.join(", ") : "none"),
     "Custom checks: " + (snapshot.customChecks.length ? snapshot.customChecks.join(", ") : "none"),
+    "Post-merge actions: " + (snapshot.policy.postMergeActions?.filter((action) => action.enabled !== false).map((action) => action.name).join(", ") || "none"),
   ].join("\n");
 }

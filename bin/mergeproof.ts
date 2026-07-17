@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import "dotenv/config";
 import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { Command } from "commander";
 import { analyzePullRequest } from "../lib/analyze";
 import { scanRepositorySecurity } from "../lib/security";
@@ -72,6 +73,8 @@ import { readPrompts, renderPromptRecord } from "../lib/prompt-log";
 import { readReviewStats } from "../lib/stats";
 import { importCoderabbitConfiguration, readCoderabbitConfiguration } from "../lib/coderabbit-config";
 import { loadPolicy } from "../lib/policy";
+import { createPullRequest, viewPullRequest } from "../lib/pr";
+import { runPostMergeActions } from "../lib/post-merge";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -264,6 +267,61 @@ program.option("--config <file>", "Additional repository-bound instruction file 
 program.command("index").description("Build a local repository evidence index").argument("[repo-path]", "Repository path", process.cwd()).action(async (repoPath) => {
   const result = await indexRepository(repoPath);
   console.log(JSON.stringify({ indexPath: result.path, commitSha: result.index.commitSha, chunks: result.index.chunks.length }, null, 2));
+});
+
+const pullRequestCommand = program.command("pr").description("Manage GitHub pull requests with evidence and explicit publication controls");
+pullRequestCommand.command("view").description("Show live pull-request metadata, checks, and unresolved threads").argument("<github-pull-request-url>", "GitHub pull request URL").option("--json", "Print machine-readable JSON").action(async (prUrl, options) => {
+  try {
+    const result = await viewPullRequest(parsePullRequestUrl(prUrl));
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.title}\n${result.url}\n\n${result.state}${result.merged ? " (merged)" : ""}${result.draft ? " (draft)" : ""}\nHead: ${result.headBranch} @ ${result.headSha}\nBase: ${result.baseBranch} @ ${result.baseSha}\nChanged files: ${result.changedFiles} (+${result.additions}/-${result.deletions})\nChecks: ${result.checks}\nReview comments: ${result.reviewComments}\nUnresolved review threads: ${result.unresolvedReviewThreads}`);
+  } catch (error) {
+    console.error(`MergeProof pr view error: ${error instanceof Error ? error.message : "Pull-request inspection failed."}`);
+    process.exitCode = 1;
+  }
+});
+pullRequestCommand.command("create").description("Push the current clean branch and create a GitHub pull request").requiredOption("--repo <path>", "Local Git repository").requiredOption("--title <title>", "Pull-request title").option("--body <text>", "Pull-request body").option("--body-file <path>", "Read the pull-request body from a repository-local file").option("--base <branch>", "Base branch").option("--draft", "Create a draft pull request").option("--verify <command>", "Verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--reviewer <reviewer...>", "GitHub username or team:<slug> reviewer").option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    if (options.body && options.bodyFile) throw new Error("Choose either --body or --body-file.");
+    const body = options.bodyFile ? await readFile(resolve(options.repo, options.bodyFile), "utf8") : options.body;
+    const result = await createPullRequest({ repoPath: options.repo, title: options.title, body, base: options.base, draft: options.draft, verify: parseVerificationCommand(options.verify), reviewers: options.reviewer });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`Created ${result.url}\nHead: ${result.head}\nBase: ${result.base}\nVerification: ${result.verified ? "passed" : "not requested"}`);
+  } catch (error) {
+    console.error(`MergeProof pr create error: ${error instanceof Error ? error.message : "Pull-request creation failed."}`);
+    process.exitCode = 1;
+  }
+});
+pullRequestCommand.command("fix").description("Create a verified follow-up or stacked pull request for unresolved review findings").argument("<github-pull-request-url>", "GitHub pull request URL").requiredOption("--repo <path>", "Checkout at the pull-request head SHA").option("--verify <command>", "Verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--stacked", "Create a stacked pull request instead of a branch update").option("--branch <name>", "Safe branch name for the follow-up pull request").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--json", "Print machine-readable JSON").action(async (prUrl, options) => {
+  try {
+    const result = await autofixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, verify: parseVerificationCommand(options.verify), reReview: true, createPr: true, stackedPr: options.stacked, branch: options.branch });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else printAutofix(result);
+  } catch (error) {
+    console.error(`MergeProof pr fix error: ${error instanceof Error ? error.message : "Pull-request fix failed."}`);
+    process.exitCode = 1;
+  }
+});
+pullRequestCommand.command("auto").description("Run the bounded verified autopilot and optionally apply its converged patch").argument("<request...>", "Implementation request").requiredOption("--repo <path>", "Local repository").requiredOption("--verify <command>", "Verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--max-iterations <number>", "Maximum correction attempts", "3").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--apply", "Apply only the converged, verified patch").option("--json", "Print machine-readable JSON").action(async (request, options) => {
+  try {
+    const result = await runAutopilot(request.join(" "), options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, verify: parseVerificationCommand(options.verify) as VerificationCommand, maxIterations: Number(options.maxIterations), apply: options.apply });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.summary}\n\nConverged: ${result.trace.converged ? "yes" : "no"}\nIterations: ${result.trace.iterations}\nApplied: ${result.trace.appliedToCheckout ? "yes" : "no"}`);
+  } catch (error) {
+    console.error(`MergeProof pr auto error: ${error instanceof Error ? error.message : "Pull-request autopilot failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("post-merge").description("Run explicitly configured, read-only CodeRabbit-style post-merge actions").argument("<change-request-url>", "Merged GitHub or supported provider change-request URL").option("--repo <path>", "Repository path", process.cwd()).option("--action <name>", "Run one named configured action").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--publish-comment", "Publish the action report as a provider comment").option("--json", "Print machine-readable JSON").action(async (prUrl, options) => {
+  try {
+    const result = await runPostMergeActions(prUrl, options.model, { repoPath: options.repo, actionName: options.action, provider: options.provider, publishComment: options.publishComment });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.results.map((entry) => `### ${entry.name}\n${entry.answer}`).join("\n\n")}\n\nRecorded: ${result.trace.recorded ? "yes" : "no"}`);
+  } catch (error) {
+    console.error(`MergeProof post-merge error: ${error instanceof Error ? error.message : "Post-merge action failed."}`);
+    process.exitCode = 1;
+  }
 });
 
 program.command("configuration").alias("config").description("Inspect, migrate, or explicitly generate the repository MergeProof policy").option("--repo <path>", "Repository path", process.cwd()).option("--generate", "Create .mergeproof/config.json when it is missing").option("--from-coderabbit", "Preview a bounded .coderabbit.yaml or .coderabbit.yml migration").option("--apply-coderabbit", "Write the bounded CodeRabbit migration to .mergeproof/config.json").option("--force", "Overwrite the existing policy when generating or importing").option("--json", "Print machine-readable JSON").action(async (options) => {

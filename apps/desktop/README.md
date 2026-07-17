@@ -5,6 +5,7 @@ MergeProof Desktop is a native Tauri 2 shell for the shared MergeProof engine. I
 The desktop client currently provides:
 
 - local pull-request analysis
+- live GitHub pull-request inspection with checks, changed-file totals, and unresolved review-thread counts
 - staged, unstaged, and untracked working-tree review
 - ephemeral sandbox-agent fix generation with optional verification
 - bounded autopilot correction loops with optional checkout apply after verification and re-review

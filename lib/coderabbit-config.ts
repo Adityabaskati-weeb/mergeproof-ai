@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { join, resolve } from "node:path";
-import type { CustomCheck } from "./types";
+import type { CustomCheck, PostMergeAction } from "./types";
 import type { MergeProofPolicy } from "./policy";
 
 const MAX_BYTES = 200_000;
@@ -89,7 +89,8 @@ function preMergeChecks(lines: string[]): CustomCheck[] {
     if (name === "custom_checks") continue;
     const mode = lines.slice(index + 1, index + 5).find((candidate) => /^\s+mode:\s*/.test(candidate));
     const modeValue = mode ? scalar(mode.replace(/^\s+mode:\s*/, "")) : "warning";
-    checks.push({ name: `CodeRabbit pre-merge: ${name}`, instructions: `Run the ${name} pre-merge check and treat its configured mode (${modeValue}) as review evidence.` });
+    const normalizedMode = modeValue === "off" || modeValue === "warning" || modeValue === "error" ? modeValue : "warning";
+    checks.push({ name: `CodeRabbit pre-merge: ${name}`, instructions: `Run the ${name} pre-merge check and treat its configured mode (${modeValue}) as review evidence.`, mode: normalizedMode });
   }
   return checks.slice(0, 20);
 }
@@ -108,6 +109,7 @@ function customPreMergeChecks(lines: string[]): CustomCheck[] {
     const itemIndent = item[1].length;
     let name = "";
     let instructions = "";
+    const modeValue = scalar(item[2]);
     for (let fieldIndex = index + 1; fieldIndex < lines.length; fieldIndex += 1) {
       const field = lines[fieldIndex];
       if (field.trim() && field.search(/\S|$/) <= itemIndent) break;
@@ -129,7 +131,10 @@ function customPreMergeChecks(lines: string[]): CustomCheck[] {
       if (key === "name") name = value;
       if (key === "instructions") instructions = value;
     }
-    if (name && instructions) checks.push({ name, instructions });
+    if (name && instructions) {
+      const mode = modeValue === "off" || modeValue === "warning" || modeValue === "error" ? modeValue : "warning";
+      checks.push({ name, instructions, mode });
+    }
   }
   return checks.slice(0, 20);
 }
@@ -188,6 +193,44 @@ function customRecipes(lines: string[]): CoderabbitMigration["recipes"] {
   return recipes.slice(0, 20);
 }
 
+function postMergeActions(lines: string[]): PostMergeAction[] {
+  const start = lines.findIndex((line) => /^\s*post_merge_actions:\s*$/.test(line));
+  if (start < 0) return [];
+  const base = lines[start].search(/\S|$/);
+  const actions: PostMergeAction[] = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const item = lines[index].match(/^(\s*)-\s*name:\s*(.+?)\s*$/);
+    if (!item) { if (lines[index].trim() && lines[index].search(/\S|$/) <= base) break; continue; }
+    const itemIndent = item[1].length;
+    let enabled = true;
+    let prompt = "";
+    for (let fieldIndex = index + 1; fieldIndex < lines.length; fieldIndex += 1) {
+      const field = lines[fieldIndex];
+      if (field.trim() && field.search(/\S|$/) <= itemIndent) break;
+      const match = field.match(/^\s+(enabled|prompt):\s*(.*)$/);
+      if (!match) continue;
+      if (match[1] === "enabled") enabled = booleanValue(match[2]) !== false;
+      if (match[1] === "prompt") {
+        prompt = scalar(match[2]);
+        if (["|", ">", "|-", ">-"].includes(prompt)) {
+          const indent = field.search(/\S|$/);
+          const block: string[] = [];
+          for (const blockLine of lines.slice(fieldIndex + 1)) {
+            if (blockLine.trim() && blockLine.search(/\S|$/) <= indent) break;
+            block.push(blockLine);
+          }
+          const indents = block.filter((blockLine) => blockLine.trim()).map((blockLine) => blockLine.search(/\S|$/));
+          const commonIndent = indents.length ? Math.min(...indents) : indent + 2;
+          prompt = block.map((blockLine) => blockLine.length >= commonIndent ? blockLine.slice(commonIndent) : "").join("\n").trim();
+        }
+      }
+    }
+    const name = scalar(item[2]);
+    if (name && prompt) actions.push({ name, prompt, ...(enabled ? {} : { enabled: false }) });
+  }
+  return actions.slice(0, 20);
+}
+
 export async function readCoderabbitConfiguration(root: string): Promise<CoderabbitMigration | undefined> {
   const repositoryRoot = resolve(root);
   for (const name of [".coderabbit.yaml", ".coderabbit.yml"]) {
@@ -211,6 +254,7 @@ export async function readCoderabbitConfiguration(root: string): Promise<Coderab
       ];
       const customChecks = [...preMergeChecks(lines), ...customPreMergeChecks(lines)].slice(0, 20);
       const recipes = customRecipes(finishingTouches);
+      const mergeActions = postMergeActions(lines);
       const requestChanges = findValue(reviews, "request_changes_workflow");
       const highLevelSummary = findValue(reviews, "high_level_summary");
       const autoReviewEnabled = findValue(autoReview, "enabled");
@@ -238,6 +282,7 @@ export async function readCoderabbitConfiguration(root: string): Promise<Coderab
         ...(ignoreUsernames.length ? { ignoreUsernames } : {}),
         ...(instructions.length ? { instructions: instructions.join("\n") } : {}),
         ...(customChecks.length ? { customChecks } : {}),
+        ...(mergeActions.length ? { postMergeActions: mergeActions } : {}),
         compatibility: { source: "coderabbit", importedAt: new Date().toISOString() },
       };
       const unsupported = ["chat", "early_access", "knowledge_base.web_search", "mcp", "code_generation"].filter((key) => content.includes(`${key}:`));

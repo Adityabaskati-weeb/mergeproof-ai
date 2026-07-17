@@ -58,6 +58,11 @@ export function reviewEventForDecision(decision: Analysis["decision"], requestCh
   return "COMMENT";
 }
 
+export function reviewEventForAnalysis(analysis: Analysis, requestChangesWorkflow = true): "APPROVE" | "REQUEST_CHANGES" | "COMMENT" {
+  if (analysis.trace.blockingFailures === 0 && (analysis.trace.customCheckWarnings ?? 0) > 0) return "COMMENT";
+  return reviewEventForDecision(analysis.decision, requestChangesWorkflow);
+}
+
 export async function publishPullRequestReview(prUrl: string, analysis: Analysis, options: ReviewPublicationOptions = {}): Promise<string | undefined> {
   const ref = parsePullRequestUrl(prUrl);
   const context = await fetchPullRequest(ref);
@@ -67,7 +72,7 @@ export async function publishPullRequestReview(prUrl: string, analysis: Analysis
   const comments = rows.flatMap((row) => row.citations.slice(0, 1).filter((citation) => changedPaths.has(citation.path)).map((citation) => ({ path: citation.path, line: lineFromCitation(citation.url), side: "RIGHT" as const, body: `**${row.state.toUpperCase()}**: ${row.evidence}\n\nEvidence: ${citation.url}` })));
   comments.push(...(analysis.securityFindings ?? []).filter((finding) => changedPaths.has(finding.path) && shouldPublishFinding(profile, finding.severity, finding.category)).map((finding) => ({ path: finding.path, line: finding.line, side: "RIGHT" as const, body: `**${(finding.category === "privacy" ? "PRIVACY" : "SECURITY")} ${finding.severity.toUpperCase()}**: ${finding.title}\n\n${finding.detail}\n\nEvidence: ${finding.citation.url}` })));
   comments.push(...(analysis.qualitySignals ?? []).filter((finding) => changedPaths.has(finding.path) && shouldPublishFinding(profile, finding.severity, finding.category)).map((finding) => ({ path: finding.path, line: finding.line, side: "RIGHT" as const, body: `**QUALITY ${finding.severity.toUpperCase()}**: ${finding.title}\n\n${finding.detail}\n\nEvidence: ${finding.citation.url}` })));
-  const event = reviewEventForDecision(analysis.decision, options.requestChangesWorkflow !== false);
+  const event = reviewEventForAnalysis(analysis, options.requestChangesWorkflow !== false);
   const security = (analysis.securityFindings ?? []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.path}:${finding.line} ${finding.title}`).join("\n");
   const quality = (analysis.qualitySignals ?? []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.path}:${finding.line} ${finding.title}`).join("\n");
   const walkthrough = analysis.walkthrough ? `\n\n### Walkthrough\n${analysis.walkthrough.summary}\n\nChange stack: ${analysis.walkthrough.changeStack.map((layer) => `${layer.title} (${layer.files.length})`).join(" -> ")}\nReview effort: ${analysis.walkthrough.effortScore}/5${analysis.walkthrough.suggestedLabels.length ? `\nSuggested labels: ${analysis.walkthrough.suggestedLabels.join(", ")}` : ""}` : "";

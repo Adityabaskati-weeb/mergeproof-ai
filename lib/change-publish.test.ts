@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publishChangeRequestCheck, publishChangeRequestComment, publishChangeRequestReview } from "./change-publish";
 import { checkConclusionForAnalysis } from "./github-publish";
-import { formatPullRequestSummary, mergePullRequestSummary, MERGEPROOF_SUMMARY_END, MERGEPROOF_SUMMARY_START, reviewEventForDecision } from "./github-review";
+import { formatPullRequestSummary, mergePullRequestSummary, MERGEPROOF_SUMMARY_END, MERGEPROOF_SUMMARY_START, reviewEventForAnalysis, reviewEventForDecision } from "./github-review";
 import type { Analysis } from "./types";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -25,6 +25,12 @@ describe("provider publication", () => {
     expect(checkConclusionForAnalysis({ ...analysis, decision: "needs-evidence" }, "shadow")).toBe("neutral");
     expect(checkConclusionForAnalysis({ ...analysis, decision: "ready" }, "shadow")).toBe("neutral");
     expect(checkConclusionForAnalysis({ ...analysis, decision: "ready" }, "enforce")).toBe("success");
+  });
+
+  it("publishes warning-only custom check failures as comments instead of request-changes", () => {
+    const warningOnly = { ...analysis, trace: { ...analysis.trace, customCheckWarnings: 1, blockingFailures: 0 } };
+    expect(reviewEventForAnalysis(warningOnly, true)).toBe("COMMENT");
+    expect(checkConclusionForAnalysis(warningOnly, "enforce")).toBe("neutral");
   });
 
   it("refreshes only the marker-scoped PR summary and preserves author content", () => {

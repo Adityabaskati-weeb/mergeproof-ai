@@ -4,7 +4,7 @@ const { execFile } = require("node:child_process");
 function runMergeProof(command, url, cwd, extraArgs = []) {
   const configuredPath = vscode.workspace.getConfiguration("mergeproof").get("cliPath");
   const executable = configuredPath || (process.platform === "win32" ? "npm.cmd" : "npm");
-  const commandParts = command === "bundle-verify" ? ["bundle", "verify"] : [command];
+  const commandParts = command === "bundle-verify" ? ["bundle", "verify"] : command === "pr-view" ? ["pr", "view"] : [command];
   const repoArgs = command === "analyze" || command === "consensus" || command === "walkthrough" || command === "docstrings" || command === "fix" || command === "simplify" || command === "tests" || command === "autofix" || command === "autopilot" || command === "task" || command === "work-plan" || command === "security" || command === "plan-history" || command === "complete" ? ["--repo", cwd] : [];
   const positional = command === "security" || command === "plan-history" ? [] : [url];
   const args = configuredPath ? [...commandParts, ...positional, "--json", ...repoArgs, ...extraArgs] : ["run", "cli", "--", ...commandParts, ...positional, "--", "--json", ...repoArgs, ...extraArgs];
@@ -42,6 +42,23 @@ async function analyze(command) {
   } catch (error) {
     channel.appendLine(String(error));
     vscode.window.showErrorMessage(`MergeProof failed: ${error.message}`);
+  }
+}
+
+async function viewPullRequest() {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) return vscode.window.showErrorMessage("Open a repository folder before viewing a pull request.");
+  const url = await vscode.window.showInputBox({ prompt: "GitHub pull request URL", placeHolder: "https://github.com/owner/repo/pull/123" });
+  if (!url) return;
+  const channel = vscode.window.createOutputChannel("MergeProof");
+  channel.show(true);
+  try {
+    const result = await runMergeProof("pr-view", url, folder);
+    channel.appendLine(JSON.stringify(result, null, 2));
+    vscode.window.showInformationMessage(`MergeProof PR: ${result.state}${result.merged ? " (merged)" : ""}, ${result.unresolvedReviewThreads} unresolved thread(s)`);
+  } catch (error) {
+    channel.appendLine(String(error));
+    vscode.window.showErrorMessage(`MergeProof pull-request view failed: ${error.message}`);
   }
 }
 
@@ -179,6 +196,7 @@ async function verifyBundle() {
 function activate(context) {
   context.subscriptions.push(vscode.languages.registerInlineCompletionItemProvider({ scheme: "file" }, { provideInlineCompletionItems: provideCompletion }));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.analyzePullRequest", () => analyze("analyze")));
+  context.subscriptions.push(vscode.commands.registerCommand("mergeproof.viewPullRequest", viewPullRequest));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.consensus", () => analyze("consensus")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.reviewWorkingTree", reviewWorkingTree));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.resolveConflicts", resolveConflicts));

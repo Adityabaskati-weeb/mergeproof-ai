@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import type { CustomCheck, ReviewEffort, ReviewMode, ReviewProfile } from "./types";
+import type { CustomCheck, PostMergeAction, PreMergeCheckMode, ReviewEffort, ReviewMode, ReviewProfile } from "./types";
 
-export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; profile?: ReviewProfile; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string; customChecks?: CustomCheck[]; pathFilters?: string[]; requestChangesWorkflow?: boolean; highLevelSummary?: boolean; reviewMode?: ReviewMode; autoReview?: boolean; autoReviewDescriptionKeyword?: string; autoIncrementalReview?: boolean; autoPauseAfterReviewedCommits?: number; ignoreTitleKeywords?: string[]; reviewLabels?: string[]; includeDrafts?: boolean; baseBranches?: string[]; ignoreUsernames?: string[]; compatibility?: { source: string; importedAt: string }; extends?: string | string[] };
+export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; profile?: ReviewProfile; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string; customChecks?: CustomCheck[]; postMergeActions?: PostMergeAction[]; pathFilters?: string[]; requestChangesWorkflow?: boolean; highLevelSummary?: boolean; reviewMode?: ReviewMode; autoReview?: boolean; autoReviewDescriptionKeyword?: string; autoIncrementalReview?: boolean; autoPauseAfterReviewedCommits?: number; ignoreTitleKeywords?: string[]; reviewLabels?: string[]; includeDrafts?: boolean; baseBranches?: string[]; ignoreUsernames?: string[]; compatibility?: { source: string; importedAt: string }; extends?: string | string[] };
 
 type PolicyFile = MergeProofPolicy & { extends?: string | string[] };
 
@@ -30,9 +30,10 @@ async function loadCustomChecks(repositoryRoot: string): Promise<CustomCheck[]> 
     const parsed = JSON.parse(await fs.readFile(join(repositoryRoot, ".mergeproof", "checks.json"), "utf8")) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((value): value is { name?: unknown; instructions?: unknown } => Boolean(value) && typeof value === "object")
-      .map((value) => ({ name: typeof value.name === "string" ? value.name.trim() : "", instructions: typeof value.instructions === "string" ? value.instructions.trim() : "" }))
+      .filter((value): value is { name?: unknown; instructions?: unknown; mode?: unknown } => Boolean(value) && typeof value === "object")
+      .map((value) => ({ name: typeof value.name === "string" ? value.name.trim() : "", instructions: typeof value.instructions === "string" ? value.instructions.trim() : "", ...(value.mode === "off" || value.mode === "warning" || value.mode === "error" ? { mode: value.mode as PreMergeCheckMode } : {}) }))
       .filter((value) => value.name.length > 0 && value.instructions.length > 0 && value.name.length <= 200 && value.instructions.length <= 4_000)
+      .filter((value) => value.mode !== "off")
       .slice(0, 20);
   } catch {
     return [];
@@ -108,11 +109,20 @@ export async function loadPolicy(root?: string, changedPaths: string[] = []): Pr
   const inlineChecks = Array.isArray(policy.customChecks) ? policy.customChecks : [];
   const customChecks = [...configuredChecks, ...inlineChecks]
     .filter((check): check is CustomCheck => Boolean(check) && typeof check.name === "string" && typeof check.instructions === "string")
-    .map((check) => ({ name: check.name.trim(), instructions: check.instructions.trim() }))
+    .map((check) => ({ name: check.name.trim(), instructions: check.instructions.trim(), ...(check.mode === "off" || check.mode === "warning" || check.mode === "error" ? { mode: check.mode } : {}) }))
     .filter((check) => check.name && check.instructions && check.name.length <= 200 && check.instructions.length <= 4_000)
+    .filter((check) => check.mode !== "off")
     .filter((check, index, values) => values.findIndex((candidate) => candidate.name.toLowerCase() === check.name.toLowerCase()) === index)
     .slice(0, 20);
   if (customChecks.length) policy.customChecks = customChecks;
+  if (Array.isArray(policy.postMergeActions)) {
+    policy.postMergeActions = policy.postMergeActions
+      .filter((action): action is PostMergeAction => Boolean(action) && typeof action === "object" && typeof action.name === "string" && typeof action.prompt === "string")
+      .map((action) => ({ name: action.name.trim(), prompt: action.prompt.trim(), ...(action.enabled === false ? { enabled: false } : {}) }))
+      .filter((action) => action.name.length > 0 && action.name.length <= 100 && action.prompt.length > 0 && action.prompt.length <= 10_000)
+      .filter((action, index, values) => values.findIndex((candidate) => candidate.name.toLowerCase() === action.name.toLowerCase()) === index)
+      .slice(0, 20);
+  }
   const instructionFiles = [
     [join(repositoryRoot, ".mergeproof", "instructions.md"), ".mergeproof/instructions.md"],
     [join(repositoryRoot, ".github", "copilot-instructions.md"), ".github/copilot-instructions.md"],

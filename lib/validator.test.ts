@@ -55,4 +55,16 @@ describe("validateAnalysis", () => {
     };
     expect(validateAnalysis(result, related, ["Retries twice"], "gpt-5.6", 12).decision).toBe("ready");
   });
+
+  it("keeps warning-mode custom checks non-blocking while preserving the warning evidence", () => {
+    const warningContext = { ...context, customChecks: [{ name: "API compatibility", instructions: "Require compatibility evidence.", mode: "warning" as const }] };
+    const result: ModelAnalysis = {
+      contract,
+      rows: [{ criterion: "API compatibility", evidence: "No compatibility artifact was attached.", state: "warn", citations: [] }],
+    };
+    const analysis = validateAnalysis(result, warningContext, ["API compatibility"], "gpt-5.6", 12);
+    expect(analysis.decision).toBe("needs-evidence");
+    expect(analysis.trace.customCheckWarnings).toBe(1);
+    expect(analysis.trace.blockingFailures).toBe(0);
+  });
 });

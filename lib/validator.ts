@@ -24,8 +24,14 @@ export function validateAnalysis(result: ModelAnalysis, context: PullRequestCont
     return { ...row, citations, state: citations.length === row.citations.length ? row.state : "warn" as const };
   });
   const citedSources = rows.reduce((count, row) => count + row.citations.length, 0);
+  const customCheckModes = new Map((context.customChecks ?? []).map((check) => [check.name.toLowerCase(), check.mode ?? "error"]));
+  const customCheckWarnings = rows.filter((row) => customCheckModes.get(row.criterion.toLowerCase()) === "warning" && (row.state !== "pass" || row.citations.length < minCitationsPerCriterion)).length;
+  const blockingFailures = (unsupportedClaims ? 1 : 0)
+    + (securityFindings.some((finding) => finding.severity === "high" || finding.severity === "medium") ? 1 : 0)
+    + (qualitySignals.some((finding) => finding.severity === "high" || finding.severity === "medium") ? 1 : 0)
+    + rows.filter((row) => customCheckModes.get(row.criterion.toLowerCase()) !== "warning" && (row.state !== "pass" || row.citations.length < minCitationsPerCriterion)).length;
   const securityBlocksMerge = securityFindings.some((finding) => finding.severity === "high" || finding.severity === "medium");
   const qualityBlocksMerge = qualitySignals.some((finding) => finding.severity === "high" || finding.severity === "medium");
   const decision = securityBlocksMerge || qualityBlocksMerge || unsupportedClaims || rows.some((row) => row.state === "fail" || row.citations.length < minCitationsPerCriterion) ? "needs-evidence" : rows.some((row) => row.state === "warn") ? "needs-evidence" : "ready";
-  return { decision, contract: result.contract, rows, securityFindings, qualitySignals, trace: { fetchedSources: context.sources.size, citedSources, unsupportedClaims, model, elapsedMs, headSha: context.headSha, retrieval, linkedIssues: context.issues?.length ?? 0, securityFindings: securityFindings.length } };
+  return { decision, contract: result.contract, rows, securityFindings, qualitySignals, trace: { fetchedSources: context.sources.size, citedSources, unsupportedClaims, model, elapsedMs, headSha: context.headSha, retrieval, linkedIssues: context.issues?.length ?? 0, securityFindings: securityFindings.length, customCheckWarnings, blockingFailures } };
 }

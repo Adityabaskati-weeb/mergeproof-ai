@@ -7,10 +7,11 @@
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Linters", "Other"],
   "main": "extension.js",
-  "activationEvents": ["onStartupFinished", "onCommand:mergeproof.analyzePullRequest", "onCommand:mergeproof.consensus", "onCommand:mergeproof.reviewWorkingTree", "onCommand:mergeproof.resolveConflicts", "onCommand:mergeproof.resolveReviewThreads", "onCommand:mergeproof.runSandboxAgent", "onCommand:mergeproof.autopilot", "onCommand:mergeproof.implementIssue", "onCommand:mergeproof.generatePlan", "onCommand:mergeproof.generateWorkPlan", "onCommand:mergeproof.securityScan", "onCommand:mergeproof.planHistory", "onCommand:mergeproof.verifyBundle", "onCommand:mergeproof.generateWalkthrough", "onCommand:mergeproof.generateDocstrings", "onCommand:mergeproof.suggestFix", "onCommand:mergeproof.simplify", "onCommand:mergeproof.generateTests", "onCommand:mergeproof.autofix"],
+  "activationEvents": ["onStartupFinished", "onCommand:mergeproof.analyzePullRequest", "onCommand:mergeproof.viewPullRequest", "onCommand:mergeproof.consensus", "onCommand:mergeproof.reviewWorkingTree", "onCommand:mergeproof.resolveConflicts", "onCommand:mergeproof.resolveReviewThreads", "onCommand:mergeproof.runSandboxAgent", "onCommand:mergeproof.autopilot", "onCommand:mergeproof.implementIssue", "onCommand:mergeproof.generatePlan", "onCommand:mergeproof.generateWorkPlan", "onCommand:mergeproof.securityScan", "onCommand:mergeproof.planHistory", "onCommand:mergeproof.verifyBundle", "onCommand:mergeproof.generateWalkthrough", "onCommand:mergeproof.generateDocstrings", "onCommand:mergeproof.suggestFix", "onCommand:mergeproof.simplify", "onCommand:mergeproof.generateTests", "onCommand:mergeproof.autofix"],
   "contributes": {
     "commands": [
       { "command": "mergeproof.analyzePullRequest", "title": "MergeProof: Analyze Pull Request" },
+      { "command": "mergeproof.viewPullRequest", "title": "MergeProof: View Pull Request" },
       { "command": "mergeproof.consensus", "title": "MergeProof: Run Consensus Gate" },
       { "command": "mergeproof.resolveConflicts", "title": "MergeProof: Resolve Merge Conflicts" },
       { "command": "mergeproof.resolveReviewThreads", "title": "MergeProof: Resolve Review Threads" },
