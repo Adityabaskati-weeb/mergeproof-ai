@@ -3,6 +3,7 @@ import type { Analysis, SecurityFinding } from "./types";
 export type AgentReviewEvent =
   | { type: "review_context"; decision: Analysis["decision"]; model: string; headSha?: string; scope?: string; fetchedSources: number; citedSources: number; unsupportedClaims: number; attestation?: string }
   | { type: "status"; status: "review_started" | "review_completed"; message: string }
+  | { type: "heartbeat"; status: "alive"; elapsedMs: number; message: string }
   | { type: "finding"; severity: "critical" | "major" | "minor" | "trivial" | "info"; fileName: string; line?: number; criterion: string; comment: string; codegenInstructions: string; suggestions: string[]; citations: Array<{ path: string; commitSha: string; url: string }>; source: "criterion" | "security" | "quality" }
   | { type: "complete"; status: "ready" | "needs-evidence" | "needs-owner"; findings: number; unsupportedClaims: number; attestation?: string; message: string }
   | { type: "error"; message: string };
@@ -54,6 +55,7 @@ export function toAgentReviewEvents(analysis: Analysis): AgentReviewEvent[] {
   const events: AgentReviewEvent[] = [
     { type: "status", status: "review_started", message: "MergeProof evidence review started." },
     { type: "review_context", decision: analysis.decision, model: analysis.trace.model, ...(analysis.trace.headSha ? { headSha: analysis.trace.headSha } : {}), ...(analysis.trace.scope ? { scope: analysis.trace.scope } : {}), fetchedSources: analysis.trace.fetchedSources, citedSources: analysis.trace.citedSources, unsupportedClaims: analysis.trace.unsupportedClaims, ...(analysis.trace.attestation?.digest ? { attestation: `${analysis.trace.attestation.algorithm}:${analysis.trace.attestation.digest}` } : {}) },
+    { type: "heartbeat", status: "alive", elapsedMs: analysis.trace.elapsedMs, message: "Evidence context and model output are available for downstream processing." },
   ];
   for (const row of analysis.rows) {
     const event = criterionEvent(row);
@@ -67,4 +69,12 @@ export function toAgentReviewEvents(analysis: Analysis): AgentReviewEvent[] {
 
 export function renderAgentReviewEvents(analysis: Analysis): string {
   return `${toAgentReviewEvents(analysis).map((event) => JSON.stringify(event)).join("\n")}\n`;
+}
+
+export function renderAgentReviewSkipped(message = "No changes detected."): string {
+  return `${JSON.stringify({ type: "review_context", decision: "needs-evidence", model: "not-started", fetchedSources: 0, citedSources: 0, unsupportedClaims: 0 })}\n${JSON.stringify({ type: "status", status: "review_skipped", message })}\n${JSON.stringify({ type: "complete", status: "needs-evidence", findings: 0, unsupportedClaims: 0, message })}\n`;
+}
+
+export function renderAgentReviewError(message: string): string {
+  return `${JSON.stringify({ type: "error", message })}\n`;
 }

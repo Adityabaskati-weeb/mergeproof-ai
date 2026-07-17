@@ -2,7 +2,7 @@ import { extractAcceptanceCriteria } from "./criteria";
 import { fetchChangeRequest, parseChangeRequestUrl } from "./change-request";
 import { fetchLinkedIssues } from "./issues";
 import { createModelProvider } from "./models";
-import { loadPolicy } from "./policy";
+import { filterPathsByPolicy, loadPolicy } from "./policy";
 import { retrieveRepositoryEvidence } from "./retrieval";
 import { retrieveLocalEvidence } from "./retrieval";
 import { readReviewMemory, recordReviewMemory } from "./memory";
@@ -49,14 +49,17 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const reviewMemory = memoryRoot ? await readReviewMemory(memoryRoot, ref, `${fetchedContext.title} ${fetchedContext.body}`, options.memoryLimit ?? 5) : [];
   const knowledgeRoot = options.repoPath || options.memoryRoot || process.cwd();
   const knowledge = await readKnowledge(knowledgeRoot, ref, fetchedContext.files.map((file) => file.path), `${fetchedContext.title} ${fetchedContext.body}`, options.knowledgeLimit ?? 12);
-  const baseSecurityFindings = scanPullRequestSecurity(fetchedContext);
-  const privacyFindings = scanPullRequestPrivacy(fetchedContext);
-  const qualitySignals = scanSlopSignals(fetchedContext);
-  const suggestedReviewers = await suggestReviewers(options.repoPath, fetchedContext.files.map((file) => file.path));
+  const scopedFiles = filterPathsByPolicy(fetchedContext.files, policy.pathFilters);
+  const excludedUrls = new Set(fetchedContext.files.filter((file) => !scopedFiles.includes(file)).map((file) => file.url));
+  const reviewContext = { ...fetchedContext, files: scopedFiles, sources: new Set([...fetchedContext.sources].filter((source) => !excludedUrls.has(source))) };
+  const baseSecurityFindings = scanPullRequestSecurity(reviewContext);
+  const privacyFindings = scanPullRequestPrivacy(reviewContext);
+  const qualitySignals = scanSlopSignals(reviewContext);
+  const suggestedReviewers = await suggestReviewers(options.repoPath, scopedFiles.map((file) => file.path));
   const externalSecurity = options.repoPath && (options.externalSecurity || options.codeqlDatabase || options.toolSarif?.length) ? await scanExternalSecurity({ repoPath: options.repoPath, commitSha: fetchedContext.headSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, sarifPaths: options.toolSarif }) : { findings: [], tools: [], unavailable: [] };
   const lsp = options.repoPath && options.lspDiagnostics ? await scanLspDiagnostics(options.repoPath, options.lspDiagnostics, fetchedContext.headSha) : { findings: [], unavailable: [] };
   const securityFindings = [...baseSecurityFindings, ...privacyFindings, ...externalSecurity.findings, ...lsp.findings];
-  const context = { ...fetchedContext, issues, repositoryEvidence: [...retrieval.chunks, ...relatedEvidence], sourceCommits, customInstructions: combineInstructions(policy.instructions, agentProfile), customChecks: policy.customChecks ?? [], reviewMemory, knowledge, reviewEffort: effort, reviewProfile: profile, securityFindings, qualitySignals, suggestedReviewers };
+  const context = { ...reviewContext, issues, repositoryEvidence: [...retrieval.chunks, ...relatedEvidence], sourceCommits, customInstructions: combineInstructions(policy.instructions, agentProfile), customChecks: policy.customChecks ?? [], reviewMemory, knowledge, reviewEffort: effort, reviewProfile: profile, securityFindings, qualitySignals, suggestedReviewers };
   issues.forEach((issue) => context.sources.add(issue.url));
   retrieval.chunks.forEach((chunk) => context.sources.add(chunk.url));
   relatedEvidence.forEach((chunk) => context.sources.add(chunk.url));
@@ -96,7 +99,7 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
       walkthrough: buildWalkthrough(context),
       suggestedReviewers,
       securityFindings,
-      trace: { fetchedSources: context.sources.size, citedSources: 0, unsupportedClaims: 0, model: `${provider}:${selectedModel}`, elapsedMs: Date.now() - started, headSha: context.headSha, retrieval: retrievalTrace, relatedRepositories: relatedResults.length, linkedIssues: issues.length, securityFindings: securityFindings.length, customChecks: context.customChecks?.length ?? 0, suggestedReviewers: suggestedReviewers.length, externalSecurity: { tools: externalSecurity.tools, unavailable: [...externalSecurity.unavailable, ...lsp.unavailable] }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, agent: agentProfile?.name, scope: "pull-request", unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks: hooksBefore },
+      trace: { fetchedSources: context.sources.size, citedSources: 0, unsupportedClaims: 0, model: `${provider}:${selectedModel}`, elapsedMs: Date.now() - started, headSha: context.headSha, retrieval: retrievalTrace, relatedRepositories: relatedResults.length, linkedIssues: issues.length, securityFindings: securityFindings.length, customChecks: context.customChecks?.length ?? 0, suggestedReviewers: suggestedReviewers.length, reviewPaths: policy.pathFilters, externalSecurity: { tools: externalSecurity.tools, unavailable: [...externalSecurity.unavailable, ...lsp.unavailable] }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, agent: agentProfile?.name, scope: "pull-request", unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks: hooksBefore },
     });
   }
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);
@@ -109,5 +112,5 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const hooksAfter = await runHooks(policyRoot, "afterReview", options.hooks);
   const hooks: HookReport = { enabled: hooksBefore.enabled || hooksAfter.enabled, before: hooksBefore.before, after: hooksAfter.after, failed: [...hooksBefore.failed, ...hooksAfter.failed] };
   const gatedAnalysis = hooks.failed.length ? { ...analysis, decision: analysis.decision === "ready" ? "needs-evidence" as const : analysis.decision } : analysis;
-  return persist({ ...gatedAnalysis, walkthrough, suggestedReviewers, trace: { ...gatedAnalysis.trace, customChecks: context.customChecks?.length ?? 0, externalSecurity: { tools: externalSecurity.tools, unavailable: [...externalSecurity.unavailable, ...lsp.unavailable] }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, suggestedReviewers: suggestedReviewers.length, agent: agentProfile?.name, relatedRepositories: relatedResults.length, unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks } });
+  return persist({ ...gatedAnalysis, walkthrough, suggestedReviewers, trace: { ...gatedAnalysis.trace, customChecks: context.customChecks?.length ?? 0, externalSecurity: { tools: externalSecurity.tools, unavailable: [...externalSecurity.unavailable, ...lsp.unavailable] }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, suggestedReviewers: suggestedReviewers.length, reviewPaths: policy.pathFilters, agent: agentProfile?.name, relatedRepositories: relatedResults.length, unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks } });
 }

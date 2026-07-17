@@ -9,7 +9,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | GitHub PR review | Yes | Yes | Yes |
 | GitLab / Bitbucket / Azure DevOps ingestion and publication | Yes: normalized analysis plus provider checks/reviews | Azure DevOps and broader provider support | GitLab, Bitbucket, and Azure DevOps support |
 | Local uncommitted review | Yes: staged, unstaged, and untracked changes | IDE and CLI surfaces | IDE and CLI surfaces |
-| Agent review protocol | `review --agent-output` or `cr --agent` emits newline-delimited `review_context`, `status`, `finding`, and `complete` events with evidence citations, severity, unsupported-claim counts, and attestation | Programmatic CLI output and ACP | `cr review --agent` JSON event stream |
+| Agent review protocol | `review --agent-output` or `cr --agent` emits newline-delimited `review_context`, `status`, `heartbeat`, `finding`, `complete`, `review_skipped`, and `error` events with evidence citations, severity, unsupported-claim counts, and attestation | Programmatic CLI output and ACP | `cr review --agent` JSON event stream |
 | Finding history | Bounded `.mergeproof/findings.jsonl` with `findings` filters for head, path, severity, disposition, explicit clear confirmation, and `findings ignore|restore`; disposition changes are a separate append-only ledger | Session and task history | `cr review findings` local review comments and ignore/restore workflow |
 | Agent handoff / fix verification | Yes: local natural-language implementation agent, ephemeral Git worktree, optional one-pass re-review, GitHub-issue-to-PR task agent, manual ephemeral GitHub Actions runner, GitHub/GitLab review-finding autofix, and GitHub stacked-PR handoff | Cloud-agent handoff | Agent handoff, Autofix, and autonomous fix/review cycles |
 | Automatic review trigger | GitHub Actions, signed webhook, and opt-in hourly scheduled review | Yes | Yes: GitHub, GitLab, Bitbucket, and Azure DevOps signed receivers plus Actions |
@@ -36,7 +36,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Documentation generation | Documentation-only patch suggestion bounded to changed non-test files | Agent/code generation workflows | Generate docstrings |
 | Issue creation | GitHub, GitLab, Jira, and Linear | GitHub task workflows | GitHub, GitLab, Jira, Linear |
 | Slack / Discord | Signed Slack slash commands, Events API mentions, thread follow-ups, default-deny channel/user/action scopes, durable hourly request budgets, and a signed Discord interaction endpoint reuse the same governed review, plan, issue, and guarded autofix actions | GitHub ecosystem integrations | Conversational agents, learning, automations, scopes, and PR actions |
-| Model choice | OpenAI, OpenAI-compatible including local endpoints, Anthropic | GitHub-managed model controls | Product-managed model controls |
+| Model choice | OpenAI, OpenAI-compatible including local endpoints, Anthropic; provider abstraction keeps model choice configurable | GitHub-managed model controls and selectable completion/chat models | Product-managed model controls |
 | Client surfaces | Interactive CLI chat with resumable local sessions, `remote` HMAC-signed read-only turns, ACP over stdio/TCP, machine-readable `chat-turn` bridge, desktop evidence chat plus fleet ask/plan actions, one-shot CLI, VS Code, Cursor plugin metadata/rule, JetBrains plugin source, CI, and installable agent skill | GitHub, IDE, CLI, ACP, cloud agent, remote control, fleet | Git platforms, IDE, CLI, Slack |
 | Consensus / fleet gate | Parallel provider/model reviews plus parallel repository ask/plan agents; head drift is rejected, answer/plan disagreement is surfaced, and `ready` requires unanimous evidence | `/fleet`, subagents, and model parallelism | Agent workflows and review automation |
 | Walkthrough / change stack | Evidence-derived summary, ordered change layers, review effort, related issues, reviewers, Mermaid change-flow diagram, and conservative ERD/schema-impact diagram; citations resolve to fetched files | Repository and PR context, agent workflows | Walkthrough, changed-file summary, sequence diagrams and ERDs, effort estimate, related issues, labels, reviewers |
@@ -66,7 +66,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Local code completion | `complete <file> --line --column` returns a non-mutating insertion with model/provider selection and a source digest; the VS Code client surfaces it as inline completion | Inline completion and IDE agent mode | IDE review extension and agent handoff |
 | Review statistics | `stats` aggregates bounded local audit, finding, and outcome records with model/decision/severity/latency counts | Usage and lifecycle metrics | `cr stats` and review history |
 | Prompt replay | `--save-prompts` and `--show-prompts` persist/replay bounded prompts only by explicit operator request, with SHA-256 digests | Session and prompt history surfaces | `cr review --show-prompts` |
-| CodeRabbit migration | `configuration --from-coderabbit` previews a bounded migration from `.coderabbit.yaml`/`.coderabbit.yml`; `--apply-coderabbit` writes `.mergeproof/config.json` only when the target is absent or `--force` is explicit | Existing repository configuration | `.coderabbit.yaml` and configuration reference |
+| CodeRabbit migration | `configuration --from-coderabbit` previews a bounded migration from `.coderabbit.yaml`/`.coderabbit.yml`; `--apply-coderabbit` writes `.mergeproof/config.json` only when the target is absent or `--force` is explicit, and imported path filters are enforced | Existing repository configuration | `.coderabbit.yaml` and configuration reference |
 
 ## Differentiation
 
@@ -114,6 +114,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 40. Statistics are derived from the same bounded audit, finding, and outcome ledgers rather than a hidden hosted telemetry stream, so teams can inspect how every number was produced.
 41. CodeRabbit adoption is explicit and reversible: a bounded importer maps review intent into MergeProof policy, reports unsupported hosted settings, and refuses to overwrite an existing policy without an explicit force flag.
 42. Background task results are durable artifacts separate from logs: status, exit code, completion time, output size, and output digest remain machine-readable after the terminal exits.
+43. Configuration migration preserves behavior rather than just names: imported include/exclude globs constrain the evidence context and multiline path guidance survives into the model instruction contract.
 
 ## Remaining Deliberate Gaps
 

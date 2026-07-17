@@ -14,6 +14,11 @@ describe("CodeRabbit configuration migration", () => {
         "  request_changes_workflow: true",
         "  path_filters:",
         "    - src/**",
+        "  path_instructions:",
+        "    - path: src/**",
+        "      instructions: |",
+        "        Verify API compatibility.",
+        "        Require a focused test.",
         "  high_level_summary: false",
         "knowledge_base:",
         "  linked_repositories:",
@@ -25,6 +30,7 @@ describe("CodeRabbit configuration migration", () => {
       const preview = await readCoderabbitConfiguration(root);
       expect(preview?.policy).toMatchObject({ profile: "assertive", pathFilters: ["src/**"], requestChangesWorkflow: true, highLevelSummary: false });
       expect(preview?.policy.instructions).toContain("org/shared-contracts");
+      expect(preview?.policy.instructions).toContain("Verify API compatibility.\nRequire a focused test.");
       expect(preview?.policy.customChecks?.[0].name).toContain("title");
       expect(preview?.unsupported).toEqual([]);
     } finally { await rm(root, { recursive: true, force: true }); }

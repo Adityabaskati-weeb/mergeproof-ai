@@ -54,7 +54,7 @@ import { runFleetAsk, runFleetPlan, runFleetReview } from "../lib/fleet";
 import { runAcpStdio, startAcpTcpServer } from "../lib/acp";
 import { assertPermission, readPermissionPolicy, renderPermissionPolicy } from "../lib/permissions";
 import { runAutopilot } from "../lib/autopilot";
-import { renderAgentReviewEvents } from "../lib/agent-review";
+import { renderAgentReviewError, renderAgentReviewEvents, renderAgentReviewSkipped } from "../lib/agent-review";
 import { renderDoctor, runDoctor } from "../lib/doctor";
 import { researchTopic } from "../lib/research";
 import { clearFindings, readFindings, recordAgentFindings, setFindingDisposition } from "../lib/findings";
@@ -1165,7 +1165,9 @@ program.command("review").alias("cr").description("Review staged, unstaged, and 
     else printAnalysis(analysis);
     process.exitCode = analysis.decision === "ready" ? 0 : 2;
   } catch (error) {
-    console.error(`MergeProof review error: ${error instanceof Error ? error.message : "Working-tree review failed."}`);
+    const message = error instanceof Error ? error.message : "Working-tree review failed.";
+    if (options.agentOutput || options.agent === true) process.stdout.write(message.includes("No staged, unstaged, or untracked changes") ? renderAgentReviewSkipped(message) : renderAgentReviewError(message));
+    else console.error(`MergeProof review error: ${message}`);
     process.exitCode = 1;
   }
 });

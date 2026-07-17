@@ -280,6 +280,8 @@ Use `--record` on `plan` or `work-plan` to append a local, bounded version to `.
 
 Background task result files are separate from task logs: `tasks show <id> --json` includes a bounded `.result.json` artifact with status, exit code, completion time, output size, and an output digest.
 
+Agent consumers can use `review --agent-output` for newline-delimited `review_context`, `status`, `heartbeat`, `finding`, `complete`, `review_skipped`, and `error` events. A CodeRabbit configuration migration preserves multiline path guidance and enforces include/exclude filters before model context is built.
+
 Save a machine-readable run with `-- --json` and use `evaluate` to report criterion coverage, citation coverage, abstention, unsupported claims, and retrieval usage. This makes MergeProof quality measurable instead of relying on an attractive demo transcript.
 
 Review capsules make the decision portable: `bundle create` snapshots the fetched change-request context alongside the saved analysis, exact head SHA, citation manifest, and SHA-256 digests. `bundle verify` performs an offline integrity and citation check without a model, network request, or MergeProof service. Capsules can contain source patches and discussion text, so treat them as sensitive artifacts and store them only where the repository policy allows.

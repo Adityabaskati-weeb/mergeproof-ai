@@ -1,7 +1,9 @@
 {
   "name": "mergeproof",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "license": "MIT",
+  "repository": "https://github.com/Adityabaskati-weeb/mergeproof-ai",
   "scripts": {
     "build": "tsc --noEmit",
     "desktop:dev": "tauri dev --config apps/desktop/src-tauri/tauri.conf.json",

@@ -60,13 +60,31 @@ function globToRegExp(pattern: string): RegExp {
   for (let index = 0; index < normalized.length; index += 1) {
     const character = normalized[index];
     if (character === "*" && normalized[index + 1] === "*") {
-      expression += ".*";
-      index += 1;
+      if (normalized[index + 2] === "/") {
+        expression += "(?:.*/)?";
+        index += 2;
+      } else {
+        expression += ".*";
+        index += 1;
+      }
     } else if (character === "*") expression += "[^/]*";
     else if (character === "?") expression += "[^/]";
     else expression += character.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   }
   return new RegExp(`^${expression}$`, "i");
+}
+
+export function filterPathsByPolicy<T extends { path: string }>(paths: T[], patterns: string[] | undefined): T[] {
+  const filters = (patterns ?? []).map((pattern) => pattern.trim().replace(/\\/g, "/")).filter(Boolean);
+  if (!filters.length) return paths;
+  const includes = filters.filter((pattern) => !pattern.startsWith("!"));
+  const excludes = filters.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));
+  return paths.filter((entry) => {
+    const path = entry.path.replace(/\\/g, "/");
+    const included = includes.length === 0 || includes.some((pattern) => globToRegExp(pattern).test(path));
+    const excluded = excludes.some((pattern) => globToRegExp(pattern).test(path));
+    return included && !excluded;
+  });
 }
 
 function appliesToPaths(content: string, changedPaths: string[]): boolean {

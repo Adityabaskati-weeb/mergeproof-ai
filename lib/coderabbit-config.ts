@@ -55,8 +55,21 @@ function pathInstructions(lines: string[]): string[] {
   for (let index = 0; index < lines.length; index += 1) {
     if (!/^\s*-\s*path:\s*/.test(lines[index])) continue;
     const path = scalar(lines[index].replace(/^\s*-\s*path:\s*/, ""));
-    const next = lines.slice(index + 1, index + 8).find((line) => /^\s*instructions:\s*/.test(line));
-    const instructions = next ? scalar(next.replace(/^\s*instructions:\s*/, "").replace(/^\|\s*/, "")) : "";
+    const nextIndex = lines.slice(index + 1, index + 20).findIndex((line) => /^\s*instructions:\s*/.test(line));
+    const instructionIndex = nextIndex < 0 ? -1 : index + 1 + nextIndex;
+    const next = instructionIndex >= 0 ? lines[instructionIndex] : "";
+    let instructions = next ? scalar(next.replace(/^\s*instructions:\s*/, "")) : "";
+    if (instructions === "|" || instructions === ">" || instructions === "|-" || instructions === ">-") {
+      const instructionIndent = next.search(/\S|$/);
+      const block: string[] = [];
+      for (const line of lines.slice(instructionIndex + 1)) {
+        if (line.trim() && line.search(/\S|$/) <= instructionIndent) break;
+        block.push(line);
+      }
+      const nonEmptyIndents = block.filter((line) => line.trim()).map((line) => line.search(/\S|$/));
+      const commonIndent = nonEmptyIndents.length ? Math.min(...nonEmptyIndents) : instructionIndent + 2;
+      instructions = block.map((line) => line.length >= commonIndent ? line.slice(commonIndent) : "").join("\n").trim();
+    }
     if (path && instructions && instructions !== "|") output.push(`For paths matching ${path}: ${instructions}`);
   }
   return output;

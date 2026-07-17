@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createModelProvider } from "./models";
-import { loadPolicy } from "./policy";
+import { filterPathsByPolicy, loadPolicy } from "./policy";
 import { retrieveLocalEvidence } from "./retrieval";
 import { scanPullRequestSecurity } from "./security";
 import { scanPullRequestPrivacy } from "./privacy";
@@ -155,18 +155,21 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const effort = normalizeReviewEffort(options.effort || policy.effort || process.env.MERGEPROOF_REVIEW_EFFORT);
   const profile = normalizeReviewProfile(options.profile || policy.profile || process.env.MERGEPROOF_REVIEW_PROFILE);
   const changes = await collectWorkingTreeChanges(repositoryRoot, options.directories, { reviewType: options.reviewType, base: options.base, baseCommit: options.baseCommit });
+  const scopedFiles = filterPathsByPolicy(changes.files, policy.pathFilters);
+  if (!scopedFiles.length) throw new Error("No changes remain after configured review path filters.");
+  const scopedChanges = { ...changes, files: scopedFiles };
   const reviewSha = `working-tree:${changes.digest}`;
   const ref = { owner: "local", repo: basename(repositoryRoot), number: 0, url: pathToFileURL(repositoryRoot).toString() };
-  const retrieval = await retrieveLocalEvidence(repositoryRoot, reviewSha, `${basename(repositoryRoot)} ${changes.files.map((file) => file.path).join(" ")}`, options.retrievalTopK ?? policy.retrievalTopK ?? retrievalTopKForEffort(effort));
-  const knowledge = await readKnowledge(repositoryRoot, ref, changes.files.map((file) => file.path), basename(repositoryRoot), 12);
+  const retrieval = await retrieveLocalEvidence(repositoryRoot, reviewSha, `${basename(repositoryRoot)} ${scopedFiles.map((file) => file.path).join(" ")}`, options.retrievalTopK ?? policy.retrievalTopK ?? retrievalTopKForEffort(effort));
+  const knowledge = await readKnowledge(repositoryRoot, ref, scopedFiles.map((file) => file.path), basename(repositoryRoot), 12);
   const criteria = uniqueCriteria(options.criteria);
   if (!criteria.length) criteria.push(DEFAULT_CRITERION);
   const customInstructions = [combineInstructions(policy.instructions, agentProfile), additionalInstructions].filter(Boolean).join("\n\n").slice(0, 40_000) || undefined;
-  const context: PullRequestContext = { ref, title: `Working-tree review: ${basename(repositoryRoot)}`, body: criteria.join("\n"), headSha: reviewSha, baseSha: changes.gitHeadSha, files: changes.files, checks: [], commits: [], discussion: [], sources: new Set([ref.url, ...changes.files.map((file) => file.url), ...retrieval.chunks.map((chunk) => chunk.url)]), repositoryEvidence: retrieval.chunks, issues: [], customInstructions, knowledge, reviewEffort: effort, reviewProfile: profile };
+  const context: PullRequestContext = { ref, title: `Working-tree review: ${basename(repositoryRoot)}`, body: criteria.join("\n"), headSha: reviewSha, baseSha: changes.gitHeadSha, files: scopedFiles, checks: [], commits: [], discussion: [], sources: new Set([ref.url, ...scopedFiles.map((file) => file.url), ...retrieval.chunks.map((chunk) => chunk.url)]), repositoryEvidence: retrieval.chunks, issues: [], customInstructions, knowledge, reviewEffort: effort, reviewProfile: profile };
   const baseSecurityFindings = scanPullRequestSecurity(context);
   const privacyFindings = scanPullRequestPrivacy(context);
   const qualitySignals = scanSlopSignals(context);
-  const suggestedReviewers = await suggestReviewers(repositoryRoot, changes.files.map((file) => file.path));
+  const suggestedReviewers = await suggestReviewers(repositoryRoot, scopedFiles.map((file) => file.path));
   const externalSecurity = options.externalSecurity || options.codeqlDatabase || options.toolSarif?.length ? await scanExternalSecurity({ repoPath: repositoryRoot, commitSha: reviewSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, sarifPaths: options.toolSarif }) : { findings: [], tools: [], unavailable: [] };
   const lsp = options.lspDiagnostics ? await scanLspDiagnostics(repositoryRoot, options.lspDiagnostics, reviewSha) : { findings: [], unavailable: [] };
   const externalSecurityWithLsp = { ...externalSecurity, unavailable: [...externalSecurity.unavailable, ...lsp.unavailable] };
@@ -174,7 +177,7 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   context.securityFindings = securityFindings;
   context.qualitySignals = qualitySignals;
   context.suggestedReviewers = suggestedReviewers;
-  return { repositoryRoot, context, changes, criteria, policy, retrieval, knowledge, scopePaths: (options.directories ?? []).map((directory) => directory.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean), securityFindings, qualitySignals, externalSecurity: externalSecurityWithLsp, hooksBefore };
+  return { repositoryRoot, context, changes: scopedChanges, criteria, policy, retrieval, knowledge, scopePaths: [...(options.directories ?? []), ...(policy.pathFilters ?? [])].map((directory) => directory.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean), securityFindings, qualitySignals, externalSecurity: externalSecurityWithLsp, hooksBefore };
 }
 
 export async function reviewWorkingTree(model?: string, options: LocalReviewOptions = {}): Promise<Analysis> {
