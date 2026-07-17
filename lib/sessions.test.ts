@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { appendSessionTurn, deleteAllSessions, deleteSession, forkSession, listSessions, openSession, readSession, renderSessionMarkdown } from "./sessions";
+import { appendSessionTurn, cleanupSessions, deleteAllSessions, deleteSession, forkSession, listSessions, openSession, pruneSessions, readSession, renameSession, renderSessionMarkdown, sessionFiles } from "./sessions";
 
 describe("persistent chat sessions", () => {
   it("creates, appends, resumes, and lists an inspectable JSONL session", async () => {
@@ -25,9 +25,23 @@ describe("persistent chat sessions", () => {
     expect(fork.turns).toHaveLength(1);
     expect(fork.turns[0].sessionId).toBe("forked");
     expect(renderSessionMarkdown(fork)).toContain("# MergeProof session forked");
+    const renamed = await renameSession(root, fork.id, "Release review");
+    expect(renamed.name).toBe("Release review");
+    expect(renderSessionMarkdown(renamed)).toContain("Release review");
+    expect(await sessionFiles(root, renamed.id)).toHaveLength(1);
     expect(await deleteSession(root, source.id)).toBe(true);
     expect(await readSession(root, source.id)).toBeUndefined();
     expect(await deleteAllSessions(root)).toBe(1);
     expect(await listSessions(root)).toHaveLength(0);
+  });
+
+  it("prunes by recency and cleans up old sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mergeproof-session-cleanup-"));
+    const first = await openSession(root, "first");
+    await openSession(root, "second");
+    expect(await pruneSessions(root, 1)).toBe(1);
+    expect((await listSessions(root)).length).toBe(1);
+    expect((await readSession(root, first.id)) === undefined || (await readSession(root, "second")) === undefined).toBe(true);
+    expect(await cleanupSessions(root, 0)).toBe(1);
   });
 });

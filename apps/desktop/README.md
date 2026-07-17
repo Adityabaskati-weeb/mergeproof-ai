@@ -16,7 +16,9 @@ The desktop client currently provides:
 - deterministic security findings with line-linked evidence
 - repository-wide security scan and local plan-history inspection
 - focused active-change security review, opt-in research source packs, and environment diagnostics
-- persisted review-finding history with path/severity provenance
+- interactive-compatible persisted review-finding history with path/severity provenance and local disposition controls
+- repository initialization, integration-auth status, and resumable-session listing from the desktop shell
+- offline review-history benchmarking for citation coverage, attestations, unsupported claims, and calibration
 - optional repository-scoped review memory
 - explicit repository knowledge facts with path scoping
 - named repository custom-agent profiles

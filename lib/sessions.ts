@@ -19,10 +19,13 @@ export type SessionTurn = {
 export type SessionRecord = {
   id: string;
   repository: string;
+  name?: string;
   createdAt: string;
   updatedAt: string;
   turns: SessionTurn[];
 };
+
+type SessionUpdate = { type: "session-update"; sessionId: string; updatedAt: string; name?: string };
 
 function sessionsDirectory(repository: string): string {
   return join(resolve(repository), ".mergeproof", "sessions");
@@ -70,7 +73,9 @@ export async function readSession(repository: string, id: string): Promise<Sessi
   const meta = records.find((record) => record.type === "session");
   if (!meta || typeof meta.id !== "string" || typeof meta.repository !== "string" || typeof meta.createdAt !== "string") return undefined;
   const turns = records.filter((record) => record.type === "turn") as unknown as SessionTurn[];
-  return { id: meta.id, repository: meta.repository, createdAt: meta.createdAt, updatedAt: (turns.at(-1)?.createdAt ?? meta.createdAt), turns };
+  const updates = records.filter((record) => record.type === "session-update") as unknown as SessionUpdate[];
+  const latest = updates.at(-1);
+  return { id: meta.id, repository: meta.repository, ...(latest?.name ? { name: latest.name } : {}), createdAt: meta.createdAt, updatedAt: (latest?.updatedAt ?? turns.at(-1)?.createdAt ?? meta.createdAt), turns };
 }
 
 export async function listSessions(repository: string, limit = 20): Promise<SessionRecord[]> {
@@ -104,7 +109,7 @@ export async function forkSession(repository: string, sourceId: string, requeste
   if (await readSession(repository, id)) throw new Error(`Session already exists: ${id}`);
   const createdAt = new Date().toISOString();
   await mkdir(sessionsDirectory(repository), { recursive: true });
-  await appendFile(sessionFile(repository, id), `${JSON.stringify({ type: "session", id, repository: resolve(repository), createdAt })}\n`, "utf8");
+  await appendFile(sessionFile(repository, id), `${JSON.stringify({ type: "session", id, repository: resolve(repository), ...(source.name ? { name: source.name } : {}), createdAt })}\n`, "utf8");
   for (const turn of source.turns) {
     await appendFile(sessionFile(repository, id), `${JSON.stringify({ ...turn, sessionId: id })}\n`, "utf8");
   }
@@ -115,5 +120,38 @@ export async function forkSession(repository: string, sourceId: string, requeste
 
 export function renderSessionMarkdown(session: SessionRecord): string {
   const turns = session.turns.map((turn, index) => [`## Turn ${index + 1}: ${turn.action}`, `- Created: ${turn.createdAt}`, `- Outcome: ${turn.outcome}`, "", `### Request`, "", turn.request, "", `### Summary`, "", turn.summary].join("\n")).join("\n\n");
-  return [`# MergeProof session ${session.id}`, "", `Repository: ${session.repository}`, `Created: ${session.createdAt}`, `Updated: ${session.updatedAt}`, "", turns || "No turns recorded.", ""].join("\n");
+  return [`# MergeProof session ${session.name ? `${session.name} (${session.id})` : session.id}`, "", `Repository: ${session.repository}`, `Created: ${session.createdAt}`, `Updated: ${session.updatedAt}`, "", turns || "No turns recorded.", ""].join("\n");
+}
+
+export async function renameSession(repository: string, id: string, name: string): Promise<SessionRecord> {
+  const session = await readSession(repository, id);
+  if (!session) throw new Error(`Session not found: ${id}`);
+  const cleanName = name.trim().slice(0, 120);
+  if (!cleanName) throw new Error("Session name cannot be empty.");
+  const update: SessionUpdate = { type: "session-update", sessionId: id, updatedAt: new Date().toISOString(), name: cleanName };
+  await appendFile(sessionFile(repository, id), `${JSON.stringify(update)}\n`, "utf8");
+  const renamed = await readSession(repository, id);
+  if (!renamed) throw new Error(`Failed to rename session: ${id}`);
+  return renamed;
+}
+
+export async function pruneSessions(repository: string, keep = 20): Promise<number> {
+  const sessions = await listSessions(repository, 100);
+  let deleted = 0;
+  for (const session of sessions.slice(Math.max(0, Math.min(100, keep)))) if (await deleteSession(repository, session.id)) deleted += 1;
+  return deleted;
+}
+
+export async function cleanupSessions(repository: string, olderThanDays = 30): Promise<number> {
+  if (!Number.isFinite(olderThanDays) || olderThanDays < 0) throw new Error("Session cleanup days must be a non-negative number.");
+  const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1_000;
+  const sessions = await listSessions(repository, 100);
+  let deleted = 0;
+  for (const session of sessions) if (Date.parse(session.updatedAt) < cutoff && await deleteSession(repository, session.id)) deleted += 1;
+  return deleted;
+}
+
+export async function sessionFiles(repository: string, id: string): Promise<string[]> {
+  const session = await readSession(repository, id);
+  return session ? [sessionFile(repository, id)] : [];
 }

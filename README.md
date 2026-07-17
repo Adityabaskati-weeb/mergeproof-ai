@@ -6,8 +6,9 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 
 - `mergeproof analyze <change-request-url>` CLI workflow for GitHub, GitLab, Bitbucket, and Azure DevOps
 - `mergeproof review [repo-path]` pre-commit workflow for staged, unstaged, and untracked changes
-- `mergeproof review --agent-output` CodeRabbit-style newline-delimited findings with citations and attestations
-- `mergeproof findings --repo <checkout>` persisted finding history filtered by head, path, or severity
+- `mergeproof review --agent-output` or `mergeproof cr --agent` CodeRabbit-compatible newline-delimited findings with citations and attestations
+- `mergeproof review --interactive` interactive finding navigation with ignore/restore disposition controls
+- `mergeproof findings --repo <checkout>` persisted finding history filtered by head, path, severity, and disposition; `findings ignore|restore` keeps a separate disposition ledger
 - `mergeproof security --repo <checkout>` full-repository deterministic security scan with sensitive-file exclusions
 - `mergeproof security-review [repo-path]` focused security review of active local changes
 - `.mergeproof/checks.json` natural-language pre-merge checks evaluated as cited criteria on every review
@@ -25,11 +26,14 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof erd <change-request-url>` evidence-backed Mermaid schema/entity impact diagram
 - `mergeproof conflicts [repo-path]` merge-conflict inspection and explicitly gated resolution patches
 - `mergeproof feedback <change-request-url> <label>` and `mergeproof metrics` outcome feedback and ready-decision calibration
+- `mergeproof benchmark --input <analysis-or-bundle...>` offline evidence-quality, attestation, and calibration scoring for a team review history
 - `mergeproof verify <analysis-json>` to independently verify a saved analysis attestation
 - `mergeproof bundle create|verify` to create and offline-verify a portable evidence capsule
 - `mergeproof chat` for an interactive CLI session with read-only ask, plan, review, and sandboxed implement actions
 - `mergeproof sessions list|show` and `mergeproof chat --session <id>` for resumable, inspectable local sessions
+- `mergeproof sessions rename|fork|export|files|prune|cleanup|delete` for full local session lifecycle control
 - `mergeproof chat-turn <ask|plan|review|implement> ... --json` for editor and desktop session-backed turns
+- `mergeproof remote <ask|plan|review> ... --endpoint <url> --secret <secret>` for signed, read-only remote session steering
 - `mergeproof fleet ask|plan|review` for parallel model/sub-agent work with repository-head consistency and disagreement reporting
 - `mergeproof analyze <url> --publish-summary` to refresh a marker-scoped GitHub PR summary without overwriting author content
 - `mergeproof report [repository]` for local dashboard-style Markdown, JSON, or CSV review reports, natural-language custom reports, and optional Slack, Discord, Teams, or SendGrid email delivery
@@ -38,6 +42,8 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof ask <question...>` (also `chat`) for read-only Copilot-style repository Q&A with bounded retrieval and an auditable trace
 - `mergeproof research <topic...>` opt-in web research with a preserved source pack and model synthesis
 - `mergeproof doctor --repo <checkout>` actionable environment and integration diagnostics without printing secrets
+- `mergeproof init --repo <checkout>` idempotently scaffolds a local policy, safe mutation defaults, evidence checks, and instructions
+- `mergeproof auth status` reports model and integration authentication state without printing credential values; `auth login|logout --github` delegates GitHub authentication to `gh`
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
 - Portable agent distribution through `skills/mergeproof-review`, `.cursor-plugin`, `.claude-plugin`, `commands/mergeproof-review.md`, and `.github/agents/mergeproof-review.md`
@@ -269,7 +275,7 @@ Save a machine-readable run with `-- --json` and use `evaluate` to report criter
 
 Review capsules make the decision portable: `bundle create` snapshots the fetched change-request context alongside the saved analysis, exact head SHA, citation manifest, and SHA-256 digests. `bundle verify` performs an offline integrity and citation check without a model, network request, or MergeProof service. Capsules can contain source patches and discussion text, so treat them as sensitive artifacts and store them only where the repository policy allows.
 
-Interactive sessions are append-only JSONL under `.mergeproof/sessions/`. A session stores bounded prompts, outcomes, and provenance traces rather than API keys or source snapshots. `fleet ask` and `fleet plan` run up to five configured models in parallel, refuse to combine results observed from different repository heads, and report answer or plan disagreement instead of hiding it. `fleet review` is the same unanimous evidence gate exposed through a Copilot-style parallel workflow. `mergeproof acp --stdio` exposes the same safe ask/plan/review contract over the editor-neutral Agent Client Protocol, with a loopback TCP mode via `--port`; ACP sessions advertise their available commands and never expose mutation modes. For controlled remote steering, `serve` can expose `POST /session/turn` when `MERGEPROOF_REMOTE_SESSION_SECRET` is configured; requests must carry a fresh HMAC signature and can only run read-only `ask`, `plan`, or `review` turns against the configured checkout. Remote `implement` is deliberately rejected.
+Interactive sessions are append-only JSONL under `.mergeproof/sessions/`. A session stores bounded prompts, outcomes, and provenance traces rather than API keys or source snapshots. `fleet ask` and `fleet plan` run up to five configured models in parallel, refuse to combine results observed from different repository heads, and report answer or plan disagreement instead of hiding it. `fleet review` is the same unanimous evidence gate exposed through a Copilot-style parallel workflow. `mergeproof acp --stdio` exposes the same safe ask/plan/review contract over the editor-neutral Agent Client Protocol, with a loopback TCP mode via `--port`; ACP sessions advertise their available commands and never expose mutation modes. For controlled remote steering, `serve` can expose `POST /session/turn` when `MERGEPROOF_REMOTE_SESSION_SECRET` is configured, and `mergeproof remote` sends fresh HMAC-signed turns to it. Requests can only run read-only `ask`, `plan`, or `review` turns against the configured checkout. Remote `implement` is deliberately rejected.
 
 Autonomous correction is explicit rather than hidden: `mergeproof autopilot "request" --repo . --verify "npm test"` can make up to three evidence-re-reviewed correction attempts, and `--apply` applies only the converged patch after a stale-checkout and permission check. Copy `.mergeproof/permissions.example.json` to `.mergeproof/permissions.json` to deny actions, restrict paths, or require verification before mutation/publication. Inspect the active policy with `mergeproof permissions --repo .`.
 
