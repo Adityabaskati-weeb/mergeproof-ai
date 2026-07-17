@@ -6,7 +6,10 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 
 - `mergeproof analyze <change-request-url>` CLI workflow for GitHub, GitLab, Bitbucket, and Azure DevOps
 - `mergeproof review [repo-path]` pre-commit workflow for staged, unstaged, and untracked changes
+- `mergeproof review --agent-output` CodeRabbit-style newline-delimited findings with citations and attestations
+- `mergeproof findings --repo <checkout>` persisted finding history filtered by head, path, or severity
 - `mergeproof security --repo <checkout>` full-repository deterministic security scan with sensitive-file exclusions
+- `mergeproof security-review [repo-path]` focused security review of active local changes
 - `.mergeproof/checks.json` natural-language pre-merge checks evaluated as cited criteria on every review
 - `.mergeproof/tools.json` SARIF ingestion for existing CI/security tools without executing arbitrary repository commands
 - `mergeproof agent [repo-path]` sandboxed fix generation with optional verification
@@ -33,6 +36,8 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof plan-history` to inspect recorded implementation-plan versions and content digests
 - `mergeproof configuration` to inspect policy/instructions/recipes, or `--generate` to create a starter policy explicitly
 - `mergeproof ask <question...>` (also `chat`) for read-only Copilot-style repository Q&A with bounded retrieval and an auditable trace
+- `mergeproof research <topic...>` opt-in web research with a preserved source pack and model synthesis
+- `mergeproof doctor --repo <checkout>` actionable environment and integration diagnostics without printing secrets
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
 - Portable agent distribution through `skills/mergeproof-review`, `.cursor-plugin`, `.claude-plugin`, `commands/mergeproof-review.md`, and `.github/agents/mergeproof-review.md`
@@ -172,6 +177,9 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123
 npm run cli -- review . -- --criteria "API behavior is preserved|New behavior has focused tests"
 npm run cli -- review . --effort high --dir src tests
 npm run cli -- review . -- --external-security
+npm run cli -- review . --agent-output --type uncommitted --light
+npm run cli -- --config review-guidance.md review . --agent-output
+npm run cli -- security-review . --agent-output
 npm run cli -- review . -- --codeql-db .codeql/db --codeql-create --codeql-query javascript-code-scanning.qls
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --external-security --codeql-db .codeql/db
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --mcp
@@ -181,6 +189,8 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123 --repo . --agent s
 npm run cli -- agent . -- --verify "npm test"
 npm run cli -- agent . --verify "npm test" --re-review --dir src tests
 npm run cli -- ask "How does authentication flow through this repository?" -- --repo . --json
+npm run cli -- research "secure GitHub webhook verification" -- --repo . --json
+npm run cli -- doctor -- --repo .
 npm run cli -- task https://github.com/owner/repo/issues/123 -- --repo . --verify "npm test" --re-review
 npm run cli -- task https://github.com/owner/repo/issues/123 -- --repo . --verify "npm test" --re-review --create-pr
 npm run cli -- recipes -- --repo .
@@ -262,6 +272,8 @@ Review capsules make the decision portable: `bundle create` snapshots the fetche
 Interactive sessions are append-only JSONL under `.mergeproof/sessions/`. A session stores bounded prompts, outcomes, and provenance traces rather than API keys or source snapshots. `fleet ask` and `fleet plan` run up to five configured models in parallel, refuse to combine results observed from different repository heads, and report answer or plan disagreement instead of hiding it. `fleet review` is the same unanimous evidence gate exposed through a Copilot-style parallel workflow. `mergeproof acp --stdio` exposes the same safe ask/plan/review contract over the editor-neutral Agent Client Protocol, with a loopback TCP mode via `--port`; ACP sessions advertise their available commands and never expose mutation modes. For controlled remote steering, `serve` can expose `POST /session/turn` when `MERGEPROOF_REMOTE_SESSION_SECRET` is configured; requests must carry a fresh HMAC signature and can only run read-only `ask`, `plan`, or `review` turns against the configured checkout. Remote `implement` is deliberately rejected.
 
 Autonomous correction is explicit rather than hidden: `mergeproof autopilot "request" --repo . --verify "npm test"` can make up to three evidence-re-reviewed correction attempts, and `--apply` applies only the converged patch after a stale-checkout and permission check. Copy `.mergeproof/permissions.example.json` to `.mergeproof/permissions.json` to deny actions, restrict paths, or require verification before mutation/publication. Inspect the active policy with `mergeproof permissions --repo .`.
+
+The review stream is agent-friendly: `mergeproof review . --agent-output` emits one JSON object per line for `review_context`, `status`, `finding`, and `complete`, including source citations and the attestation digest. Use `sessions fork`, `sessions export --format markdown|json`, `sessions delete`, and `sessions delete-all --yes` to manage local transcripts. `mergeproof doctor --repo .` checks runtime, GitHub auth, model credentials, writable storage, optional web search, and Cargo availability without printing secret values. `mergeproof research` uses network only when Tavily or Brave credentials are explicitly configured; otherwise it reports that research is unavailable.
 
 For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` in `.env`; for Linear context, configure `LINEAR_API_KEY` and optionally `LINEAR_TEAM_KEY`; link an issue in the change request body using a Jira or Linear URL. For Slack notifications, pass `--slack-webhook` explicitly; webhook URLs are never persisted by MergeProof.
 

@@ -30,7 +30,7 @@ fn cli_args(
     re_review: bool,
     session_id: Option<String>,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -176,6 +176,26 @@ fn cli_args(
     }
     if command == "security" {
         let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Security scanning requires an explicit repository path."))?;
+        return Ok(vec![command.to_string(), "--repo".to_string(), repo, "--json".to_string()]);
+    }
+    if command == "security-review" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Security review requires an explicit repository path."))?;
+        return Ok(vec![command.to_string(), repo, "--json".to_string()]);
+    }
+    if command == "findings" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Findings inspection requires an explicit repository path."))?;
+        return Ok(vec![command.to_string(), "--repo".to_string(), repo, "--json".to_string()]);
+    }
+    if command == "research" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Research requires an explicit repository path."))?;
+        let mut args = vec![command.to_string(), pr_url, "--repo".to_string(), repo, "--json".to_string()];
+        if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
+        if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
+        if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }
+        return Ok(args);
+    }
+    if command == "doctor" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Doctor requires an explicit repository path."))?;
         return Ok(vec![command.to_string(), "--repo".to_string(), repo, "--json".to_string()]);
     }
     if command == "bundle-verify" {

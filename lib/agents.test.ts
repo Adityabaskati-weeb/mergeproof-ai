@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { combineInstructions, loadAgentProfile } from "./agents";
+import { combineInstructions, loadAdditionalInstructions, loadAgentProfile } from "./agents";
 
 describe("custom agent profiles", () => {
   it("loads only named repository profiles and combines them with base instructions", async () => {
@@ -15,6 +15,17 @@ describe("custom agent profiles", () => {
       expect(combineInstructions("Use exact citations.", profile)).toContain("Check auth boundaries");
       await expect(loadAgentProfile(root, "../secrets")).rejects.toThrow("Agent profile names");
       await expect(loadAgentProfile(root, "missing")).rejects.toThrow("was not found");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("loads explicit additional instruction files only from the repository", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mergeproof-agent-config-"));
+    try {
+      await writeFile(join(root, "review.md"), "Treat external config as review guidance.", "utf8");
+      expect(await loadAdditionalInstructions(root, ["review.md"])).toContain("Treat external config");
+      await expect(loadAdditionalInstructions(root, ["../outside.md"])).rejects.toThrow("inside the repository");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

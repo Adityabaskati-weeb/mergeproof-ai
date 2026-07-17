@@ -49,11 +49,15 @@ import { readPlanHistory, recordPlanVersion } from "../lib/plan-history";
 import { createReviewBundle, verifyReviewBundle } from "../lib/review-bundle";
 import { runInteractiveChat } from "../lib/chat";
 import { runChatTurn, type ChatTurnAction } from "../lib/chat-turn";
-import { listSessions, readSession } from "../lib/sessions";
+import { deleteAllSessions, deleteSession, forkSession, listSessions, readSession, renderSessionMarkdown } from "../lib/sessions";
 import { runFleetAsk, runFleetPlan, runFleetReview } from "../lib/fleet";
 import { runAcpStdio, startAcpTcpServer } from "../lib/acp";
 import { assertPermission, readPermissionPolicy, renderPermissionPolicy } from "../lib/permissions";
 import { runAutopilot } from "../lib/autopilot";
+import { renderAgentReviewEvents } from "../lib/agent-review";
+import { renderDoctor, runDoctor } from "../lib/doctor";
+import { researchTopic } from "../lib/research";
+import { clearFindings, readFindings, recordAgentFindings } from "../lib/findings";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -240,6 +244,7 @@ function isIssuePlanningUrl(value: string): boolean {
 
 const program = new Command();
 program.name("mergeproof").description("Evidence-backed merge decisions for software change requests").version("0.4.0");
+program.option("--config <file>", "Additional repository-bound instruction file for review (repeatable)", (value: string, previous: string[] = []) => [...previous, value], []);
 
 program.command("index").description("Build a local repository evidence index").argument("[repo-path]", "Repository path", process.cwd()).action(async (repoPath) => {
   const result = await indexRepository(repoPath);
@@ -270,6 +275,18 @@ program.command("permissions").description("Inspect repository-scoped action and
     else console.log(renderPermissionPolicy(policy));
   } catch (error) {
     console.error(`MergeProof permissions error: ${error instanceof Error ? error.message : "Permission inspection failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("doctor").description("Diagnose repository, model, integration, and desktop-build readiness").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const report = await runDoctor(options.repo);
+    if (options.json) console.log(JSON.stringify(report, null, 2));
+    else console.log(renderDoctor(report));
+    process.exitCode = report.ok ? 0 : 1;
+  } catch (error) {
+    console.error(`MergeProof doctor error: ${error instanceof Error ? error.message : "Diagnostics failed."}`);
     process.exitCode = 1;
   }
 });
@@ -330,6 +347,48 @@ sessionsCommand.command("show").description("Show one complete session transcrip
     else console.log(`${session.id} (${session.turns.length} turn(s))\n\n${session.turns.map((turn) => `[${turn.createdAt}] ${turn.action} ${turn.request}\n${turn.outcome}: ${turn.summary}`).join("\n\n")}`);
   } catch (error) {
     console.error(`MergeProof session error: ${error instanceof Error ? error.message : "Session read failed."}`);
+    process.exitCode = 1;
+  }
+});
+sessionsCommand.command("fork").description("Fork a session into a new independent local transcript").argument("<session-id>", "Source session ID").option("--as <session-id>", "New session ID").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (sessionId, options) => {
+  try {
+    const session = await forkSession(options.repo, sessionId, options.as);
+    if (options.json) console.log(JSON.stringify(session, null, 2));
+    else console.log(`Forked ${sessionId} to ${session.id} (${session.turns.length} turn(s)).`);
+  } catch (error) {
+    console.error(`MergeProof session fork error: ${error instanceof Error ? error.message : "Session fork failed."}`);
+    process.exitCode = 1;
+  }
+});
+sessionsCommand.command("export").description("Export a session transcript for auditing or sharing").argument("<session-id>", "Session ID").option("--repo <path>", "Repository path", process.cwd()).option("--format <format>", "markdown or json", "markdown").option("--output <path>", "Write the export to a file").action(async (sessionId, options) => {
+  try {
+    const session = await readSession(options.repo, sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    const format = String(options.format).toLowerCase();
+    if (format !== "markdown" && format !== "json") throw new Error("Session export format must be markdown or json.");
+    const content = format === "json" ? JSON.stringify(session, null, 2) : renderSessionMarkdown(session);
+    if (options.output) await writeFile(options.output, `${content}${content.endsWith("\n") ? "" : "\n"}`, "utf8");
+    else console.log(content);
+  } catch (error) {
+    console.error(`MergeProof session export error: ${error instanceof Error ? error.message : "Session export failed."}`);
+    process.exitCode = 1;
+  }
+});
+sessionsCommand.command("delete").description("Delete one local session transcript").argument("<session-id>", "Session ID").option("--repo <path>", "Repository path", process.cwd()).action(async (sessionId, options) => {
+  try {
+    if (!await deleteSession(options.repo, sessionId)) throw new Error(`Session not found: ${sessionId}`);
+    console.log(`Deleted session ${sessionId}.`);
+  } catch (error) {
+    console.error(`MergeProof session delete error: ${error instanceof Error ? error.message : "Session deletion failed."}`);
+    process.exitCode = 1;
+  }
+});
+sessionsCommand.command("delete-all").description("Delete all local session transcripts").option("--repo <path>", "Repository path", process.cwd()).option("--yes", "Confirm deletion").action(async (options) => {
+  try {
+    if (!options.yes) throw new Error("Pass --yes to delete all local sessions.");
+    console.log(`Deleted ${await deleteAllSessions(options.repo)} session(s).`);
+  } catch (error) {
+    console.error(`MergeProof session delete error: ${error instanceof Error ? error.message : "Session deletion failed."}`);
     process.exitCode = 1;
   }
 });
@@ -765,12 +824,16 @@ program.command("recipe").description("Run a named repository finishing-touch re
   }
 });
 
-program.command("review").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--type <type>", "Review scope: all, committed, or uncommitted", "all").option("--base <branch>", "Base branch/ref for committed or all review scope").option("--base-commit <commit>", "Base commit for committed or all review scope").option("--hooks", "Run configured safe lifecycle hooks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--tool-sarif <path...>", "Ingest existing SARIF output from configured CI/security tools").option("--lsp-diagnostics <path>", "Ingest bounded LSP diagnostics JSON from the repository").action(async (repoPath, options) => {
+program.command("review").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--agent-output", "Print CodeRabbit-style newline-delimited agent events").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--light", "Use a faster low-effort local review").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--type <type>", "Review scope: all, committed, or uncommitted", "all").option("--base <branch>", "Base branch/ref for committed or all review scope").option("--base-commit <commit>", "Base commit for committed or all review scope").option("--hooks", "Run configured safe lifecycle hooks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--tool-sarif <path...>", "Ingest existing SARIF output from configured CI/security tools").option("--lsp-diagnostics <path>", "Ingest bounded LSP diagnostics JSON from the repository").action(async (repoPath, options) => {
   try {
     if (!["all", "committed", "uncommitted"].includes(options.type)) throw new Error("Review type must be all, committed, or uncommitted.");
-    const analysis = await reviewWorkingTree(options.model, { repoPath, provider: options.provider, effort: parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, directories: options.dir, criteria: parseCriteria(options.criteria), retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, reviewType: options.type, base: options.base, baseCommit: options.baseCommit, hooks: options.hooks, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, toolSarif: options.toolSarif, lspDiagnostics: options.lspDiagnostics });
+    if (options.light && options.effort) throw new Error("Choose either --light or --effort.");
+    const instructionFiles = (program.opts().config ?? []) as string[];
+    const analysis = await reviewWorkingTree(options.model, { repoPath, provider: options.provider, effort: options.light ? "low" : parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, instructionFiles, directories: options.dir, criteria: parseCriteria(options.criteria), retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, reviewType: options.type, base: options.base, baseCommit: options.baseCommit, hooks: options.hooks, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, toolSarif: options.toolSarif, lspDiagnostics: options.lspDiagnostics });
+    try { await recordAgentFindings(repoPath, analysis); } catch { /* Review output remains available when metadata storage is unavailable. */ }
     if (options.save) await writeFile(options.save, JSON.stringify(analysis, null, 2), "utf8");
-    if (options.json) console.log(JSON.stringify(analysis, null, 2));
+    if (options.agentOutput) process.stdout.write(renderAgentReviewEvents(analysis));
+    else if (options.json) console.log(JSON.stringify(analysis, null, 2));
     else printAnalysis(analysis);
     process.exitCode = analysis.decision === "ready" ? 0 : 2;
   } catch (error) {
@@ -889,6 +952,51 @@ program.command("autopilot").description("Iteratively generate, verify, and evid
     process.exitCode = run.trace.converged ? 0 : 2;
   } catch (error) {
     console.error(`MergeProof autopilot error: ${error instanceof Error ? error.message : "Autopilot failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("security-review").description("Run a focused security review of active local changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--agent-output", "Print CodeRabbit-style newline-delimited agent events").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "10").option("--tool-sarif <path...>", "Ingest bounded SARIF output from security tools").action(async (repoPath, options) => {
+  try {
+    const analysis = await reviewWorkingTree(options.model, { repoPath, provider: options.provider, agent: options.agent, directories: options.dir, retrievalTopK: Number(options.retrievalTopK), reviewType: "uncommitted", criteria: ["Active changes do not introduce security, privacy, authentication, authorization, injection, secret-handling, dependency, or CI risks."], externalSecurity: true, toolSarif: options.toolSarif });
+    try { await recordAgentFindings(repoPath, analysis); } catch { /* Security review output remains available when metadata storage is unavailable. */ }
+    if (options.save) await writeFile(options.save, JSON.stringify(analysis, null, 2), "utf8");
+    if (options.agentOutput) process.stdout.write(renderAgentReviewEvents(analysis));
+    else if (options.json) console.log(JSON.stringify(analysis, null, 2));
+    else printAnalysis(analysis);
+    process.exitCode = analysis.decision === "ready" ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof security-review error: ${error instanceof Error ? error.message : "Security review failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("findings").description("Inspect locally persisted review findings").option("--repo <path>", "Repository path", process.cwd()).option("--limit <number>", "Maximum findings", "50").option("--head <sha>", "Filter by exact review head or working-tree digest").option("--path <path>", "Filter by changed path").option("--severity <severity>", "Filter by critical, major, minor, trivial, or info").option("--clear", "Clear stored findings").option("--yes", "Confirm --clear").option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    if (options.clear) {
+      if (!options.yes) throw new Error("Pass --yes with --clear to remove stored findings.");
+      await clearFindings(options.repo);
+      console.log("Cleared persisted review findings.");
+      return;
+    }
+    const findings = await readFindings(options.repo, { limit: Number(options.limit), headSha: options.head, path: options.path, severity: options.severity });
+    if (options.json) console.log(JSON.stringify(findings, null, 2));
+    else console.log(findings.map((finding) => `[${finding.severity}] ${finding.fileName}${finding.line ? `:${finding.line}` : ""} - ${finding.criterion}\n  ${finding.comment}`).join("\n\n") || "No persisted review findings.");
+  } catch (error) {
+    console.error(`MergeProof findings error: ${error instanceof Error ? error.message : "Findings inspection failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("research").description("Run opt-in web research and return a source pack plus model synthesis").argument("<topic...>", "Research topic").option("--repo <path>", "Repository path", process.cwd()).option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the research report to a file").action(async (topic, options) => {
+  try {
+    const result = await researchTopic(topic.join(" "), { repoPath: options.repo, model: options.model, provider: options.provider, agent: options.agent });
+    if (options.save) await writeFile(options.save, JSON.stringify(result, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.answer}\n\nSources (${result.sources.length}):\n${result.sources.map((source, index) => `[${index + 1}] ${source.title} - ${source.url}`).join("\n") || "No external sources returned."}\n\nNetwork: opt-in${result.trace.model ? ` | Model: ${result.trace.model}` : ""}`);
+    process.exitCode = result.sources.length ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof research error: ${error instanceof Error ? error.message : "Research failed."}`);
     process.exitCode = 1;
   }
 });

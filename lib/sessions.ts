@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
@@ -81,3 +81,39 @@ export async function listSessions(repository: string, limit = 20): Promise<Sess
   return sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, Math.max(1, Math.min(100, limit)));
 }
 
+export async function deleteSession(repository: string, id: string): Promise<boolean> {
+  try {
+    await unlink(sessionFile(repository, id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteAllSessions(repository: string): Promise<number> {
+  const sessions = await listSessions(repository, 100);
+  let deleted = 0;
+  for (const session of sessions) if (await deleteSession(repository, session.id)) deleted += 1;
+  return deleted;
+}
+
+export async function forkSession(repository: string, sourceId: string, requestedId?: string): Promise<SessionRecord> {
+  const source = await readSession(repository, sourceId);
+  if (!source) throw new Error(`Session not found: ${sourceId}`);
+  const id = safeSessionId(requestedId ?? `session-fork-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`);
+  if (await readSession(repository, id)) throw new Error(`Session already exists: ${id}`);
+  const createdAt = new Date().toISOString();
+  await mkdir(sessionsDirectory(repository), { recursive: true });
+  await appendFile(sessionFile(repository, id), `${JSON.stringify({ type: "session", id, repository: resolve(repository), createdAt })}\n`, "utf8");
+  for (const turn of source.turns) {
+    await appendFile(sessionFile(repository, id), `${JSON.stringify({ ...turn, sessionId: id })}\n`, "utf8");
+  }
+  const result = await readSession(repository, id);
+  if (!result) throw new Error(`Failed to fork session: ${sourceId}`);
+  return result;
+}
+
+export function renderSessionMarkdown(session: SessionRecord): string {
+  const turns = session.turns.map((turn, index) => [`## Turn ${index + 1}: ${turn.action}`, `- Created: ${turn.createdAt}`, `- Outcome: ${turn.outcome}`, "", `### Request`, "", turn.request, "", `### Summary`, "", turn.summary].join("\n")).join("\n\n");
+  return [`# MergeProof session ${session.id}`, "", `Repository: ${session.repository}`, `Created: ${session.createdAt}`, `Updated: ${session.updatedAt}`, "", turns || "No turns recorded.", ""].join("\n");
+}

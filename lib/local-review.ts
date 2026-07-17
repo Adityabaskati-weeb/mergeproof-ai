@@ -16,7 +16,7 @@ import { attestAnalysis } from "./attestation";
 import { readKnowledge } from "./knowledge";
 import { normalizeReviewEffort, retrievalTopKForEffort } from "./effort";
 import { normalizeReviewProfile } from "./profile";
-import { combineInstructions, loadAgentProfile } from "./agents";
+import { combineInstructions, loadAdditionalInstructions, loadAgentProfile } from "./agents";
 import { runHooks, type HookReport } from "./hooks";
 import { suggestReviewers } from "./reviewers";
 import { recordAuditEvent } from "./audit";
@@ -29,7 +29,7 @@ const MAX_UNTRACKED_BYTES = 250_000;
 
 export type WorkingTreeFile = PullRequestContext["files"][number];
 export type LocalReviewType = "all" | "committed" | "uncommitted";
-export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; directories?: string[]; reviewType?: LocalReviewType; base?: string; baseCommit?: string; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; hooks?: boolean };
+export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; instructionFiles?: string[]; directories?: string[]; reviewType?: LocalReviewType; base?: string; baseCommit?: string; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; hooks?: boolean };
 
 function runGit(root: string, args: string[]): string {
   try {
@@ -149,6 +149,7 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const policy = await loadPolicy(repositoryRoot);
   const hooksBefore = await runHooks(repositoryRoot, "beforeReview", options.hooks);
   const agentProfile = await loadAgentProfile(repositoryRoot, options.agent);
+  const additionalInstructions = await loadAdditionalInstructions(repositoryRoot, options.instructionFiles);
   const effort = normalizeReviewEffort(options.effort || policy.effort || process.env.MERGEPROOF_REVIEW_EFFORT);
   const profile = normalizeReviewProfile(options.profile || policy.profile || process.env.MERGEPROOF_REVIEW_PROFILE);
   const changes = await collectWorkingTreeChanges(repositoryRoot, options.directories, { reviewType: options.reviewType, base: options.base, baseCommit: options.baseCommit });
@@ -158,7 +159,8 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const knowledge = await readKnowledge(repositoryRoot, ref, changes.files.map((file) => file.path), basename(repositoryRoot), 12);
   const criteria = uniqueCriteria(options.criteria);
   if (!criteria.length) criteria.push(DEFAULT_CRITERION);
-  const context: PullRequestContext = { ref, title: `Working-tree review: ${basename(repositoryRoot)}`, body: criteria.join("\n"), headSha: reviewSha, baseSha: changes.gitHeadSha, files: changes.files, checks: [], commits: [], discussion: [], sources: new Set([ref.url, ...changes.files.map((file) => file.url), ...retrieval.chunks.map((chunk) => chunk.url)]), repositoryEvidence: retrieval.chunks, issues: [], customInstructions: combineInstructions(policy.instructions, agentProfile), knowledge, reviewEffort: effort, reviewProfile: profile };
+  const customInstructions = [combineInstructions(policy.instructions, agentProfile), additionalInstructions].filter(Boolean).join("\n\n").slice(0, 40_000) || undefined;
+  const context: PullRequestContext = { ref, title: `Working-tree review: ${basename(repositoryRoot)}`, body: criteria.join("\n"), headSha: reviewSha, baseSha: changes.gitHeadSha, files: changes.files, checks: [], commits: [], discussion: [], sources: new Set([ref.url, ...changes.files.map((file) => file.url), ...retrieval.chunks.map((chunk) => chunk.url)]), repositoryEvidence: retrieval.chunks, issues: [], customInstructions, knowledge, reviewEffort: effort, reviewProfile: profile };
   const baseSecurityFindings = scanPullRequestSecurity(context);
   const privacyFindings = scanPullRequestPrivacy(context);
   const qualitySignals = scanSlopSignals(context);

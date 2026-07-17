@@ -15,6 +15,8 @@ The desktop client currently provides:
 - related local repository context through the CLI-compatible analysis engine
 - deterministic security findings with line-linked evidence
 - repository-wide security scan and local plan-history inspection
+- focused active-change security review, opt-in research source packs, and environment diagnostics
+- persisted review-finding history with path/severity provenance
 - optional repository-scoped review memory
 - explicit repository knowledge facts with path scoping
 - named repository custom-agent profiles

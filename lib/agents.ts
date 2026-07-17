@@ -32,3 +32,17 @@ export function combineInstructions(base: string | undefined, profile: AgentProf
   const sections = [base ? `## Repository instructions\n${base}` : "", profile ? `## Agent profile: ${profile.name}\n${profile.instructions}` : ""].filter(Boolean);
   return sections.length ? sections.join("\n\n").slice(0, 40_000) : undefined;
 }
+
+export async function loadAdditionalInstructions(root: string, paths: string[] = []): Promise<string | undefined> {
+  const repositoryRoot = resolve(root);
+  const sections: string[] = [];
+  for (const value of paths.slice(0, 10)) {
+    const absolute = resolve(repositoryRoot, value);
+    const normalizedRoot = `${repositoryRoot.replace(/\\/g, "/").replace(/\/$/, "")}/`.toLowerCase();
+    const normalizedPath = absolute.replace(/\\/g, "/").toLowerCase();
+    if (!normalizedPath.startsWith(normalizedRoot)) throw new Error(`Additional instruction file must remain inside the repository: ${value}`);
+    const content = await fs.readFile(absolute, "utf8").catch(() => "");
+    if (content.trim()) sections.push(`## Additional instructions: ${absolute.slice(repositoryRoot.length + 1).replace(/\\/g, "/")}\n${content.slice(0, 12_000)}`);
+  }
+  return sections.length ? sections.join("\n\n").slice(0, 30_000) : undefined;
+}
