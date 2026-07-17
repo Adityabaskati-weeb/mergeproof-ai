@@ -16,6 +16,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof walkthrough <change-request-url>` cited PR summary, ordered change stack, effort estimate, and Mermaid change flow
 - `mergeproof conflicts [repo-path]` merge-conflict inspection and explicitly gated resolution patches
 - `mergeproof feedback <change-request-url> <label>` and `mergeproof metrics` outcome feedback and ready-decision calibration
+- `mergeproof verify <analysis-json>` to independently verify a saved analysis attestation
 - `mergeproof configuration` to inspect policy/instructions/recipes, or `--generate` to create a starter policy explicitly
 - `mergeproof ask <question...>` (also `chat`) for read-only Copilot-style repository Q&A with bounded retrieval and an auditable trace
 - Desktop shell boundary in `apps/desktop`
@@ -164,6 +165,7 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --save analysis
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --request-reviewers @alice team:platform
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --apply-labels
 npm run cli -- evaluate analysis.json
+npm run cli -- verify analysis.json
 npm run cli -- feedback https://github.com/owner/repo/pull/123 merged -- --repo . --analysis analysis.json
 npm run cli -- metrics owner/repo -- --repo . --json
 npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json

@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import { analyzePullRequest } from "../lib/analyze";
 import { evaluateAnalysis } from "../lib/evaluation";
+import { verifyAnalysisAttestation } from "../lib/attestation";
 import { fixPullRequest, simplifyPullRequest } from "../lib/fix";
 import { autofixPullRequest, type AutofixResult } from "../lib/autofix";
 import { publishChangeRequestCheck, publishChangeRequestReview } from "../lib/change-publish";
@@ -251,6 +252,18 @@ program.command("ask").alias("chat").description("Answer a read-only repository 
 program.command("evaluate").description("Measure evidence coverage for a saved JSON analysis").argument("<analysis-json>", "Path to analysis JSON").action(async (analysisPath) => {
   const analysis = JSON.parse(await readFile(analysisPath, "utf8")) as Analysis;
   console.log(JSON.stringify(evaluateAnalysis(analysis), null, 2));
+});
+
+program.command("verify").description("Verify the SHA-256 attestation on a saved JSON analysis").argument("<analysis-json>", "Path to analysis JSON").option("--json", "Print machine-readable JSON").action(async (analysisPath, options) => {
+  try {
+    const result = verifyAnalysisAttestation(JSON.parse(await readFile(analysisPath, "utf8")) as Analysis);
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.valid ? "Valid" : "Invalid"} MergeProof attestation. Expected ${result.expected.algorithm}:${result.expected.digest}${result.actual ? `; actual ${result.actual.algorithm}:${result.actual.digest}` : "."}`);
+    process.exitCode = result.valid ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof verify error: ${error instanceof Error ? error.message : "Attestation verification failed."}`);
+    process.exitCode = 1;
+  }
 });
 
 program.command("memory").description("Inspect repository-scoped review memory").argument("<repository>", "GitHub repository, for example owner/repo").option("--repo <path>", "Repository path", process.cwd()).option("--query <text>", "Filter by title or criterion").option("--limit <number>", "Maximum entries", "20").option("--json", "Print machine-readable JSON").action(async (repository, options) => {

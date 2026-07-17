@@ -28,3 +28,9 @@ export function attestAnalysis(analysis: Analysis): AnalysisAttestation {
   });
   return { algorithm: "sha256", digest: createHash("sha256").update(payload).digest("hex") };
 }
+
+export function verifyAnalysisAttestation(analysis: Analysis): { valid: boolean; expected: AnalysisAttestation; actual?: AnalysisAttestation } {
+  const expected = attestAnalysis(analysis);
+  const actual = analysis.trace.attestation;
+  return { valid: Boolean(actual && actual.algorithm === expected.algorithm && actual.digest === expected.digest), expected, ...(actual ? { actual } : {}) };
+}

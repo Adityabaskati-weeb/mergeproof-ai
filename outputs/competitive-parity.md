@@ -56,6 +56,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 9. The walkthrough is generated from fetched change evidence rather than invented runtime behavior; its Mermaid diagram is explicitly labeled as a change flow, not a production execution trace.
 10. Named finishing touches are configuration-reviewed and path-scoped; a recipe cannot silently expand its write surface beyond its configured scope.
 11. Outcome feedback closes the loop between a merge decision and what happened after merge, allowing teams to measure ready-decision calibration instead of optimizing only for review volume.
+12. Saved analyses can be independently attestation-verified after transport or publication, making tampering observable instead of trusting the displayed decision.
 
 ## Remaining Deliberate Gaps
 
