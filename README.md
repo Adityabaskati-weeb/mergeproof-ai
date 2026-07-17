@@ -8,12 +8,15 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof review [repo-path]` pre-commit workflow for staged, unstaged, and untracked changes
 - `mergeproof agent [repo-path]` sandboxed fix generation with optional verification
 - `mergeproof task <github-issue-url> --repo <checkout>` evidence-retrieved issue implementation with sandbox verification and optional handoff PR
+- `mergeproof recipes` and `mergeproof recipe <change-request-url> <name>` reusable repository-scoped finishing-touch actions
 - `mergeproof autofix <github-or-gitlab-url> --repo <checkout>` review-thread autofix with optional verification, re-review, and explicit new-PR/MR handoff
 - `mergeproof simplify <change-request-url>` behavior-preserving simplification suggestions
 - `mergeproof docstrings <change-request-url>` documentation-only patch suggestions
 - `mergeproof consensus <change-request-url> --model <model...>` independent model evidence consensus
 - `mergeproof walkthrough <change-request-url>` cited PR summary, ordered change stack, effort estimate, and Mermaid change flow
 - `mergeproof conflicts [repo-path]` merge-conflict inspection and explicitly gated resolution patches
+- `mergeproof feedback <change-request-url> <label>` and `mergeproof metrics` outcome feedback and ready-decision calibration
+- `mergeproof configuration` to inspect policy/instructions/recipes, or `--generate` to create a starter policy explicitly
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
 - Paste a public GitHub pull request URL into the CLI or native desktop client
@@ -28,7 +31,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Validate model citations against the fetched GitHub sources
 - Publish a MergeProof GitHub Check with annotations and a merge decision
 - Optionally notify a Slack incoming webhook
-- Generate citation-aware implementation plans from a PR
+- Generate citation-aware implementation plans from GitHub Issues, Jira, Linear, and PRs
 - Suggest minimal unified-diff fixes from the same evidence context
 - Generate test-only unified-diff suggestions without editing production code
 - Select low, medium, or high review effort with bounded retrieval budgets
@@ -51,8 +54,10 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Accept signed custom automation webhooks with event, nested-field, and change-request URL matching
 - Emit a reproducible SHA-256 attestation for each decision and evidence set
 - Record a bounded local audit trail inspectable with `mergeproof audit`
+- Record merge/close lifecycle outcomes and explicit human feedback against the original decision, head SHA, and attestation
 - Give local reviews a working-tree digest so citations and decisions are tied to the exact uncommitted snapshot
 - Generate a proposed fix inside an ephemeral Git worktree without mutating the developer checkout
+- Create explicit stacked PRs for GitHub review-thread autofixes with `--stacked-pr`
 - Run an explicit allowlisted verification command inside that sandbox before reporting success
 - Run the same sandbox agent in an ephemeral GitHub Actions runner through manual `workflow_dispatch`
 - Run safe, read-only scheduled reviews for open pull requests through an opt-in GitHub Actions workflow
@@ -102,7 +107,8 @@ For GitHub review-thread access, `GITHUB_TOKEN`, `GH_TOKEN`, a GitHub App instal
 To use the safe autofix path, check out the exact PR head SHA and run:
 
 ```powershell
-npm run cli -- autofix https://github.com/owner/repo/pull/123 --repo . --verify "npm test" --re-review
+npm run cli -- autofix https://github.com/owner/repo/pull/123 -- --repo . --verify "npm test" --re-review
+npm run cli -- autofix https://github.com/owner/repo/pull/123 -- --repo . --verify "npm test" --re-review --create-pr --stacked-pr
 ```
 
 Add `--thread-id <id>` to approve only selected unresolved review threads, or `--create-pr` when you want MergeProof to push a new branch and open a separate PR after verification. The original branch is never modified by this command.
@@ -146,6 +152,9 @@ npm run cli -- agent . -- --verify "npm test"
 npm run cli -- agent . --verify "npm test" --re-review --dir src tests
 npm run cli -- task https://github.com/owner/repo/issues/123 -- --repo . --verify "npm test" --re-review
 npm run cli -- task https://github.com/owner/repo/issues/123 -- --repo . --verify "npm test" --re-review --create-pr
+npm run cli -- recipes -- --repo .
+npm run cli -- recipe https://github.com/owner/repo/pull/123 api-contract -- --repo . --patch recipe.patch
+npm run cli -- recipe https://github.com/owner/repo/pull/123 api-contract -- --repo . --verify "npm test" --re-review --create-pr
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --json
 npm run cli -- index .
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --provider openai-compatible --model your-model
@@ -153,6 +162,8 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --save analysis
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --request-reviewers @alice team:platform
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --apply-labels
 npm run cli -- evaluate analysis.json
+npm run cli -- feedback https://github.com/owner/repo/pull/123 merged -- --repo . --analysis analysis.json
+npm run cli -- metrics owner/repo -- --repo . --json
 npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json
 npm run cli -- walkthrough https://github.com/owner/repo/pull/123 -- --publish
 npm run cli -- plan https://acme.atlassian.net/browse/PLAT-42 -- --save plan.json
@@ -166,6 +177,7 @@ npm run cli -- memory owner/repo -- --repo . --query retry
 npm run cli -- audit --repo .
 npm run cli -- state --repo . --json
 npm run cli -- state --repo . --pause --reason "Release freeze"
+npm run cli -- state --repo . --auto-pause-after 5 --reason "Avoid repetitive incremental reviews"
 npm run cli -- conflicts .
 npm run cli -- conflicts . --resolve --model gpt-5.6 --patch conflict-resolution.patch
 npm run cli -- resolve https://github.com/owner/repo/pull/123 -- --json
@@ -179,7 +191,9 @@ Replace the example PR URL with a real pull request. `https://github.com/owner/r
 
 Exit codes are `0` for a ready decision, `2` when human evidence or ownership is required, and `1` for an invalid request or runtime failure. This keeps the CLI useful in CI without treating uncertainty as a successful merge gate.
 
-The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, consensus, local review, sandbox agent, plan, safe-fix, simplify, and test workflows through the same bundled CLI.
+The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, consensus, local review, sandbox agent, GitHub issue tasks, named recipes, plan, safe-fix, simplify, and test workflows through the same bundled CLI.
+
+Named finishing-touch recipes live in `.mergeproof/recipes.json`; start from `.mergeproof/recipes.example.json`. Each recipe has bounded instructions and optional path scopes. Recipe patches are suggestions by default, can be checked and applied explicitly, and can be delivered as a separate verified GitHub PR.
 
 The desktop shell invokes the same CLI engine through the local `tsx` runner during development. `npm run desktop:build` bundles the CLI into a Windows sidecar and produces MSI and NSIS installers. Set `MERGEPROOF_CLI` only when using a separately installed executable during development.
 
@@ -197,7 +211,7 @@ The manual `.github/workflows/mergeproof-task.yml` workflow implements a GitHub 
 
 The `.github/workflows/mergeproof-scheduled.yml` workflow reviews up to five open pull requests hourly when the repository variable `MERGEPROOF_SCHEDULE_ENABLED=true` is set, or immediately through `workflow_dispatch`. It publishes evidence checks, optionally publishes reviews when selected at dispatch time, uploads machine-readable results, and never applies code or merges a pull request. Scheduled model usage is opt-in because it can incur API cost.
 
-Repository policy lives in `.mergeproof/config.json`; team review guidance can be added to `.mergeproof/instructions.md`. Supported policy keys are `provider`, `model`, `effort`, `retrievalTopK`, and `minCitationsPerCriterion`. Review effort defaults to `medium`; `low` uses four repository chunks, `medium` eight, and `high` sixteen unless `--retrieval-top-k` is explicitly set.
+Repository policy lives in `.mergeproof/config.json`; use `mergeproof configuration` to inspect it or `mergeproof configuration --generate` to create the starter policy explicitly. Team review guidance can be added to `.mergeproof/instructions.md`. Supported policy keys are `provider`, `model`, `effort`, `retrievalTopK`, and `minCitationsPerCriterion`. Review effort defaults to `medium`; `low` uses four repository chunks, `medium` eight, and `high` sixteen unless `--retrieval-top-k` is explicitly set.
 
 Save a machine-readable run with `-- --json` and use `evaluate` to report criterion coverage, citation coverage, abstention, unsupported claims, and retrieval usage. This makes MergeProof quality measurable instead of relying on an attractive demo transcript.
 
@@ -205,11 +219,11 @@ For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` 
 
 Mutation actions are explicit: `--publish-review` posts a GitHub review or fallback PR comment, and `--create-jira` creates a Jira follow-up using `JIRA_PROJECT_KEY`. These flags are never enabled by default.
 
-Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. Automatic review lifecycle state is explicit and local at `.mergeproof/review-state.json`; use `state --pause`, `state --resume`, `state --ignore <PR URL>`, or `state --unignore <PR URL>` to control signed webhook reviews. Explicit knowledge facts are stored separately at `.mergeproof/knowledge.jsonl` and can only be added by a human through `knowledge --add` or Slack `learn`; both stores are bounded and contain summaries/facts, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof full review`, `/mergeproof summary`, `/mergeproof diagram`, `/mergeproof docstrings`, `/mergeproof plan`, `/mergeproof issue`, `/mergeproof pause`, `/mergeproof resume`, `/mergeproof ignore`, `/mergeproof unignore`, and `/mergeproof help` comments on pull requests. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands` and `/slack/events`: `review`, `investigate`, `walkthrough` (also `summary` or `diagram`), `docstrings`, `plan`, `fix`, `tests`, `learn`, `pause`, `resume`, `rate`, and `autofix` accept the supported commands; explicit `issue` creation remains GitHub-only. Configure `SLACK_BOT_TOKEN` for threaded Events API replies. Thread-local state stores only the last change-request URL, so follow-up messages can say `review` or `plan` without resending the URL. Slack and GitHub writes are never enabled without the command and credentials. Slack autofix additionally requires `MERGEPROOF_SLACK_AUTOFIX_ENABLED=true`, an explicit checkout, and an allowlisted verification command, then opens a separate PR.
+Review memory is local JSONL at `.mergeproof/memory.jsonl`; use `--remember` to persist a CLI run or start `serve` for webhook-driven persistence. Automatic review lifecycle state is explicit and local at `.mergeproof/review-state.json`; use `state --pause`, `state --resume`, `state --ignore <PR URL>`, or `state --unignore <PR URL>` to control signed webhook reviews. Set `state --auto-pause-after <commits>` to suppress repetitive incremental reviews until an explicit resume. Explicit knowledge facts are stored separately at `.mergeproof/knowledge.jsonl` and can only be added by a human through `knowledge --add` or Slack `learn`; both stores are bounded and contain summaries/facts, not repository source snapshots. `mergeproof serve` validates `x-hub-signature-256` before accepting GitHub events and supports `/mergeproof review`, `/mergeproof full review`, `/mergeproof summary`, `/mergeproof diagram`, `/mergeproof docstrings`, `/mergeproof plan`, `/mergeproof implement <request>`, `/mergeproof configuration`, `/mergeproof issue`, `/mergeproof pause`, `/mergeproof resume`, `/mergeproof ignore`, `/mergeproof unignore`, and `/mergeproof help` comments on pull requests. The explicit `implement` command requires a configured checkout and opens a separate verified PR; it never edits the source PR branch. If `SLACK_SIGNING_SECRET` is configured, the same receiver exposes `/slack/commands` and `/slack/events`: `review`, `investigate`, `walkthrough` (also `summary` or `diagram`), `docstrings`, `plan`, `fix`, `tests`, `learn`, `pause`, `resume`, `rate`, and `autofix` accept the supported commands; explicit `issue` creation remains GitHub-only. Configure `SLACK_BOT_TOKEN` for threaded Events API replies. Thread-local state stores only the last change-request URL, so follow-up messages can say `review` or `plan` without resending the URL. Slack and GitHub writes are never enabled without the command and credentials. Slack autofix additionally requires `MERGEPROOF_SLACK_AUTOFIX_ENABLED=true`, an explicit checkout, and an allowlisted verification command, then opens a separate PR.
 
 Slack message automations are opt-in through `.mergeproof/automations.json`, using the shape in `.mergeproof/automations.example.json`. Each rule can constrain `channelIds`, `authorIds`, `contains`, and `topLevelOnly`; supported actions are review, investigate, plan, fix, tests, and learn. Automations require a change-request URL in the message or an existing thread reference, and never create issues, apply patches, merge, or push code. Signed external automations can use `/automation/webhook` with `.mergeproof/webhook-automations.json` to match an event and payload field before running a read-only review, investigation, plan, or fix suggestion.
 
-The VS Code extension exposes `review`, `analyze`, `plan`, `fix`, `tests`, and guarded `autofix` commands from the command palette. Local review includes uncommitted files and uses the same validator as PR analysis, so desktop, terminal, CI, and editor results share one evidence contract. GitHub issue-comment commands include `/mergeproof review`, `/mergeproof full review`, `/mergeproof summary`, `/mergeproof diagram`, `/mergeproof plan`, `/mergeproof issue`, and `/mergeproof help`; comment commands never apply code or merge a pull request.
+The VS Code extension exposes `review`, `analyze`, `plan`, `fix`, `tests`, and guarded `autofix` commands from the command palette. Local review includes uncommitted files and uses the same validator as PR analysis, so desktop, terminal, CI, and editor results share one evidence contract. GitHub issue-comment commands include `/mergeproof review`, `/mergeproof full review`, `/mergeproof summary`, `/mergeproof diagram`, `/mergeproof plan`, `/mergeproof implement <request>`, `/mergeproof issue`, and `/mergeproof help`; only the explicit `implement` command creates a separate PR.
 
 Fix suggestions are not silently committed, pushed, or posted to GitHub. Without `--apply`, MergeProof only emits a patch. With `--apply`, it rejects absolute or traversal paths and requires Git to accept the patch with whitespace errors treated as failures. The `agent` command is safer by default: it applies the patch only in an ephemeral Git worktree and can run only the explicitly supported verification commands.
 

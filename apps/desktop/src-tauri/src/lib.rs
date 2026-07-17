@@ -29,7 +29,7 @@ fn cli_args(
     remember: bool,
     re_review: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "autofix" | "conflicts" | "resolve") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "recipe" | "autofix" | "conflicts" | "resolve") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -93,6 +93,19 @@ fn cli_args(
         if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }
         if let Some(verify) = verify.filter(|value| !value.trim().is_empty()) { args.extend(["--verify".to_string(), verify]); }
         if re_review { args.push(String::from("--re-review")); }
+        args.push(String::from("--json"));
+        return Ok(args);
+    }
+    if command == "recipe" {
+        let recipe_name = criteria.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Recipe action requires a recipe name in the Criteria field."))?;
+        let mut args = vec![command.to_string(), pr_url, recipe_name];
+        if let Some(repo) = repo_path.filter(|value| !value.trim().is_empty()) { args.extend(["--repo".to_string(), repo]); }
+        if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
+        if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
+        if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }
+        if let Some(verify) = verify.filter(|value| !value.trim().is_empty()) { args.extend(["--verify".to_string(), verify]); }
+        if re_review { args.push(String::from("--re-review")); }
+        if apply { args.push(String::from("--apply")); }
         args.push(String::from("--json"));
         return Ok(args);
     }

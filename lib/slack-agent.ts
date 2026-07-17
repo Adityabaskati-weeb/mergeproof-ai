@@ -17,7 +17,7 @@ import { updateReviewState } from "./review-state";
 import { generateDocstringsPullRequest } from "./docstrings";
 
 export type SlackAgentOptions = { signingSecret: string; botToken?: string; repoPath?: string; model?: string; provider?: string; log?: (message: string) => void };
-export type SlackCommand = { action: "review" | "investigate" | "walkthrough" | "docstrings" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "issue" | "learn" | "rate" | "autofix" | "pause" | "resume"; prUrl?: string; fact?: string };
+export type SlackCommand = { action: "review" | "investigate" | "walkthrough" | "docstrings" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "issue" | "learn" | "rate" | "autofix" | "pause" | "resume"; prUrl?: string; fact?: string; stackedPr?: boolean };
 
 export function verifySlackRequestSignature(body: string, timestamp: string | undefined, signature: string | undefined, secret: string, now = Date.now()): boolean {
   if (!timestamp || !signature || !secret || Math.abs(now - Number(timestamp) * 1000) > 5 * 60 * 1000) return false;
@@ -49,7 +49,7 @@ export function parseSlackCommand(text: string, fallbackPrUrl?: string): SlackCo
     try { parseIssueUrl(prUrl); } catch { return undefined; }
   }
   const normalizedAction = action === "summary" || action === "diagram" ? "walkthrough" : action;
-  return { action: normalizedAction as Exclude<SlackCommand["action"], "learn" | "rate">, prUrl };
+  return { action: normalizedAction as Exclude<SlackCommand["action"], "learn" | "rate">, prUrl, ...(action === "autofix" && /\bstacked\s+pr\b/i.test(normalized) ? { stackedPr: true } : {}) };
 }
 
 function resultText(action: SlackCommand["action"], prUrl: string, value: Awaited<ReturnType<typeof analyzePullRequest>> | Awaited<ReturnType<typeof planPullRequest>> | Awaited<ReturnType<typeof fixPullRequest>> | Awaited<ReturnType<typeof generateTestsPullRequest>> | Awaited<ReturnType<typeof generateDocstringsPullRequest>> | Awaited<ReturnType<typeof runConsensus>> | string): string {
@@ -101,7 +101,7 @@ export async function runSlackCommand(command: SlackCommand, options: SlackAgent
     if (!options.repoPath) throw new Error("Slack autofix requires the server to have an explicit repository checkout.");
     const verify = process.env.MERGEPROOF_SLACK_AUTOFIX_VERIFY as VerificationCommand | undefined;
     if (!verify || !VERIFICATION_COMMANDS.includes(verify)) throw new Error(`Slack autofix requires MERGEPROOF_SLACK_AUTOFIX_VERIFY to be one of: ${VERIFICATION_COMMANDS.join(", ")}.`);
-    const result = await autofixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, verify, reReview: true, createPr: true });
+    const result = await autofixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, verify, reReview: true, createPr: true, stackedPr: command.stackedPr });
     return `MergeProof autofix for ${prUrl}\n${result.summary}\nVerification: ${result.trace.verified ? "passed" : "failed"}\nCreated PR: ${result.trace.pullRequestUrl ?? "none"}`;
   }
   if (command.action === "plan") {

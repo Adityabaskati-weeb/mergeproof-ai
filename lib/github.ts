@@ -21,6 +21,9 @@ export type PullRequestContext = {
   reviewThreads?: ReviewThread[];
   reviewThreadsUnavailable?: string;
   baseBranch?: string;
+  headBranch?: string;
+  headOwner?: string;
+  headRepo?: string;
   sources: Set<string>;
   repositoryEvidence?: EvidenceChunk[];
   issues?: LinkedIssue[];
@@ -67,5 +70,5 @@ export async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest
   discussion.forEach((comment) => sources.add(comment.url));
   threadReport.sources.forEach((source) => sources.add(source));
   sources.add(ref.url);
-  return { ref, title: pull.data.title, body: pull.data.body ?? "", headSha: pull.data.head.sha, baseSha: pull.data.base.sha, baseBranch: pull.data.base.ref, files: filesData, checks: checkData, commits: commitData, discussion, reviewThreads: threadReport.threads, ...(threadReport.unavailable ? { reviewThreadsUnavailable: threadReport.unavailable } : {}), sources, repositoryEvidence: [], issues: [] };
+  return { ref, title: pull.data.title, body: pull.data.body ?? "", headSha: pull.data.head.sha, baseSha: pull.data.base.sha, baseBranch: pull.data.base.ref, headBranch: pull.data.head.ref, headOwner: pull.data.head.repo?.owner?.login ?? undefined, headRepo: pull.data.head.repo?.name ?? undefined, files: filesData, checks: checkData, commits: commitData, discussion, reviewThreads: threadReport.threads, ...(threadReport.unavailable ? { reviewThreadsUnavailable: threadReport.unavailable } : {}), sources, repositoryEvidence: [], issues: [] };
 }

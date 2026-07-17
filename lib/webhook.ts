@@ -10,8 +10,14 @@ import { processProviderWebhookPayload, verifyProviderWebhookSignature, type Pro
 import type { Analysis } from "./types";
 import { processWebhookAutomationPayload, verifyWebhookAutomationSignature } from "./webhook-automations";
 import { renderWalkthroughMarkdown } from "./walkthrough";
-import { reviewSuppression, updateReviewState } from "./review-state";
+import { checkReviewAutoPause, markReviewCompleted, reviewSuppression, updateReviewState } from "./review-state";
 import { generateDocstringsPullRequest } from "./docstrings";
+import { runRecipeInstruction } from "./recipes";
+import { VERIFICATION_COMMANDS, type VerificationCommand } from "./local-agent";
+import { parsePullRequestUrl } from "./github";
+import { readReviewMemory } from "./memory";
+import { recordOutcome } from "./outcomes";
+import { readMergeProofConfiguration, renderConfiguration } from "./configuration";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -44,9 +50,11 @@ export function verifyGithubWebhookSignature(body: string, signature: string | u
 
 export async function processGithubWebhookPayload(payload: unknown, options: Pick<GithubWebhookOptions, "model" | "provider" | "repoPath" | "publishReview" | "log"> & { event?: string }): Promise<GithubWebhookResult> {
   if (!payload || typeof payload !== "object") return { accepted: false, reason: "invalid_payload" };
-  const value = payload as { action?: string; pull_request?: { html_url?: string }; issue?: { html_url?: string; pull_request?: unknown }; comment?: { body?: string } };
+  const value = payload as { action?: string; pull_request?: { html_url?: string; merged?: boolean; commits?: number }; issue?: { html_url?: string; pull_request?: unknown }; comment?: { body?: string } };
   if (options.event === "issue_comment") {
-    const command = value.comment?.body?.match(/^\s*\/mergeproof\s+(full review|review|plan|issue|summary|diagram|docstrings|help|pause|resume|ignore|unignore)\b/im)?.[1]?.toLowerCase();
+    const commandMatch = value.comment?.body?.match(/^\s*\/mergeproof\s+(full review|review|plan|issue|summary|diagram|docstrings|implement|configuration|help|pause|resume|ignore|unignore)\b([^\r\n]*)/im);
+    const command = commandMatch?.[1]?.toLowerCase();
+    const instruction = commandMatch?.[2]?.trim() ?? "";
     const issueUrl = value.issue?.html_url?.replace("/issues/", "/pull/");
     if (!command) return { accepted: true, ignored: true, reason: "no_mergeproof_command" };
     if (!value.issue?.pull_request || !issueUrl) return { accepted: true, ignored: true, reason: "comment_not_on_pull_request" };
@@ -62,7 +70,24 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       return { accepted: true, prUrl: issueUrl };
     }
     if (command === "help") {
-      await publishPullRequestComment(issueUrl, "## MergeProof commands\n\n- `/mergeproof review` - run the evidence gate\n- `/mergeproof full review` - run a complete evidence gate\n- `/mergeproof summary` - publish the cited walkthrough and change stack\n- `/mergeproof diagram` - publish the evidence-derived Mermaid change flow\n- `/mergeproof docstrings` - publish a documentation-only patch suggestion\n- `/mergeproof plan` - publish a cited implementation plan\n- `/mergeproof issue` - create a follow-up GitHub issue\n- `/mergeproof pause` or `/mergeproof resume` - control automatic reviews\n- `/mergeproof ignore` or `/mergeproof unignore` - control this PR's automatic reviews\n\nMergeProof never applies code or merges a pull request from a comment.");
+      await publishPullRequestComment(issueUrl, "## MergeProof commands\n\n- `/mergeproof review` - run the evidence gate\n- `/mergeproof full review` - run a complete evidence gate\n- `/mergeproof summary` - publish the cited walkthrough and change stack\n- `/mergeproof diagram` - publish the evidence-derived Mermaid change flow\n- `/mergeproof docstrings` - publish a documentation-only patch suggestion\n- `/mergeproof plan` - publish a cited implementation plan\n- `/mergeproof implement <request>` - create a separate verified PR from an explicit natural-language request\n- `/mergeproof configuration` - report the active policy, instructions, and recipes\n- `/mergeproof issue` - create a follow-up GitHub issue\n- `/mergeproof pause` or `/mergeproof resume` - control automatic reviews\n- `/mergeproof ignore` or `/mergeproof unignore` - control this PR's automatic reviews\n\nMergeProof never edits the source branch or merges a pull request from a comment.");
+      return { accepted: true, prUrl: issueUrl };
+    }
+    if (command === "configuration") {
+      const snapshot = await readMergeProofConfiguration(options.repoPath || process.cwd());
+      await publishPullRequestComment(issueUrl, renderConfiguration(snapshot));
+      options.log?.(`MergeProof published configuration for ${issueUrl}`);
+      return { accepted: true, prUrl: issueUrl };
+    }
+    if (command === "implement") {
+      if (!instruction) return { accepted: false, reason: "missing_implementation_request", prUrl: issueUrl };
+      if (!options.repoPath) return { accepted: false, reason: "implementation_requires_repo_checkout", prUrl: issueUrl };
+      const verifyValue = process.env.MERGEPROOF_COMMENT_AGENT_VERIFY as VerificationCommand | undefined;
+      if (verifyValue && !VERIFICATION_COMMANDS.includes(verifyValue)) return { accepted: false, reason: "invalid_comment_agent_verification_command", prUrl: issueUrl };
+      const result = await runRecipeInstruction(issueUrl, { name: "comment-edit", description: instruction.slice(0, 160), instructions: instruction.slice(0, 12_000) }, options.model, { provider: options.provider, repoPath: options.repoPath, createPr: true, apply: true, reReview: true, ...(verifyValue ? { verify: verifyValue } : {}) });
+      const destination = result.trace.pullRequestUrl ?? "no PR created";
+      await publishPullRequestComment(issueUrl, `## MergeProof implementation handoff\n\n${result.summary}\n\nChanged paths: ${result.trace.changedPaths.join(", ") || "none"}\n\nVerification: ${result.trace.verified ? "passed" : "failed"}\n\nHandoff PR: ${destination}`);
+      options.log?.(`MergeProof implemented a requested change for ${issueUrl}: ${destination}`);
       return { accepted: true, prUrl: issueUrl };
     }
     if (command === "plan") {
@@ -98,14 +123,27 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
     return { accepted: true, prUrl: issueUrl, analysis };
   }
   if (options.event !== "pull_request") return { accepted: true, ignored: true, reason: "unsupported_event" };
+  if (value.action === "closed" && value.pull_request?.html_url) {
+    const root = options.repoPath || process.cwd();
+    const ref = parsePullRequestUrl(value.pull_request.html_url);
+    const memory = await readReviewMemory(root, ref, "", 500);
+    const analysisEntry = memory.find((entry) => entry.prUrl.replace(/\/$/, "") === ref.url);
+    const outcome = await recordOutcome(root, ref, ref.url, value.pull_request.merged === true ? "merged" : "closed-unmerged", analysisEntry ? { predictedDecision: analysisEntry.decision, headSha: analysisEntry.headSha, attestation: undefined } : {});
+    options.log?.(`MergeProof recorded ${outcome.label} for ${ref.url}`);
+    return { accepted: true, prUrl: ref.url };
+  }
   if (!value.action || !REVIEW_ACTIONS.has(value.action)) return { accepted: true, ignored: true, reason: "unsupported_action" };
   const prUrl = value.pull_request?.html_url;
   if (!prUrl) return { accepted: false, reason: "missing_pull_request_url" };
-  const suppression = await reviewSuppression(options.repoPath || process.cwd(), prUrl);
+  const stateRoot = options.repoPath || process.cwd();
+  const autoPause = await checkReviewAutoPause(stateRoot, prUrl, value.pull_request?.commits ?? 0);
+  if (autoPause.suppressed) return { accepted: true, ignored: true, reason: `review_${autoPause.reason}` };
+  const suppression = await reviewSuppression(stateRoot, prUrl);
   if (suppression.suppressed) return { accepted: true, ignored: true, reason: `review_${suppression.reason}` };
   const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
   await publishPullRequestCheck(prUrl, analysis);
   if (options.publishReview) await publishPullRequestReview(prUrl, analysis);
+  await markReviewCompleted(stateRoot, prUrl, value.pull_request?.commits ?? 0);
   options.log?.(`MergeProof reviewed ${prUrl}: ${analysis.decision}`);
   return { accepted: true, prUrl, analysis };
 }

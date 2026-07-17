@@ -8,7 +8,7 @@ import { fixPullRequest, type FixOptions } from "./fix";
 import { reviewWorkingTree } from "./local-review";
 import { runVerificationCommand, type VerificationCommand } from "./local-agent";
 
-export type AutofixOptions = FixOptions & { verify?: VerificationCommand; reReview?: boolean; createPr?: boolean; branch?: string; threadIds?: string[] };
+export type AutofixOptions = FixOptions & { verify?: VerificationCommand; reReview?: boolean; createPr?: boolean; stackedPr?: boolean; branch?: string; threadIds?: string[] };
 export type AutofixResult = {
   summary: string;
   patch: string;
@@ -23,6 +23,7 @@ export type AutofixResult = {
     verificationOutput?: string;
     reReviewDecision?: string;
     reReviewPassed?: boolean;
+    stackedPr?: boolean;
     branch?: string;
     pullRequestUrl?: string;
   };
@@ -56,6 +57,9 @@ export async function autofixPullRequest(prUrl: string, model?: string, options:
   const target = parseChangeRequestUrl(prUrl);
   if (target.provider !== "github" && target.provider !== "gitlab") throw new Error("Review-thread autofix currently supports GitHub pull requests and GitLab merge requests.");
   const context = await fetchChangeRequest(target);
+  if (options.stackedPr && target.provider !== "github") throw new Error("Stacked PR autofix currently supports GitHub pull requests only.");
+  if (options.stackedPr && !options.createPr) throw new Error("--stacked-pr requires --create-pr so the separate PR is explicit.");
+  if (options.stackedPr && !context.headBranch) throw new Error("The current pull request branch is unavailable; cannot create a stacked PR.");
   const localHead = git(options.repoPath, ["rev-parse", "HEAD"]);
   if (localHead !== context.headSha) throw new Error(`Checkout SHA ${localHead} does not match pull-request head ${context.headSha}. Refusing to autofix the wrong revision.`);
   const selectedThreads = context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated && (!options.threadIds?.length || options.threadIds.includes(thread.id))) ?? [];
@@ -107,11 +111,12 @@ export async function autofixPullRequest(prUrl: string, model?: string, options:
       git(sandbox, ["config", "user.email", "mergeproof-autofix@users.noreply.github.com"]);
       git(sandbox, ["commit", "-m", "Apply verified MergeProof review-thread autofix"]);
       git(sandbox, ["push", "--set-upstream", "origin", branch!]);
-      const body = [`This pull request was created by an explicit MergeProof autofix request.`, ``, `- Verified against ${context.headSha}`, `- Unresolved review threads addressed: ${baseTrace.unresolvedThreads}`, `- Verification: ${options.verify ?? "patch application only"}`, options.reReview ? `- Re-review: ${reReviewDecision}` : "", ``, `The original pull request branch was not modified.`].filter(Boolean).join("\n");
+      const baseBranch = options.stackedPr ? context.headBranch! : context.baseBranch ?? "main";
+      const body = [`This pull request was created by an explicit MergeProof autofix request${options.stackedPr ? " as a stacked PR" : ""}.`, ``, `- Verified against ${context.headSha}`, `- Unresolved review threads addressed: ${baseTrace.unresolvedThreads}`, `- Verification: ${options.verify ?? "patch application only"}`, options.reReview ? `- Re-review: ${reReviewDecision}` : "", options.stackedPr ? `- Stacked on: ${context.ref.url} (base branch ${baseBranch})` : "", ``, `The original pull request branch was not modified.`].filter(Boolean).join("\n");
       if (target.provider === "github") {
         const client = await createGithubClient(true);
         const owner = ownerFromRemote(options.repoPath, target.ref.owner);
-        const created = await client.rest.pulls.create({ owner: target.ref.owner, repo: target.ref.repo, title: `MergeProof autofix: ${context.title}`, head: owner === target.ref.owner ? branch! : `${owner}:${branch!}`, base: context.baseBranch ?? "main", body });
+        const created = await client.rest.pulls.create({ owner: target.ref.owner, repo: target.ref.repo, title: `MergeProof autofix: ${context.title}`, head: owner === target.ref.owner ? branch! : `${owner}:${branch!}`, base: baseBranch, body });
         pullRequestUrl = created.data.html_url;
       } else {
         pullRequestUrl = await createGitlabMergeRequest(target, context, branch!, body);
@@ -121,5 +126,5 @@ export async function autofixPullRequest(prUrl: string, model?: string, options:
     try { git(options.repoPath, ["worktree", "remove", "--force", sandbox]); } catch { /* cleanup is best effort */ }
     await rm(sandbox, { recursive: true, force: true });
   }
-  return { summary: fix.summary, patch: fix.patch, trace: { ...baseTrace, verified, ...(options.verify ? { verificationCommand: options.verify, verificationOutput } : {}), ...(options.reReview ? { reReviewDecision, reReviewPassed } : {}), ...(branch ? { branch } : {}), ...(pullRequestUrl ? { pullRequestUrl } : {}) } };
+  return { summary: fix.summary, patch: fix.patch, trace: { ...baseTrace, verified, ...(options.verify ? { verificationCommand: options.verify, verificationOutput } : {}), ...(options.reReview ? { reReviewDecision, reReviewPassed } : {}), ...(options.stackedPr ? { stackedPr: true } : {}), ...(branch ? { branch } : {}), ...(pullRequestUrl ? { pullRequestUrl } : {}) } };
 }

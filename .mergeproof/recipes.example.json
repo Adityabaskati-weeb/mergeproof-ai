@@ -1,0 +1,16 @@
+{
+  "recipes": [
+    {
+      "name": "api-contract",
+      "description": "Add API contract tests for changed endpoints",
+      "instructions": "Add focused contract tests for every changed HTTP endpoint. Reuse the repository's existing test and fixture conventions. Do not change production behavior or dependencies.",
+      "paths": ["src", "test", "tests"]
+    },
+    {
+      "name": "release-notes",
+      "description": "Write release notes for the change",
+      "instructions": "Add a concise release-note entry using the repository's existing changelog convention. Mention user-visible behavior, migration concerns, and validation evidence. Do not modify executable code.",
+      "paths": ["CHANGELOG.md", "docs"]
+    }
+  ]
+}

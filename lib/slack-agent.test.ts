@@ -16,6 +16,7 @@ describe("Slack agent boundary", () => {
     expect(parseSlackCommand("learn Always validate audience claims https://github.com/acme/payments/pull/42")).toEqual({ action: "learn", fact: "Always validate audience claims", prUrl: "https://github.com/acme/payments/pull/42" });
     expect(parseSlackCommand("rate")).toEqual({ action: "rate" });
     expect(parseSlackCommand("autofix https://github.com/acme/payments/pull/42")).toEqual({ action: "autofix", prUrl: "https://github.com/acme/payments/pull/42" });
+    expect(parseSlackCommand("autofix stacked pr https://github.com/acme/payments/pull/42")).toEqual({ action: "autofix", prUrl: "https://github.com/acme/payments/pull/42", stackedPr: true });
     expect(parseSlackCommand("summary https://github.com/acme/payments/pull/42")).toEqual({ action: "walkthrough", prUrl: "https://github.com/acme/payments/pull/42" });
     expect(parseSlackCommand("docstrings https://github.com/acme/payments/pull/42")).toEqual({ action: "docstrings", prUrl: "https://github.com/acme/payments/pull/42" });
     expect(parseSlackCommand("pause")).toEqual({ action: "pause" });

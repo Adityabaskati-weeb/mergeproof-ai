@@ -33,6 +33,10 @@ import { parsePullRequestUrl, type PullRequestRef } from "../lib/github";
 import type { ReviewEffort } from "../lib/types";
 import { renderWalkthroughMarkdown } from "../lib/walkthrough";
 import { runIssueAgent, type TaskAgentRun } from "../lib/task-agent";
+import { loadRecipes, runRecipe, type RecipeRun } from "../lib/recipes";
+import { recordOutcome, readOutcomes, summarizeOutcomes, type OutcomeLabel } from "../lib/outcomes";
+import { parseChangeRequestUrl } from "../lib/change-request";
+import { generateMergeProofConfiguration, readMergeProofConfiguration, renderConfiguration } from "../lib/configuration";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -145,6 +149,14 @@ function printDocstrings(suggestion: DocstringSuggestion) {
   console.log(`\nChanged documentation paths: ${suggestion.trace.changedPaths.join(", ") || "none"}\n`);
 }
 
+function printRecipe(run: RecipeRun) {
+  console.log(`\nMERGEPROOF RECIPE: ${run.recipe.name.toUpperCase()} (${run.trace.model})\n\n${run.summary}\n`);
+  console.log(run.patch || "No recipe patch was proposed.");
+  console.log(`\nSandboxed: ${run.trace.sandboxed ? "yes" : "no"} | Applied: ${run.trace.applied ? "yes" : "no"} | Verification: ${run.trace.verified ? "passed" : "not requested or failed"}`);
+  if (run.trace.reReviewDecision) console.log(`Re-review: ${run.trace.reReviewDecision} (${run.trace.reReviewPassed ? "passed" : "failed"})`);
+  if (run.trace.pullRequestUrl) console.log(`Created PR: ${run.trace.pullRequestUrl}`);
+}
+
 function printAgent(run: LocalAgentRun) {
   console.log(`\nMERGEPROOF SANDBOX AGENT (${run.trace.model})\n\n${run.summary}\n`);
   console.log(run.patch || "No patch was proposed.");
@@ -183,6 +195,12 @@ function parseReviewEffort(value?: string): ReviewEffort | undefined {
   return value;
 }
 
+function parseOutcomeLabel(value: string): OutcomeLabel {
+  const labels: OutcomeLabel[] = ["merged", "closed-unmerged", "false-positive", "missed-risk", "accepted", "rejected"];
+  if (!labels.includes(value as OutcomeLabel)) throw new Error(`Outcome must be one of: ${labels.join(", ")}.`);
+  return value as OutcomeLabel;
+}
+
 function parseRepository(value: string): PullRequestRef {
   const match = value.trim().match(/^([^/]+)\/([^/]+)$/);
   if (!match) throw new Error("Repository must use the owner/repo format.");
@@ -199,6 +217,23 @@ program.name("mergeproof").description("Evidence-backed merge decisions for soft
 program.command("index").description("Build a local repository evidence index").argument("[repo-path]", "Repository path", process.cwd()).action(async (repoPath) => {
   const result = await indexRepository(repoPath);
   console.log(JSON.stringify({ indexPath: result.path, commitSha: result.index.commitSha, chunks: result.index.chunks.length }, null, 2));
+});
+
+program.command("configuration").alias("config").description("Inspect or explicitly generate the repository MergeProof policy").option("--repo <path>", "Repository path", process.cwd()).option("--generate", "Create .mergeproof/config.json when it is missing").option("--force", "Overwrite the existing policy when generating").option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    if (options.generate) {
+      const generated = await generateMergeProofConfiguration(options.repo, options.force);
+      if (options.json) console.log(JSON.stringify(generated, null, 2));
+      else console.log(`${generated.created ? "Generated" : "Kept"} ${generated.path}.`);
+      return;
+    }
+    const snapshot = await readMergeProofConfiguration(options.repo);
+    if (options.json) console.log(JSON.stringify(snapshot, null, 2));
+    else console.log(renderConfiguration(snapshot));
+  } catch (error) {
+    console.error(`MergeProof configuration error: ${error instanceof Error ? error.message : "Configuration inspection failed."}`);
+    process.exitCode = 1;
+  }
 });
 
 program.command("evaluate").description("Measure evidence coverage for a saved JSON analysis").argument("<analysis-json>", "Path to analysis JSON").action(async (analysisPath) => {
@@ -223,15 +258,39 @@ program.command("audit").description("Inspect the local bounded review metadata 
   else for (const event of events) console.log(`${event.recordedAt} ${event.action} ${event.decision ?? "-"} ${event.target} ${event.attestation ? `sha256:${event.attestation}` : ""}`.trim());
 });
 
-program.command("state").description("Inspect or control automatic review pause and ignore state").option("--repo <path>", "Repository path", process.cwd()).option("--pause", "Pause automatic reviews for this repository").option("--resume", "Resume automatic reviews for this repository").option("--ignore <pull-request-url>", "Ignore automatic reviews for one pull request").option("--unignore <pull-request-url>", "Re-enable automatic reviews for one pull request").option("--reason <text>", "Bounded human-readable reason").option("--json", "Print machine-readable JSON").action(async (options) => {
+program.command("feedback").description("Record an explicit human or lifecycle outcome for a reviewed change request").argument("<change-request-url>", "Public change-request URL").argument("<label>", "merged, closed-unmerged, false-positive, missed-risk, accepted, or rejected").option("--repo <path>", "Repository path", process.cwd()).option("--analysis <path>", "Saved MergeProof analysis JSON to attach the predicted decision and attestation").option("--reason <text>", "Short human explanation").option("--json", "Print machine-readable JSON").action(async (targetUrl, label, options) => {
+  try {
+    const target = parseChangeRequestUrl(targetUrl);
+    const analysis = options.analysis ? JSON.parse(await readFile(options.analysis, "utf8")) as Analysis : undefined;
+    const outcome = await recordOutcome(options.repo, target.ref, targetUrl, parseOutcomeLabel(label), { analysis, reason: options.reason });
+    if (options.json) console.log(JSON.stringify(outcome, null, 2));
+    else console.log(`Recorded ${outcome.label} for ${outcome.target}${outcome.predictedDecision ? ` (predicted ${outcome.predictedDecision})` : ""}.`);
+  } catch (error) {
+    console.error(`MergeProof feedback error: ${error instanceof Error ? error.message : "Outcome recording failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("metrics").description("Summarize evidence-review outcomes and ready-decision calibration").argument("[repository]", "Repository owner/repo filter").option("--repo <path>", "Repository path", process.cwd()).option("--limit <number>", "Maximum outcomes", "2000").option("--json", "Print machine-readable JSON").action(async (repository, options) => {
+  try {
+    const summary = summarizeOutcomes(await readOutcomes(options.repo, repository, Number(options.limit)));
+    if (options.json) console.log(JSON.stringify(summary, null, 2));
+    else console.log(`Outcomes: ${summary.total}\nLabels: ${Object.entries(summary.labels).map(([key, value]) => `${key}=${value}`).join(", ") || "none"}\nDecisions: ${Object.entries(summary.decisions).map(([key, value]) => `${key}=${value}`).join(", ") || "none"}${summary.readyCalibration ? `\nReady calibration: ${Math.round(summary.readyCalibration.rate * 100)}% (${summary.readyCalibration.merged}/${summary.readyCalibration.total} merged or accepted)` : ""}`);
+  } catch (error) {
+    console.error(`MergeProof metrics error: ${error instanceof Error ? error.message : "Metrics failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("state").description("Inspect or control automatic review pause, ignore, and auto-pause state").option("--repo <path>", "Repository path", process.cwd()).option("--pause", "Pause automatic reviews for this repository").option("--resume", "Resume automatic reviews for this repository").option("--ignore <pull-request-url>", "Ignore automatic reviews for one pull request").option("--unignore <pull-request-url>", "Re-enable automatic reviews for one pull request").option("--auto-pause-after <commits>", "Auto-pause a PR after this many commits since its last automatic review; 0 disables it").option("--reason <text>", "Bounded human-readable reason").option("--json", "Print machine-readable JSON").action(async (options) => {
   try {
     if (options.pause && options.resume) throw new Error("Choose only one of --pause or --resume.");
     if (options.ignore && options.unignore) throw new Error("Choose only one of --ignore or --unignore.");
-    const state = options.pause || options.resume || options.ignore || options.unignore
-      ? await updateReviewState(options.repo, { ...(options.pause ? { paused: true } : {}), ...(options.resume ? { paused: false } : {}), ...(options.ignore ? { ignorePullRequest: options.ignore } : {}), ...(options.unignore ? { unignorePullRequest: options.unignore } : {}), ...(options.reason ? { reason: options.reason } : {}) })
+    const state = options.pause || options.resume || options.ignore || options.unignore || options.autoPauseAfter !== undefined
+      ? await updateReviewState(options.repo, { ...(options.pause ? { paused: true } : {}), ...(options.resume ? { paused: false } : {}), ...(options.ignore ? { ignorePullRequest: options.ignore } : {}), ...(options.unignore ? { unignorePullRequest: options.unignore } : {}), ...(options.autoPauseAfter !== undefined ? { autoPauseAfterReviewedCommits: Number(options.autoPauseAfter) } : {}), ...(options.reason ? { reason: options.reason } : {}) })
       : await readReviewState(options.repo);
     if (options.json) console.log(JSON.stringify(state, null, 2));
-    else console.log(`Automatic reviews: ${state.paused ? "paused" : "enabled"}\nIgnored pull requests: ${state.ignoredPullRequests.length}${state.reason ? `\nReason: ${state.reason}` : ""}`);
+    else console.log(`Automatic reviews: ${state.paused ? "paused" : "enabled"}\nIgnored pull requests: ${state.ignoredPullRequests.length}\nAuto-paused pull requests: ${state.autoPausedPullRequests.length}\nAuto-pause after commits: ${state.autoPauseAfterReviewedCommits ?? "disabled"}${state.reason ? `\nReason: ${state.reason}` : ""}`);
   } catch (error) {
     console.error(`MergeProof state error: ${error instanceof Error ? error.message : "Review state operation failed."}`);
     process.exitCode = 1;
@@ -376,9 +435,9 @@ program.command("fix").description("Suggest or explicitly apply a validated unif
   }
 });
 
-program.command("autofix").description("Fix review findings in an ephemeral worktree").argument("<pull-request-url>", "GitHub pull request or GitLab merge request URL").requiredOption("--repo <path>", "Checkout at the exact change-request head SHA").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the autofix JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--thread-id <id...>", "Only address explicitly selected review-thread IDs").option("--verify <command>", "Allowlisted verification command").option("--re-review", "Re-review the applied patch before reporting success").option("--create-pr", "Push a new branch and open a separate PR/MR; never modify the original branch").option("--branch <name>", "Branch name when --create-pr is enabled").action(async (prUrl, options) => {
+program.command("autofix").description("Fix review findings in an ephemeral worktree").argument("<pull-request-url>", "GitHub pull request or GitLab merge request URL").requiredOption("--repo <path>", "Checkout at the exact change-request head SHA").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the autofix JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--thread-id <id...>", "Only address explicitly selected review-thread IDs").option("--verify <command>", "Allowlisted verification command").option("--re-review", "Re-review the applied patch before reporting success").option("--create-pr", "Push a new branch and open a separate PR/MR; never modify the original branch").option("--stacked-pr", "When creating a GitHub PR, target the current PR branch instead of the default branch").option("--branch <name>", "Branch name when --create-pr is enabled").action(async (prUrl, options) => {
   try {
-    const autofix = await autofixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, agent: options.agent, threadIds: options.threadId, verify: parseVerificationCommand(options.verify), reReview: options.reReview, createPr: options.createPr, branch: options.branch });
+    const autofix = await autofixPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, agent: options.agent, threadIds: options.threadId, verify: parseVerificationCommand(options.verify), reReview: options.reReview, createPr: options.createPr, stackedPr: options.stackedPr, branch: options.branch });
     if (options.patch) await writeFile(options.patch, autofix.patch, "utf8");
     if (options.save) await writeFile(options.save, JSON.stringify(autofix, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(autofix, null, 2));
@@ -412,6 +471,31 @@ program.command("docstrings").description("Generate a documentation-only unified
     else printDocstrings(suggestion);
   } catch (error) {
     console.error(`MergeProof docstrings error: ${error instanceof Error ? error.message : "Documentation generation failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("recipes").description("List repository-scoped named finishing-touch recipes").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const recipes = await loadRecipes(options.repo);
+    if (options.json) console.log(JSON.stringify(recipes, null, 2));
+    else console.log(recipes.length ? recipes.map((recipe) => `${recipe.name}: ${recipe.description}`).join("\n") : "No recipes configured. Copy .mergeproof/recipes.example.json to .mergeproof/recipes.json.");
+  } catch (error) {
+    console.error(`MergeProof recipes error: ${error instanceof Error ? error.message : "Recipe listing failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("recipe").description("Run a named repository finishing-touch recipe against a change request").argument("<change-request-url>", "Public change-request URL").argument("<recipe-name>", "Name from .mergeproof/recipes.json").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the recipe JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for retrieval and mutation").option("--agent <profile>", "Repository custom-agent profile").option("--verify <command>", "Sandbox verification command").option("--re-review", "Re-review the recipe patch before reporting success").option("--apply", "Apply the checked patch to the explicit checkout").option("--create-pr", "Push a separate branch and open a GitHub pull request").option("--branch <name>", "Branch name when --create-pr is enabled").action(async (prUrl, recipeName, options) => {
+  try {
+    const run = await runRecipe(prUrl, recipeName, options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, verify: parseVerificationCommand(options.verify), reReview: options.reReview, apply: options.apply, createPr: options.createPr, branch: options.branch });
+    if (options.patch) await writeFile(options.patch, run.patch, "utf8");
+    if (options.save) await writeFile(options.save, JSON.stringify(run, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(run, null, 2));
+    else printRecipe(run);
+    process.exitCode = options.createPr && (!run.trace.verified || options.reReview && run.trace.reReviewPassed !== true) ? 2 : 0;
+  } catch (error) {
+    console.error(`MergeProof recipe error: ${error instanceof Error ? error.message : "Recipe execution failed."}`);
     process.exitCode = 1;
   }
 });

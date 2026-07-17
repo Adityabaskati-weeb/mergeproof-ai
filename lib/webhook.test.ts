@@ -13,4 +13,9 @@ describe("GitHub webhook boundary", () => {
   it("ignores unrelated event types without invoking a model", async () => {
     await expect(processGithubWebhookPayload({}, { event: "push" })).resolves.toEqual({ accepted: true, ignored: true, reason: "unsupported_event" });
   });
+
+  it("requires an explicit natural-language request and checkout for comment editing", async () => {
+    await expect(processGithubWebhookPayload({ issue: { html_url: "https://github.com/acme/widget/issues/42", pull_request: {} }, comment: { body: "/mergeproof implement" } }, { event: "issue_comment" })).resolves.toMatchObject({ accepted: false, reason: "missing_implementation_request" });
+    await expect(processGithubWebhookPayload({ issue: { html_url: "https://github.com/acme/widget/issues/42", pull_request: {} }, comment: { body: "/mergeproof implement add a retry" } }, { event: "issue_comment" })).resolves.toMatchObject({ accepted: false, reason: "implementation_requires_repo_checkout" });
+  });
 });
