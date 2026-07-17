@@ -66,6 +66,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Local code completion | `complete <file> --line --column` returns a non-mutating insertion with model/provider selection and a source digest; the VS Code client surfaces it as inline completion | Inline completion and IDE agent mode | IDE review extension and agent handoff |
 | Review statistics | `stats` aggregates bounded local audit, finding, and outcome records with model/decision/severity/latency counts | Usage and lifecycle metrics | `cr stats` and review history |
 | Prompt replay | `--save-prompts` and `--show-prompts` persist/replay bounded prompts only by explicit operator request, with SHA-256 digests | Session and prompt history surfaces | `cr review --show-prompts` |
+| CodeRabbit migration | `configuration --from-coderabbit` previews a bounded migration from `.coderabbit.yaml`/`.coderabbit.yml`; `--apply-coderabbit` writes `.mergeproof/config.json` only when the target is absent or `--force` is explicit | Existing repository configuration | `.coderabbit.yaml` and configuration reference |
 
 ## Differentiation
 
@@ -111,6 +112,8 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 38. Completion is deliberately non-mutating and freshness-aware: the editor receives an insertion plus the exact source digest used to generate it, so a suggestion can be rejected when the buffer changed before insertion.
 39. Prompt replay is opt-in and bounded: source-bearing prompts are never silently persisted, and each saved prompt carries a digest and explicit action/model metadata for auditability.
 40. Statistics are derived from the same bounded audit, finding, and outcome ledgers rather than a hidden hosted telemetry stream, so teams can inspect how every number was produced.
+41. CodeRabbit adoption is explicit and reversible: a bounded importer maps review intent into MergeProof policy, reports unsupported hosted settings, and refuses to overwrite an existing policy without an explicit force flag.
+42. Background task results are durable artifacts separate from logs: status, exit code, completion time, output size, and output digest remain machine-readable after the terminal exits.
 
 ## Remaining Deliberate Gaps
 

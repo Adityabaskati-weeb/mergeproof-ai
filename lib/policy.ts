@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { CustomCheck, ReviewEffort, ReviewProfile } from "./types";
 
-export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; profile?: ReviewProfile; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string; customChecks?: CustomCheck[]; extends?: string | string[] };
+export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; profile?: ReviewProfile; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string; customChecks?: CustomCheck[]; pathFilters?: string[]; requestChangesWorkflow?: boolean; highLevelSummary?: boolean; compatibility?: { source: string; importedAt: string }; extends?: string | string[] };
 
 type PolicyFile = MergeProofPolicy & { extends?: string | string[] };
 

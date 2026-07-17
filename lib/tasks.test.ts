@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -13,6 +13,8 @@ describe("durable local tasks", () => {
       const task = createTaskRecord(root, "review", [root, "--json"], "review-one");
       await writeTask(task);
       expect((await readTask(root, task.id))?.args).toEqual([root, "--json"]);
+      expect(task.resultPath).toContain("review-one.result.json");
+      expect(task.resultPath).not.toBe(task.logPath);
       expect(await listTasks(root)).toHaveLength(1);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -28,6 +30,7 @@ describe("durable local tasks", () => {
       expect(cancelled?.status).toBe("cancelled");
       expect(cancelled?.error).toContain("operator");
       expect((await readTask(root, task.id))?.status).toBe("cancelled");
+      expect(JSON.parse(await readFile(task.resultPath, "utf8"))).toMatchObject({ taskId: task.id, status: "cancelled", outputBytes: 0 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -21,6 +21,18 @@ export type TaskRecord = {
   exitCode?: number | null;
   logPath: string;
   resultPath: string;
+  error?: string;
+};
+
+export type TaskResultArtifact = {
+  taskId: string;
+  action: TaskAction;
+  status: TaskStatus;
+  exitCode?: number | null;
+  completedAt: string;
+  logPath: string;
+  outputBytes: number;
+  outputSha256: string;
   error?: string;
 };
 
@@ -47,7 +59,7 @@ export function isTaskAction(value: string): value is TaskAction {
 export function createTaskRecord(repository: string, action: TaskAction, args: string[], requestedId?: string): TaskRecord {
   const id = safeTaskId(requestedId ?? `task-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`);
   const logPath = join(tasksDirectory(repository), `${id}.log`);
-  return { id, repository: resolve(repository), action, args: [...args], status: "queued", createdAt: new Date().toISOString(), logPath, resultPath: logPath };
+  return { id, repository: resolve(repository), action, args: [...args], status: "queued", createdAt: new Date().toISOString(), logPath, resultPath: join(tasksDirectory(repository), `${id}.result.json`) };
 }
 
 export async function writeTask(task: TaskRecord): Promise<TaskRecord> {
@@ -103,6 +115,27 @@ async function boundedLogPath(path: string): Promise<void> {
   } catch { /* The action may fail before opening its log. */ }
 }
 
+async function writeResultArtifact(task: TaskRecord, status: TaskStatus, exitCode: number | null | undefined, error?: string): Promise<void> {
+  let output = Buffer.alloc(0);
+  try {
+    output = await readFile(task.logPath);
+  } catch { /* A queued task can be cancelled before its log is opened. */ }
+  try {
+    const artifact: TaskResultArtifact = {
+      taskId: task.id,
+      action: task.action,
+      status,
+      ...(exitCode === undefined ? {} : { exitCode }),
+      completedAt: new Date().toISOString(),
+      logPath: task.logPath,
+      outputBytes: output.byteLength,
+      outputSha256: createHash("sha256").update(output).digest("hex"),
+      ...(error ? { error } : {}),
+    };
+    await writeFile(task.resultPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+  } catch { /* Result persistence must not mask the task's actual exit status. */ }
+}
+
 export async function runTaskWorker(repository: string, id: string): Promise<TaskRecord | undefined> {
   const queued = await readTask(repository, id);
   if (!queued || queued.status !== "queued") return queued;
@@ -120,9 +153,13 @@ export async function runTaskWorker(repository: string, id: string): Promise<Tas
   closeSync(logFd);
   await boundedLogPath(started.logPath);
   const latest = await readTask(started.repository, id);
-  if (latest?.status === "cancelled") return latest;
+  if (latest?.status === "cancelled") {
+    await writeResultArtifact(latest, "cancelled", exitCode, latest.error);
+    return latest;
+  }
   const finished = { ...started, status: exitCode === 0 ? "succeeded" as const : "failed" as const, finishedAt: new Date().toISOString(), exitCode, ...(exitCode === 0 ? {} : { error: `Action exited with code ${exitCode ?? "unknown"}.` }) };
   await writeTask(finished);
+  await writeResultArtifact(finished, finished.status, exitCode, finished.error);
   return finished;
 }
 
@@ -133,6 +170,7 @@ export async function cancelTask(repository: string, id: string): Promise<TaskRe
   const cancelled = { ...current, status: "cancelled" as const, finishedAt: new Date().toISOString(), error: "Cancelled by the operator." };
   await writeTask(cancelled);
   if (current.pid) try { process.kill(current.pid); } catch { /* worker already exited */ }
+  await writeResultArtifact(cancelled, "cancelled", cancelled.exitCode, cancelled.error);
   return cancelled;
 }
 
@@ -145,6 +183,7 @@ export async function pruneTasks(repository: string, olderThanDays = 30): Promis
     if (!task.finishedAt || Date.parse(task.finishedAt) >= cutoff) continue;
     await unlink(taskFile(repository, task.id)).catch(() => undefined);
     await unlink(task.logPath).catch(() => undefined);
+    await unlink(task.resultPath).catch(() => undefined);
     removed += 1;
   }
   return removed;

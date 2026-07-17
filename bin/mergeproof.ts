@@ -70,6 +70,7 @@ import { readLspConfig, renderLspConfig, testLspServers } from "../lib/lsp";
 import { completeFile } from "../lib/completion";
 import { readPrompts, renderPromptRecord } from "../lib/prompt-log";
 import { readReviewStats } from "../lib/stats";
+import { importCoderabbitConfiguration, readCoderabbitConfiguration } from "../lib/coderabbit-config";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -263,8 +264,21 @@ program.command("index").description("Build a local repository evidence index").
   console.log(JSON.stringify({ indexPath: result.path, commitSha: result.index.commitSha, chunks: result.index.chunks.length }, null, 2));
 });
 
-program.command("configuration").alias("config").description("Inspect or explicitly generate the repository MergeProof policy").option("--repo <path>", "Repository path", process.cwd()).option("--generate", "Create .mergeproof/config.json when it is missing").option("--force", "Overwrite the existing policy when generating").option("--json", "Print machine-readable JSON").action(async (options) => {
+program.command("configuration").alias("config").description("Inspect, migrate, or explicitly generate the repository MergeProof policy").option("--repo <path>", "Repository path", process.cwd()).option("--generate", "Create .mergeproof/config.json when it is missing").option("--from-coderabbit", "Preview a bounded .coderabbit.yaml or .coderabbit.yml migration").option("--apply-coderabbit", "Write the bounded CodeRabbit migration to .mergeproof/config.json").option("--force", "Overwrite the existing policy when generating or importing").option("--json", "Print machine-readable JSON").action(async (options) => {
   try {
+    if (options.fromCoderabbit || options.applyCoderabbit) {
+      if (options.applyCoderabbit) {
+        const result = await importCoderabbitConfiguration(options.repo, options.force);
+        if (options.json) console.log(JSON.stringify(result, null, 2));
+        else console.log(`CodeRabbit migration ${result.created ? "written" : "not written: existing policy preserved"}.`);
+      } else {
+        const result = await readCoderabbitConfiguration(options.repo);
+        if (!result) throw new Error("No .coderabbit.yaml or .coderabbit.yml was found.");
+        if (options.json) console.log(JSON.stringify(result, null, 2));
+        else console.log(`CodeRabbit migration preview:\n${JSON.stringify(result.policy, null, 2)}`);
+      }
+      return;
+    }
     if (options.generate) {
       const generated = await generateMergeProofConfiguration(options.repo, options.force);
       if (options.json) console.log(JSON.stringify(generated, null, 2));
@@ -607,8 +621,10 @@ tasksCommand.command("show").description("Show one task and its bounded output t
     if (!task) throw new Error(`Task not found: ${id}`);
     let logTail = "";
     try { const content = await readFile(task.logPath, "utf8"); logTail = content.slice(-Math.max(0, Math.min(20_000, Number(options.tail)))); } catch { /* no output yet */ }
-    if (options.json) console.log(JSON.stringify({ ...task, logTail }, null, 2));
-    else console.log(`${task.id}\nStatus: ${task.status}\nAction: ${task.action}\nLog: ${task.logPath}\n\n${logTail}`);
+    let resultArtifact: unknown;
+    try { resultArtifact = JSON.parse(await readFile(task.resultPath, "utf8")); } catch { /* result may not exist while running */ }
+    if (options.json) console.log(JSON.stringify({ ...task, resultArtifact, logTail }, null, 2));
+    else console.log(`${task.id}\nStatus: ${task.status}\nAction: ${task.action}\nLog: ${task.logPath}\nResult: ${task.resultPath}\n\n${logTail}`);
   } catch (error) {
     console.error(`MergeProof tasks show error: ${error instanceof Error ? error.message : "Task lookup failed."}`);
     process.exitCode = 1;
