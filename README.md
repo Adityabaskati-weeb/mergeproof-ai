@@ -8,6 +8,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof review [repo-path]` pre-commit workflow for staged, unstaged, and untracked changes
 - `mergeproof agent [repo-path]` sandboxed fix generation with optional verification
 - `mergeproof task <github-issue-url> --repo <checkout>` evidence-retrieved issue implementation with sandbox verification and optional handoff PR
+- `mergeproof implement <request...> --repo <checkout>` Copilot-style local implementation agent with bounded retrieval, sandbox verification, optional re-review, and explicit apply
 - `mergeproof recipes` and `mergeproof recipe <change-request-url> <name>` reusable repository-scoped finishing-touch actions
 - `mergeproof autofix <github-or-gitlab-url> --repo <checkout>` review-thread autofix with optional verification, re-review, and explicit new-PR/MR handoff
 - `mergeproof simplify <change-request-url>` behavior-preserving simplification suggestions
@@ -18,7 +19,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof conflicts [repo-path]` merge-conflict inspection and explicitly gated resolution patches
 - `mergeproof feedback <change-request-url> <label>` and `mergeproof metrics` outcome feedback and ready-decision calibration
 - `mergeproof verify <analysis-json>` to independently verify a saved analysis attestation
-- `mergeproof report [repository]` for local dashboard-style Markdown, JSON, or CSV review reports
+- `mergeproof report [repository]` for local dashboard-style Markdown, JSON, or CSV review reports, with optional Slack, Discord, or Teams delivery
 - `mergeproof configuration` to inspect policy/instructions/recipes, or `--generate` to create a starter policy explicitly
 - `mergeproof ask <question...>` (also `chat`) for read-only Copilot-style repository Q&A with bounded retrieval and an auditable trace
 - Desktop shell boundary in `apps/desktop`
@@ -35,7 +36,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Validate model citations against the fetched GitHub sources
 - Publish a MergeProof GitHub Check with annotations and a merge decision
 - Optionally notify a Slack incoming webhook
-- Generate citation-aware implementation plans from GitHub Issues, Jira, Linear, and PRs
+- Generate citation-aware implementation plans from GitHub Issues, GitLab Issues, Jira, Linear, and PRs
 - Suggest minimal unified-diff fixes from the same evidence context
 - Generate test-only unified-diff suggestions without editing production code
 - Select low, medium, or high review effort with bounded retrieval budgets
@@ -61,10 +62,12 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Record merge/close lifecycle outcomes and explicit human feedback against the original decision, head SHA, and attestation
 - Give local reviews a working-tree digest so citations and decisions are tied to the exact uncommitted snapshot
 - Generate a proposed fix inside an ephemeral Git worktree without mutating the developer checkout
+- Implement a natural-language local request from a clean checkout inside an ephemeral Git worktree; `--apply` requires explicit verification and refuses stale or changed checkouts
 - Create explicit stacked PRs for GitHub review-thread autofixes with `--stacked-pr`
 - Run an explicit allowlisted verification command inside that sandbox before reporting success
 - Run the same sandbox agent in an ephemeral GitHub Actions runner through manual `workflow_dispatch`
 - Run safe, read-only scheduled reviews for open pull requests through an opt-in GitHub Actions workflow
+- Deliver scheduled Markdown review reports to Slack, Discord, or Microsoft Teams through explicit HTTPS webhooks
 - Run a separately gated scheduled autofix workflow that never changes the original PR branch
 - Run named lifecycle hooks from `.mergeproof/hooks.json` without permitting arbitrary shell commands
 - Reuse the evidence contract from compatible agent surfaces through `skills/mergeproof-review/SKILL.md`

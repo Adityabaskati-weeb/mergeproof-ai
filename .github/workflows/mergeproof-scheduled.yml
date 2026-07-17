@@ -33,6 +33,7 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
       MAX_PRS: ${{ inputs.max_prs || '5' }}
       PUBLISH_REVIEW: ${{ inputs.publish_review || 'false' }}
+      REPORT_SLACK_WEBHOOK: ${{ secrets.MERGEPROOF_REPORT_SLACK_WEBHOOK }}
     steps:
       - name: Checkout MergeProof
         uses: actions/checkout@v4
@@ -74,6 +75,9 @@ jobs:
         run: |
           npm run cli -- report "${GITHUB_REPOSITORY}" -- --repo . --days 7 --format markdown --output results/weekly-report.md
           npm run cli -- report "${GITHUB_REPOSITORY}" -- --repo . --days 7 --format csv --output results/weekly-report.csv
+          if [[ -n "$REPORT_SLACK_WEBHOOK" ]]; then
+            npm run cli -- report "${GITHUB_REPOSITORY}" -- --repo . --days 7 --format markdown --slack-webhook "$REPORT_SLACK_WEBHOOK" > /dev/null
+          fi
 
       - name: Upload scheduled review results
         uses: actions/upload-artifact@v4

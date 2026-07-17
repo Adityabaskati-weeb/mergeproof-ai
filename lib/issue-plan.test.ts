@@ -11,4 +11,8 @@ describe("issue planning URLs", () => {
   it("parses GitHub issue URLs for issue planning", () => {
     expect(parseIssueUrl("https://github.com/acme/widget/issues/42/")).toEqual({ provider: "github", key: "#42", url: "https://github.com/acme/widget/issues/42", owner: "acme", repo: "widget", number: 42 });
   });
+
+  it("parses GitLab issue URLs, including nested project paths", () => {
+    expect(parseIssueUrl("https://gitlab.com/acme/platform/api/-/issues/42")).toEqual({ provider: "gitlab", key: "#42", url: "https://gitlab.com/acme/platform/api/-/issues/42", owner: "acme/platform", repo: "api", number: 42 });
+  });
 });

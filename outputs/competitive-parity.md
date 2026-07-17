@@ -7,13 +7,13 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Capability | MergeProof | Copilot Code Review | CodeRabbit |
 | --- | --- | --- | --- |
 | GitHub PR review | Yes | Yes | Yes |
-| GitLab / Bitbucket / Azure DevOps ingestion | Yes: normalized read-only analysis | Azure DevOps and broader provider support | GitLab, Bitbucket, and Azure DevOps support |
+| GitLab / Bitbucket / Azure DevOps ingestion and publication | Yes: normalized analysis plus provider checks/reviews | Azure DevOps and broader provider support | GitLab, Bitbucket, and Azure DevOps support |
 | Local uncommitted review | Yes: staged, unstaged, and untracked changes | IDE and CLI surfaces | IDE and CLI surfaces |
-| Agent handoff / fix verification | Yes: local ephemeral Git worktree, optional one-pass re-review, GitHub-issue-to-PR task agent, manual ephemeral GitHub Actions runner, GitHub/GitLab review-finding autofix, and GitHub stacked-PR handoff | Cloud-agent handoff | Agent handoff, Autofix, and autonomous fix/review cycles |
+| Agent handoff / fix verification | Yes: local natural-language implementation agent, ephemeral Git worktree, optional one-pass re-review, GitHub-issue-to-PR task agent, manual ephemeral GitHub Actions runner, GitHub/GitLab review-finding autofix, and GitHub stacked-PR handoff | Cloud-agent handoff | Agent handoff, Autofix, and autonomous fix/review cycles |
 | Automatic review trigger | GitHub Actions, signed webhook, and opt-in hourly scheduled review | Yes | Yes: GitHub, GitLab, Bitbucket, and Azure DevOps signed receivers plus Actions |
 | Governed external automations | Signed `/automation/webhook` with event, nested-field, and URL matching; read-only review/plan/fix actions | Actions, MCP, and cloud-agent workflows | Scheduled, message-triggered, and custom webhook automations |
 | Full PR context | Files, commits, checks, discussion, Jira/Linear, local and explicitly linked repositories, opt-in read-only MCP tools, and labeled web search | Full changeset, repository, and MCP context | PR, issue, repository, knowledge base context |
-| Direct issue planning | GitHub, Jira, and Linear issue URL to acceptance criteria, evidence plan, and citations; GitHub issues can also drive a guarded implementation patch | Issue and task workflows | Issue planning and task actions |
+| Direct issue planning | GitHub, GitLab, Jira, and Linear issue URL to acceptance criteria, evidence plan, and citations; GitHub issues can also drive a guarded implementation patch | Issue and task workflows | Issue planning and task actions |
 | Suggested reviewers | Path-aware suggestions from CODEOWNERS and `.mergeproof/reviewers.json` | Suggested reviewers and team rules | Suggested reviewer rules |
 | Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files, and named custom-agent profiles | Custom instructions, custom agents, skills, MCP | Repository and path-based instructions |
 | Citation-backed decision | Exact head-SHA citations and source validation | Actionable suggestions | Review findings and summaries |
@@ -37,10 +37,10 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Review lifecycle controls | Explicit local pause/resume, per-PR ignore/unignore, and per-PR auto-pause after a configured number of incremental commits; manual review remains available | Pause/resume and repository policy controls | Pause, resume, ignore, and review controls |
 | Review-thread resolution | Read-only current-thread inventory; explicit `--apply` GraphQL resolution for selected or all current threads | Review feedback and agent actions | Resolve all review comments command |
 | Named finishing touches | `.mergeproof/recipes.json` recipes with bounded instructions, path scopes, checked patches, verification, re-review, and optional GitHub PR handoff | Custom agents, skills, and hooks | Custom finishing-touch recipes |
-| Natural-language PR editing | Explicit `/mergeproof implement <request>` comment creates a separate evidence-grounded, verified GitHub PR; source branch is never mutated | `@copilot` cloud-agent task handoff | Agent chat code editing and stacked PR handoff |
+| Natural-language editing | Local `mergeproof implement <request>` plus explicit `/mergeproof implement <request>` PR handoff; both use evidence-grounded patches and never mutate the source checkout/branch without an explicit gate | `@copilot` cloud-agent task handoff | Agent chat code editing and stacked PR handoff |
 | Repository Q&A | Read-only `mergeproof ask` / `chat` with bounded local retrieval, instructions, selected model, and trace metadata | Copilot CLI question answering and repository exploration | IDE/CLI review context and chat |
 | Outcome calibration | Local outcome ledger records merged/closed or human-labeled outcomes against decision, head SHA, and attestation; `feedback` and `metrics` expose calibration | Copilot usage metrics focus on adoption and PR lifecycle | CodeRabbit dashboards and reports focus on review activity and outcomes |
-| Reports / export | Local `report` command aggregates activity, decisions, models, attestation coverage, outcomes, calibration, and CSV export; scheduled review workflow uploads weekly Markdown and CSV artifacts | GitHub and IDE usage surfaces | Dashboard filters, reports, and CSV export |
+| Reports / export | Local `report` command aggregates activity, decisions, models, attestation coverage, outcomes, calibration, and CSV export; scheduled review workflow uploads weekly Markdown/CSV artifacts and can deliver Markdown to Slack, Discord, or Teams | GitHub and IDE usage surfaces | Dashboard filters, scheduled/on-demand reports, Slack/Discord/Teams delivery, and CSV export |
 
 ## Differentiation
 
@@ -58,6 +58,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 10. Named finishing touches are configuration-reviewed and path-scoped; a recipe cannot silently expand its write surface beyond its configured scope.
 11. Outcome feedback closes the loop between a merge decision and what happened after merge, allowing teams to measure ready-decision calibration instead of optimizing only for review volume.
 12. Saved analyses can be independently attestation-verified after transport or publication, making tampering observable instead of trusting the displayed decision.
+13. A local natural-language implementation request is treated as a reproducible, evidence-bounded patch job: clean HEAD, bounded retrieval, ephemeral worktree, verification, optional re-review, and stale-checkout refusal before apply.
 
 ## Remaining Deliberate Gaps
 

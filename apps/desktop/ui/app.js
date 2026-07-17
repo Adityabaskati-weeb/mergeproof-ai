@@ -23,20 +23,20 @@ const agentProfile = document.querySelector("#agent-profile");
 const relatedRepos = document.querySelector("#related-repos");
 
 function updateActionLabel() {
-  const labels = { analyze: "Analyze change", ask: "Ask repository", report: "Review report", walkthrough: "Generate walkthrough", erd: "Generate schema impact", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
+  const labels = { analyze: "Analyze change", ask: "Ask repository", report: "Review report", walkthrough: "Generate walkthrough", erd: "Generate schema impact", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", implement: "Implement local request", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
   const criteriaLabel = document.querySelector('label[for="criteria"]');
   button.innerHTML = `${labels[action.value]} <span>&rarr;</span>`;
-  const local = ["review", "agent", "conflicts", "ask", "report"].includes(action.value);
+  const local = ["review", "agent", "conflicts", "ask", "report", "implement"].includes(action.value);
   targetLabel.textContent = action.value === "ask" ? "Repository question" : local ? "Repository path" : action.value === "plan" ? "Change request or issue" : action.value === "task" ? "GitHub issue" : "GitHub pull request";
   if (criteriaLabel) criteriaLabel.textContent = action.value === "recipe" ? "Recipe name" : "Criteria";
-  input.placeholder = action.value === "ask" ? "How does authentication flow through this repository?" : local ? "C:\\path\\to\\repository" : action.value === "task" ? "https://github.com/owner/repo/issues/123" : "https://github.com/owner/repo/pull/123";
-  apply.disabled = !["fix", "simplify", "conflicts", "resolve", "recipe"].includes(action.value);
+  input.placeholder = action.value === "ask" ? "How does authentication flow through this repository?" : action.value === "implement" ? "Add rate limiting to the login endpoint" : local ? "C:\\path\\to\\repository" : action.value === "task" ? "https://github.com/owner/repo/issues/123" : "https://github.com/owner/repo/pull/123";
+  apply.disabled = !["fix", "simplify", "conflicts", "resolve", "recipe", "implement"].includes(action.value);
   if (apply.disabled) apply.checked = false;
   criteria.disabled = action.value === "ask";
   if (criteria.disabled) criteria.value = "";
   remember.disabled = action.value !== "analyze";
   if (action.value !== "analyze") remember.checked = false;
-  verify.disabled = !["agent", "task", "recipe", "autofix"].includes(action.value);
+  verify.disabled = !["agent", "task", "implement", "recipe", "autofix"].includes(action.value);
   if (action.value !== "agent") verify.value = "";
   externalSecurity.disabled = !["analyze", "review", "agent"].includes(action.value);
   if (externalSecurity.disabled) externalSecurity.checked = false;
@@ -48,7 +48,7 @@ function updateActionLabel() {
   if (webSearch.disabled) webSearch.checked = false;
   directories.disabled = !["review", "agent"].includes(action.value);
   if (directories.disabled) directories.value = "";
-  reReview.disabled = !["agent", "task", "recipe", "autofix"].includes(action.value);
+  reReview.disabled = !["agent", "task", "implement", "recipe", "autofix"].includes(action.value);
   if (reReview.disabled) reReview.checked = false;
   relatedRepos.disabled = !["analyze", "consensus"].includes(action.value);
   if (relatedRepos.disabled) relatedRepos.value = "";
@@ -97,7 +97,7 @@ button.addEventListener("click", async () => {
       result.innerHTML = `<h2>MERGE CONFLICTS ${output.trace ? (output.trace.applied ? "RESOLVED" : "SUGGESTED") : "DETECTED"}</h2><p>${conflictCount} conflict hunks &middot; ${output.trace ? `Model: ${escapeHtml(output.trace.model)}` : "read-only inspection"}</p><p>${escapeHtml(output.summary || "Resolve active conflicts before merging.")}</p>${output.patch ? `<pre class="patch">${escapeHtml(output.patch)}</pre>` : ""}`;
     } else if (action.value === "docstrings") {
       result.innerHTML = `<h2>DOCSTRINGS SUGGESTED</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.changedPaths.length} documentation paths</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No documentation patch was proposed.")}</pre>`;
-    } else if (action.value === "agent" || action.value === "task" || action.value === "recipe" || action.value === "autofix") {
+  } else if (action.value === "agent" || action.value === "task" || action.value === "implement" || action.value === "recipe" || action.value === "autofix") {
       const title = action.value === "autofix" ? "REVIEW-THREAD AUTOFIX" : `SANDBOX AGENT ${output.trace.verified && output.trace.reReviewPassed !== false ? "VERIFIED" : "SUGGESTED"}`;
       const detail = action.value === "autofix" ? `Unresolved threads: ${output.trace.unresolvedThreads ?? 0}${output.trace.pullRequestUrl ? ` &middot; Created PR: ${escapeHtml(output.trace.pullRequestUrl)}` : ""}` : `${output.trace.changedPaths.length} changed paths &middot; ${output.trace.verificationCommand ? escapeHtml(output.trace.verificationCommand) : "no verification"}${output.trace.reReviewDecision ? ` &middot; Re-review: ${escapeHtml(output.trace.reReviewDecision)}` : ""}${output.trace.evidenceSources ? ` &middot; ${output.trace.evidenceSources} evidence sources` : ""}`;
       result.innerHTML = `<h2>${action.value === "recipe" ? "FINISHING-TOUCH RECIPE" : title}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${detail}</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No patch was proposed.")}</pre>`;

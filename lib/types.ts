@@ -12,7 +12,7 @@ export type EvidenceChunk = {
 };
 
 export type LinkedIssue = {
-  provider: "github" | "jira" | "linear";
+  provider: "github" | "gitlab" | "jira" | "linear";
   key: string;
   url: string;
   summary: string;

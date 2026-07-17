@@ -34,12 +34,14 @@ import { parsePullRequestUrl, type PullRequestRef } from "../lib/github";
 import type { ReviewEffort } from "../lib/types";
 import { renderWalkthroughMarkdown } from "../lib/walkthrough";
 import { runIssueAgent, type TaskAgentRun } from "../lib/task-agent";
+import { runImplementationAgent, type ImplementationAgentRun } from "../lib/implementation-agent";
 import { loadRecipes, runRecipe, type RecipeRun } from "../lib/recipes";
 import { recordOutcome, readOutcomes, summarizeOutcomes, type OutcomeLabel } from "../lib/outcomes";
 import { parseChangeRequestUrl } from "../lib/change-request";
 import { generateMergeProofConfiguration, readMergeProofConfiguration, renderConfiguration } from "../lib/configuration";
 import { askRepository } from "../lib/ask";
 import { buildReviewReport, filterReviewRecords, renderReviewReportCsv, renderReviewReportMarkdown } from "../lib/report";
+import { publishReviewReport, type ReportDestination } from "../lib/report-delivery";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -181,6 +183,15 @@ function printTaskAgent(run: TaskAgentRun) {
   if (run.trace.verificationOutput) console.log(`\nVerification output:\n${run.trace.verificationOutput}`);
 }
 
+function printImplementation(run: ImplementationAgentRun) {
+  console.log(`\nMERGEPROOF IMPLEMENTATION (${run.trace.model})\n\n${run.summary}\n`);
+  console.log(run.patch || "No safe patch was proposed.");
+  console.log(`\nEvidence sources: ${run.trace.evidenceSources} | Indexed chunks: ${run.trace.indexedChunks}`);
+  console.log(`Sandbox verification: ${run.trace.verified ? "passed" : "not passed"}${run.trace.verificationCommand ? ` (${run.trace.verificationCommand})` : ""}`);
+  if (run.trace.reReviewDecision) console.log(`Re-review: ${run.trace.reReviewDecision} (${run.trace.reReviewPassed ? "passed" : "failed"})`);
+  console.log(`Applied to checkout: ${run.trace.appliedToCheckout ? "yes" : "no"}`);
+}
+
 function parseCriteria(value?: string): string[] | undefined {
   if (!value) return undefined;
   return value.split("|").map((criterion) => criterion.trim()).filter(Boolean);
@@ -308,7 +319,7 @@ program.command("metrics").description("Summarize evidence-review outcomes and r
   }
 });
 
-program.command("report").description("Generate local review activity, outcome, and calibration reports").argument("[repository]", "Repository owner/repo filter").option("--repo <path>", "Repository path", process.cwd()).option("--days <number>", "Only include the last N days").option("--format <format>", "json, markdown, or csv", "markdown").option("--output <path>", "Write the report to a file").action(async (repository, options) => {
+program.command("report").description("Generate local review activity, outcome, and calibration reports").argument("[repository]", "Repository owner/repo filter").option("--repo <path>", "Repository path", process.cwd()).option("--days <number>", "Only include the last N days").option("--format <format>", "json, markdown, or csv", "markdown").option("--output <path>", "Write the report to a file").option("--slack-webhook <url>", "Deliver the Markdown report to a Slack incoming webhook").option("--discord-webhook <url>", "Deliver the Markdown report to a Discord webhook").option("--teams-webhook <url>", "Deliver the Markdown report to a Microsoft Teams webhook").action(async (repository, options) => {
   try {
     const events = await readAuditEvents(options.repo, 500);
     const outcomes = await readOutcomes(options.repo, undefined, 2_000);
@@ -319,6 +330,11 @@ program.command("report").description("Generate local review activity, outcome, 
     const content = format === "json" ? JSON.stringify(report, null, 2) : format === "csv" ? renderReviewReportCsv(filtered.events, filtered.outcomes) : renderReviewReportMarkdown(report);
     if (options.output) await writeFile(options.output, `${content}${content.endsWith("\n") ? "" : "\n"}`, "utf8");
     else console.log(content);
+    const destinations: Array<[ReportDestination, string | undefined]> = [["slack", options.slackWebhook], ["discord", options.discordWebhook], ["teams", options.teamsWebhook]];
+    for (const [destination, webhook] of destinations) if (webhook) {
+      await publishReviewReport(destination, webhook, renderReviewReportMarkdown(report));
+      console.error(`Report delivered to ${destination}.`);
+    }
   } catch (error) {
     console.error(`MergeProof report error: ${error instanceof Error ? error.message : "Report generation failed."}`);
     process.exitCode = 1;
@@ -635,6 +651,23 @@ program.command("analyze").description("Analyze a GitHub, GitLab, Bitbucket, or 
     process.exitCode = analysis.decision === "ready" ? 0 : 2;
   } catch (error) {
     console.error(`MergeProof error: ${error instanceof Error ? error.message : "Analysis failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("implement").description("Implement a natural-language request in a clean local repository using bounded evidence and a verified sandbox").argument("<request...>", "Implementation request").requiredOption("--repo <path>", "Local checkout of the target repository").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the implementation run JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "10").option("--verify <command>", "Sandbox verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Re-review the sandbox patch before reporting success").option("--apply", "Apply only after explicit verification, and after optional re-review passes").action(async (request, options) => {
+  try {
+    const run = await runImplementationAgent(request.join(" "), options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK), verify: parseVerificationCommand(options.verify), reReview: options.reReview, apply: options.apply });
+    if (options.patch) await writeFile(options.patch, run.patch, "utf8");
+    if (options.save) await writeFile(options.save, JSON.stringify(run, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(run, null, 2));
+    else printImplementation(run);
+    const gated = Boolean(options.verify || options.reReview || options.apply);
+    const verificationPassed = !options.verify || run.trace.verified;
+    const reReviewPassed = !options.reReview || run.trace.reReviewPassed === true;
+    process.exitCode = !gated || verificationPassed && reReviewPassed ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof implement error: ${error instanceof Error ? error.message : "Implementation agent failed."}`);
     process.exitCode = 1;
   }
 });

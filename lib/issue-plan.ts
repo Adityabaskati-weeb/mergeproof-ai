@@ -6,7 +6,7 @@ import type { LinkedIssue } from "./types";
 import type { PullRequestContext, PullRequestRef } from "./github";
 import { createGithubClient } from "./github-auth";
 
-export type IssueTarget = { provider: "github" | "jira" | "linear"; key: string; url: string; owner?: string; repo?: string; number?: number };
+export type IssueTarget = { provider: "github" | "gitlab" | "jira" | "linear"; key: string; url: string; owner?: string; repo?: string; number?: number };
 
 function textFromAtlassian(value: unknown): string {
   if (!value || typeof value !== "object") return typeof value === "string" ? value : "";
@@ -17,11 +17,17 @@ function textFromAtlassian(value: unknown): string {
 export function parseIssueUrl(value: string): IssueTarget {
   const github = value.trim().match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)\/?$/i);
   if (github) return { provider: "github", key: `#${github[3]}`, url: `https://github.com/${github[1]}/${github[2]}/issues/${github[3]}`, owner: github[1], repo: github[2], number: Number(github[3]) };
+  const gitlab = value.trim().match(/^https:\/\/([^/]+)\/(.+)\/-\/issues\/(\d+)\/?$/i);
+  if (gitlab) {
+    const projectPath = gitlab[2].replace(/\/$/, "");
+    const repo = projectPath.split("/").at(-1) ?? projectPath;
+    return { provider: "gitlab", key: `#${gitlab[3]}`, url: `https://${gitlab[1]}/${projectPath}/-/issues/${gitlab[3]}`, owner: projectPath.slice(0, -(repo.length + 1)), repo, number: Number(gitlab[3]) };
+  }
   const jira = value.trim().match(/^https:\/\/([^/]+)\/browse\/([A-Z][A-Z0-9]+-\d+)\/?$/i);
   if (jira) return { provider: "jira", key: jira[2].toUpperCase(), url: `https://${jira[1]}/browse/${jira[2].toUpperCase()}` };
   const linear = value.trim().match(/^https:\/\/linear\.app\/(?:[^/]+\/)?issue\/([A-Z][A-Z0-9]+-\d+)(?:\/[^/]+)?\/?$/i);
   if (linear) return { provider: "linear", key: linear[1].toUpperCase(), url: value.trim().replace(/\/$/, "") };
-  throw new Error("Expected a GitHub /issues/123, Jira /browse/KEY-123, or Linear /issue/KEY-123 URL.");
+  throw new Error("Expected a GitHub or GitLab issue URL, Jira /browse/KEY-123, or Linear /issue/KEY-123 URL.");
 }
 
 async function fetchIssue(target: IssueTarget): Promise<LinkedIssue> {
@@ -32,6 +38,17 @@ async function fetchIssue(target: IssueTarget): Promise<LinkedIssue> {
     if (response.data.pull_request) throw new Error("The supplied GitHub URL is a pull request. Use the PR planning workflow instead.");
     const description = response.data.body ?? "";
     return { provider: "github", key: target.key, url: target.url, summary: response.data.title, description, status: response.data.state, acceptanceCriteria: extractAcceptanceCriteria(description).criteria };
+  }
+  if (target.provider === "gitlab") {
+    if (!target.owner || !target.repo || !target.number) throw new Error("Invalid GitLab issue target.");
+    const parsed = new URL(target.url);
+    const apiBase = (process.env.GITLAB_API_URL || `${parsed.origin}/api/v4`).replace(/\/$/, "");
+    const project = encodeURIComponent(`${target.owner}/${target.repo}`);
+    const response = await fetch(`${apiBase}/projects/${project}/issues/${target.number}`, { headers: { Accept: "application/json", ...(process.env.GITLAB_TOKEN ? { "PRIVATE-TOKEN": process.env.GITLAB_TOKEN } : {}) } });
+    if (!response.ok) throw new Error(`GitLab issue request failed with HTTP ${response.status}.`);
+    const payload = await response.json() as { title?: string; description?: string; state?: string; web_url?: string };
+    const description = payload.description ?? "";
+    return { provider: "gitlab", key: target.key, url: payload.web_url ?? target.url, summary: payload.title ?? target.key, description, status: payload.state ?? "unknown", acceptanceCriteria: extractAcceptanceCriteria(description).criteria };
   }
   if (target.provider === "jira") {
     const baseUrl = target.url.match(/^https:\/\/[^/]+/)?.[0];
@@ -61,7 +78,7 @@ export async function planIssue(issueUrl: string, model?: string, providerName?:
   const policy = await loadPolicy(options.repoPath || process.cwd());
   const profile = await loadAgentProfile(options.repoPath || process.cwd(), options.agent);
   const criteria = issue.acceptanceCriteria.length ? issue.acceptanceCriteria : [`Implement the requirements described by ${issue.key}.`];
-  const ref: PullRequestRef = { owner: target.owner ?? target.provider, repo: target.repo ?? issue.key, number: target.number ?? 0, url: issue.url, ...(target.provider === "github" ? { provider: "github" as const } : {}) };
+  const ref: PullRequestRef = { owner: target.owner ?? target.provider, repo: target.repo ?? issue.key, number: target.number ?? 0, url: issue.url, ...(["github", "gitlab"].includes(target.provider) ? { provider: target.provider as "github" | "gitlab" } : {}) };
   const headSha = `issue:${target.provider}:${issue.key}`;
   const context: PullRequestContext = { ref, title: issue.summary, body: issue.description, headSha, baseSha: headSha, files: [], checks: [], commits: [], discussion: [], sources: new Set([issue.url]), repositoryEvidence: [], issues: [issue], customInstructions: combineInstructions(policy.instructions, profile) };
   const provider = (providerName || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
