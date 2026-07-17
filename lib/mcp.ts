@@ -15,6 +15,7 @@ export type McpServerConfig = {
 };
 
 export type McpConfig = { servers?: McpServerConfig[] };
+export type McpValidation = { path: string; valid: boolean; servers: McpServerConfig[]; errors: string[] };
 export type McpContextResult = {
   discussion: NonNullable<PullRequestContext["discussion"]>;
   sources: string[];
@@ -50,6 +51,79 @@ export function parseMcpResponse(text: string, contentType = "application/json")
 
 export function renderMcpArguments(argumentsTemplate: Record<string, unknown> | undefined, context: Record<string, string>): Record<string, unknown> {
   return (resolveConfigValue(argumentsTemplate ?? {}, context) ?? {}) as Record<string, unknown>;
+}
+
+function mcpConfigPath(root: string): string {
+  return process.env.MERGEPROOF_MCP_CONFIG || join(resolve(root), ".mergeproof", "mcp.json");
+}
+
+function validateServer(server: unknown, index: number): { server?: McpServerConfig; errors: string[] } {
+  const errors: string[] = [];
+  if (!server || typeof server !== "object") return { errors: [`Server ${index + 1} must be an object.`] };
+  const value = server as Partial<McpServerConfig>;
+  const name = typeof value.name === "string" ? value.name.trim() : "";
+  const url = typeof value.url === "string" ? value.url.trim() : "";
+  const tool = typeof value.tool === "string" ? value.tool.trim() : "";
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) errors.push(`Server ${index + 1} has an unsafe or missing name.`);
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") errors.push(`Server ${name || index + 1} must use http or https.`);
+  } catch { errors.push(`Server ${name || index + 1} has an invalid URL.`); }
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/.test(tool)) errors.push(`Server ${name || index + 1} has an unsafe or missing tool name.`);
+  const headers = value.headers ?? {};
+  if (typeof headers !== "object" || Array.isArray(headers)) errors.push(`Server ${name || index + 1} headers must be an object.`);
+  else for (const [key, headerValue] of Object.entries(headers)) if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,100}$/.test(key) || typeof headerValue !== "string" || headerValue.length > 500 || /[\r\n]/.test(headerValue)) errors.push(`Server ${name || index + 1} contains an invalid header.`);
+  const argumentsValue = value.arguments ?? {};
+  if (!argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue)) errors.push(`Server ${name || index + 1} arguments must be an object.`);
+  if (errors.length) return { errors };
+  return { server: { name, url, tool, ...(Object.keys(headers).length ? { headers: headers as Record<string, string> } : {}), ...(Object.keys(argumentsValue as Record<string, unknown>).length ? { arguments: argumentsValue as Record<string, unknown> } : {}) }, errors };
+}
+
+async function readMcpFile(root: string): Promise<{ path: string; config: McpConfig }> {
+  const path = mcpConfigPath(root);
+  try { return { path, config: JSON.parse(await fs.readFile(path, "utf8")) as McpConfig }; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { path, config: { servers: [] } }; throw new Error(`Unable to read MCP configuration: ${error instanceof Error ? error.message : "invalid JSON"}`); }
+}
+
+export async function validateMcpConfig(root: string): Promise<McpValidation> {
+  const { path, config } = await readMcpFile(root);
+  const raw = Array.isArray(config.servers) ? config.servers : [];
+  const errors: string[] = [];
+  if (raw.length > MAX_SERVERS) errors.push(`MCP configuration allows at most ${MAX_SERVERS} servers.`);
+  const servers: McpServerConfig[] = [];
+  const names = new Set<string>();
+  raw.slice(0, MAX_SERVERS).forEach((value, index) => {
+    const result = validateServer(value, index);
+    errors.push(...result.errors);
+    if (result.server) {
+      if (names.has(result.server.name.toLowerCase())) errors.push(`MCP server names must be unique: ${result.server.name}.`);
+      names.add(result.server.name.toLowerCase());
+      servers.push(result.server);
+    }
+  });
+  return { path, valid: errors.length === 0, servers, errors };
+}
+
+export async function upsertMcpServer(root: string, input: McpServerConfig): Promise<McpValidation> {
+  const normalized = validateServer(input, 0);
+  if (!normalized.server || normalized.errors.length) throw new Error(normalized.errors.join(" "));
+  const validation = await validateMcpConfig(root);
+  if (!validation.valid) throw new Error(`Cannot update invalid MCP configuration: ${validation.errors.join(" ")}`);
+  const servers = [...validation.servers.filter((server) => server.name.toLowerCase() !== normalized.server!.name.toLowerCase()), normalized.server];
+  if (servers.length > MAX_SERVERS) throw new Error(`MCP configuration allows at most ${MAX_SERVERS} servers.`);
+  await fs.mkdir(join(resolve(root), ".mergeproof"), { recursive: true });
+  await fs.writeFile(validation.path, `${JSON.stringify({ servers }, null, 2)}\n`, "utf8");
+  return validateMcpConfig(root);
+}
+
+export async function removeMcpServer(root: string, name: string): Promise<McpValidation> {
+  const validation = await validateMcpConfig(root);
+  if (!validation.valid) throw new Error(`Cannot update invalid MCP configuration: ${validation.errors.join(" ")}`);
+  const remaining = validation.servers.filter((server) => server.name.toLowerCase() !== name.trim().toLowerCase());
+  if (remaining.length === validation.servers.length) throw new Error(`MCP server not found: ${name}`);
+  await fs.mkdir(join(resolve(root), ".mergeproof"), { recursive: true });
+  await fs.writeFile(validation.path, `${JSON.stringify({ servers: remaining }, null, 2)}\n`, "utf8");
+  return validateMcpConfig(root);
 }
 
 export async function loadMcpConfig(root?: string): Promise<McpConfig> {

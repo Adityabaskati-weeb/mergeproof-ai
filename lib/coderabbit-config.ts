@@ -76,6 +76,28 @@ function pathInstructions(lines: string[]): string[] {
   return output;
 }
 
+function nestedValue(lines: string[], index: number, key: string): string | undefined {
+  const parentIndent = lines[index].search(/\S|$/);
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const line of lines.slice(index + 1)) {
+    if (line.trim() && line.search(/\S|$/) <= parentIndent) break;
+    const match = line.match(new RegExp(`^\\s+${escaped}:\\s*(.*)$`));
+    if (match) return scalar(match[1]);
+  }
+  return undefined;
+}
+
+function builtInCheckInstructions(name: string, lines: string[], index: number): string {
+  const threshold = nestedValue(lines, index, "threshold") || "80";
+  const requirements = nestedValue(lines, index, "requirements") || nestedValue(lines, index, "instructions");
+  if (name === "docstrings") return `Require changed functions to meet at least ${threshold}% docstring coverage; use cited changed files and tests as evidence.`;
+  if (name === "title") return `Validate the pull-request title${requirements ? ` against these requirements: ${requirements}` : " for clarity, scope, and project conventions"}.`;
+  if (name === "description") return `Validate the pull-request description${requirements ? ` against these requirements: ${requirements}` : " for a clear summary, testing notes, and rollout or risk context"}.`;
+  if (name === "linked_issue" || name === "issue_assessment") return "Require a linked issue or explicit evidence that the change satisfies its issue acceptance criteria.";
+  if (name === "security") return "Check changed code for security-sensitive behavior and require evidence for any risk or mitigation.";
+  return `Run the ${name} pre-merge check and use only fetched evidence to determine whether it passes.`;
+}
+
 function preMergeChecks(lines: string[]): CustomCheck[] {
   const checks: CustomCheck[] = [];
   const start = lines.findIndex((line) => /^\s*pre_merge_checks:\s*$/.test(line));
@@ -87,10 +109,10 @@ function preMergeChecks(lines: string[]): CustomCheck[] {
     const name = line.match(/^\s{2,}([\w-]+):\s*$/)?.[1];
     if (!name) continue;
     if (name === "custom_checks") continue;
-    const mode = lines.slice(index + 1, index + 5).find((candidate) => /^\s+mode:\s*/.test(candidate));
-    const modeValue = mode ? scalar(mode.replace(/^\s+mode:\s*/, "")) : "warning";
+    if (nestedValue(lines, index, "enabled") === "false") continue;
+    const modeValue = nestedValue(lines, index, "mode") || "warning";
     const normalizedMode = modeValue === "off" || modeValue === "warning" || modeValue === "error" ? modeValue : "warning";
-    checks.push({ name: `CodeRabbit pre-merge: ${name}`, instructions: `Run the ${name} pre-merge check and treat its configured mode (${modeValue}) as review evidence.`, mode: normalizedMode });
+    checks.push({ name: `CodeRabbit pre-merge: ${name}`, instructions: builtInCheckInstructions(name, lines, index), mode: normalizedMode });
   }
   return checks.slice(0, 20);
 }

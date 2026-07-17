@@ -50,7 +50,7 @@ import { readPlanHistory, recordPlanVersion } from "../lib/plan-history";
 import { createReviewBundle, verifyReviewBundle } from "../lib/review-bundle";
 import { runInteractiveChat } from "../lib/chat";
 import { runChatTurn, type ChatTurnAction } from "../lib/chat-turn";
-import { cleanupSessions, compactSession, deleteAllSessions, deleteSession, forkSession, listSessions, pruneSessions, readSession, renameSession, renderSessionMarkdown, sessionCheckpoints, sessionFiles } from "../lib/sessions";
+import { cleanupSessions, compactSession, deleteAllSessions, deleteSession, forkSession, listSessions, pruneSessions, readSession, renameSession, renderSessionHtml, renderSessionMarkdown, sessionCheckpoints, sessionFiles } from "../lib/sessions";
 import { runFleetAsk, runFleetPlan, runFleetReview } from "../lib/fleet";
 import { runAcpStdio, startAcpTcpServer } from "../lib/acp";
 import { assertPermission, readPermissionPolicy, renderPermissionPolicy } from "../lib/permissions";
@@ -75,6 +75,8 @@ import { importCoderabbitConfiguration, readCoderabbitConfiguration } from "../l
 import { loadPolicy } from "../lib/policy";
 import { createPullRequest, viewPullRequest } from "../lib/pr";
 import { runPostMergeActions } from "../lib/post-merge";
+import { discoverSkills, readSkill } from "../lib/skills";
+import { removeMcpServer, upsertMcpServer, validateMcpConfig } from "../lib/mcp";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -456,6 +458,102 @@ program.command("plugins").alias("extensions").description("Discover local Merge
   }
 });
 
+const skillsCommand = program.command("skills").description("Inspect repository-scoped agent skills without executing them");
+skillsCommand.command("list").description("List checked-in SKILL.md surfaces").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const skills = await discoverSkills(options.repo);
+    if (options.json) console.log(JSON.stringify(skills, null, 2));
+    else console.log(skills.map((skill) => `${skill.valid ? "PASS" : "WARN"} ${skill.name}${skill.description ? ` - ${skill.description}` : ""}`).join("\n") || "No repository skills found.");
+    process.exitCode = skills.some((skill) => !skill.valid) ? 2 : 0;
+  } catch (error) {
+    console.error(`MergeProof skills error: ${error instanceof Error ? error.message : "Skill discovery failed."}`);
+    process.exitCode = 1;
+  }
+});
+skillsCommand.command("show").description("Show one checked-in skill").argument("<name>", "Skill directory name or relative path").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (name, options) => {
+  try {
+    const result = await readSkill(options.repo, name);
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(result.content);
+  } catch (error) {
+    console.error(`MergeProof skill error: ${error instanceof Error ? error.message : "Skill read failed."}`);
+    process.exitCode = 1;
+  }
+});
+skillsCommand.command("validate").description("Validate checked-in skill front matter and size limits").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const skills = await discoverSkills(options.repo);
+    const result = { valid: skills.every((skill) => skill.valid), skills };
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(result.valid ? `Validated ${skills.length} skill(s).` : skills.flatMap((skill) => skill.issues.map((issue) => `${skill.name}: ${issue}`)).join("\n"));
+    process.exitCode = result.valid ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof skills error: ${error instanceof Error ? error.message : "Skill validation failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+function safeMcpSummary(validation: Awaited<ReturnType<typeof validateMcpConfig>>) {
+  return validation.servers.map((server) => ({ name: server.name, url: server.url, tool: server.tool, headerCount: Object.keys(server.headers ?? {}).length, argumentKeys: Object.keys(server.arguments ?? {}) }));
+}
+
+const mcpCommand = program.command("mcp").description("Manage repository-scoped, explicitly read-only MCP context servers");
+mcpCommand.command("list").description("List configured MCP servers without printing header values").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const validation = await validateMcpConfig(options.repo);
+    const result = { path: validation.path, valid: validation.valid, servers: safeMcpSummary(validation), errors: validation.errors };
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${validation.valid ? "VALID" : "INVALID"} ${validation.path}\n${safeMcpSummary(validation).map((server) => `${server.name}: ${server.url}#${server.tool}`).join("\n") || "No MCP servers configured."}${validation.errors.length ? `\n${validation.errors.join("\n")}` : ""}`);
+    process.exitCode = validation.valid ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof MCP error: ${error instanceof Error ? error.message : "MCP configuration read failed."}`);
+    process.exitCode = 1;
+  }
+});
+mcpCommand.command("validate").description("Validate MCP server names, URLs, tools, and bounded configuration").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const validation = await validateMcpConfig(options.repo);
+    const result = { path: validation.path, valid: validation.valid, servers: safeMcpSummary(validation), errors: validation.errors };
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(validation.valid ? `Validated ${validation.servers.length} MCP server(s).` : validation.errors.join("\n"));
+    process.exitCode = validation.valid ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof MCP error: ${error instanceof Error ? error.message : "MCP configuration validation failed."}`);
+    process.exitCode = 1;
+  }
+});
+for (const action of ["add", "update"] as const) {
+  mcpCommand.command(action).description(`${action === "add" ? "Add" : "Update"} a read-only MCP server configuration`).argument("<name>", "Server name").requiredOption("--url <url>", "MCP HTTP endpoint").requiredOption("--tool <name>", "Read-only tool name").option("--headers-json <json>", "JSON object of header templates").option("--arguments-json <json>", "JSON object of tool arguments").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (name, options) => {
+    try {
+      const parseObject = (value: string | undefined, label: string): Record<string, unknown> | undefined => {
+        if (!value) return undefined;
+        const parsed = JSON.parse(value) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${label} must be a JSON object.`);
+        return parsed as Record<string, unknown>;
+      };
+      const headers = parseObject(options.headersJson, "Headers") as Record<string, string> | undefined;
+      if (headers && Object.values(headers).some((value) => typeof value !== "string")) throw new Error("Headers JSON values must be strings.");
+      const result = await upsertMcpServer(options.repo, { name, url: options.url, tool: options.tool, ...(headers ? { headers } : {}), ...(parseObject(options.argumentsJson, "Arguments") ? { arguments: parseObject(options.argumentsJson, "Arguments") } : {}) });
+      const output = { path: result.path, valid: result.valid, servers: safeMcpSummary(result), errors: result.errors };
+      if (options.json) console.log(JSON.stringify(output, null, 2));
+      else console.log(`${action === "add" ? "Added" : "Updated"} MCP server ${name}.`);
+    } catch (error) {
+      console.error(`MergeProof MCP error: ${error instanceof Error ? error.message : "MCP configuration update failed."}`);
+      process.exitCode = 1;
+    }
+  });
+}
+mcpCommand.command("remove").description("Remove a configured MCP server").argument("<name>", "Server name").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (name, options) => {
+  try {
+    const result = await removeMcpServer(options.repo, name);
+    if (options.json) console.log(JSON.stringify({ path: result.path, valid: result.valid, servers: safeMcpSummary(result), errors: result.errors }, null, 2));
+    else console.log(`Removed MCP server ${name}.`);
+  } catch (error) {
+    console.error(`MergeProof MCP error: ${error instanceof Error ? error.message : "MCP server removal failed."}`);
+    process.exitCode = 1;
+  }
+});
+
 const lspCommand = program.command("lsp").description("Inspect or test repository-scoped LSP server configuration");
 lspCommand.command("show").description("Show supported .github/lsp.json or .mergeproof/lsp.json configuration").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
   const config = await readLspConfig(options.repo);
@@ -551,13 +649,13 @@ sessionsCommand.command("fork").description("Fork a session into a new independe
     process.exitCode = 1;
   }
 });
-sessionsCommand.command("export").description("Export a session transcript for auditing or sharing").argument("<session-id>", "Session ID").option("--repo <path>", "Repository path", process.cwd()).option("--format <format>", "markdown or json", "markdown").option("--output <path>", "Write the export to a file").action(async (sessionId, options) => {
+sessionsCommand.command("export").description("Export a session transcript for auditing or sharing").argument("<session-id>", "Session ID").option("--repo <path>", "Repository path", process.cwd()).option("--format <format>", "markdown, html, or json", "markdown").option("--output <path>", "Write the export to a file").action(async (sessionId, options) => {
   try {
     const session = await readSession(options.repo, sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     const format = String(options.format).toLowerCase();
-    if (format !== "markdown" && format !== "json") throw new Error("Session export format must be markdown or json.");
-    const content = format === "json" ? JSON.stringify(session, null, 2) : renderSessionMarkdown(session);
+    if (format !== "markdown" && format !== "html" && format !== "json") throw new Error("Session export format must be markdown, html, or json.");
+    const content = format === "json" ? JSON.stringify(session, null, 2) : format === "html" ? renderSessionHtml(session) : renderSessionMarkdown(session);
     if (options.output) await writeFile(options.output, `${content}${content.endsWith("\n") ? "" : "\n"}`, "utf8");
     else console.log(content);
   } catch (error) {

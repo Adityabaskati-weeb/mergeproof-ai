@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { appendSessionTurn, cleanupSessions, compactSession, deleteAllSessions, deleteSession, forkSession, listSessions, openSession, pruneSessions, readSession, renameSession, renderSessionMarkdown, sessionCheckpoints, sessionFiles } from "./sessions";
+import { appendSessionTurn, cleanupSessions, compactSession, deleteAllSessions, deleteSession, forkSession, listSessions, openSession, pruneSessions, readSession, renameSession, renderSessionHtml, renderSessionMarkdown, sessionCheckpoints, sessionFiles } from "./sessions";
 
 describe("persistent chat sessions", () => {
   it("creates, appends, resumes, and lists an inspectable JSONL session", async () => {
@@ -33,6 +33,21 @@ describe("persistent chat sessions", () => {
     expect(await readSession(root, source.id)).toBeUndefined();
     expect(await deleteAllSessions(root)).toBe(1);
     expect(await listSessions(root)).toHaveLength(0);
+  });
+
+  it("renders a self-contained escaped HTML share export", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mergeproof-session-html-"));
+    try {
+      const session = await openSession(root, "shareable");
+      await appendSessionTurn(root, session.id, { action: "ask", request: "<script>alert(1)</script>", outcome: "success", summary: "Evidence-backed answer" });
+      const html = renderSessionHtml((await readSession(root, session.id))!);
+      expect(html).toContain("<!doctype html>");
+      expect(html).toContain("Evidence-backed answer");
+      expect(html).not.toContain("<script>alert(1)");
+      expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("prunes by recency and cleans up old sessions", async () => {

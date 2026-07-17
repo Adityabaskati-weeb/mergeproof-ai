@@ -6,6 +6,7 @@ The desktop client currently provides:
 
 - local pull-request analysis
 - live GitHub pull-request inspection with checks, changed-file totals, and unresolved review-thread counts
+- repository skill validation and MCP configuration inspection without exposing configured header values
 - staged, unstaged, and untracked working-tree review
 - ephemeral sandbox-agent fix generation with optional verification
 - bounded autopilot correction loops with optional checkout apply after verification and re-review

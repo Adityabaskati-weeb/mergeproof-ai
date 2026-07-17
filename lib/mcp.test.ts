@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchMcpContext, renderMcpArguments } from "./mcp";
+import { fetchMcpContext, removeMcpServer, renderMcpArguments, upsertMcpServer, validateMcpConfig } from "./mcp";
 
 const temporaryDirectories: string[] = [];
 
@@ -34,5 +34,18 @@ describe("MCP context boundary", () => {
     expect(result.successful).toEqual(["linear"]);
     expect(result.failed).toEqual([]);
     expect(result.discussion[0]).toMatchObject({ author: "mcp:linear", body: "Issue evidence" });
+  });
+
+  it("validates and manages MCP servers without exposing header values", async () => {
+    const root = await fs.mkdtemp(join(process.env.TEMP ?? ".", "mergeproof-mcp-config-"));
+    temporaryDirectories.push(root);
+    const created = await upsertMcpServer(root, { name: "linear", url: "https://mcp.example.test", tool: "search_issues", headers: { Authorization: "Bearer ${MCP_TOKEN}" } });
+    expect(created.valid).toBe(true);
+    expect((await validateMcpConfig(root)).servers[0].name).toBe("linear");
+    await upsertMcpServer(root, { name: "linear", url: "https://mcp.example.test/v2", tool: "search_issues" });
+    expect((await validateMcpConfig(root)).servers[0].url).toContain("/v2");
+    await removeMcpServer(root, "linear");
+    expect((await validateMcpConfig(root)).servers).toHaveLength(0);
+    expect(await fs.readFile(join(root, ".mergeproof", "mcp.json"), "utf8")).not.toContain("Bearer");
   });
 });

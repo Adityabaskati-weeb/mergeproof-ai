@@ -1,0 +1,15 @@
+{
+  "servers": [
+    {
+      "name": "issue-context",
+      "url": "https://mcp.example.com",
+      "tool": "search_issues",
+      "headers": {
+        "Authorization": "Bearer ${MCP_TOKEN}"
+      },
+      "arguments": {
+        "query": "{{title}} {{criteria}}"
+      }
+    }
+  ]
+}

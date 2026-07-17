@@ -33,7 +33,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof bundle create|verify` to create and offline-verify a portable evidence capsule
 - `mergeproof chat` for an interactive CLI session with read-only ask, plan, review, and sandboxed implement actions
 - `mergeproof sessions list|show` and `mergeproof chat --session <id>` for resumable, inspectable local sessions
-- `mergeproof sessions rename|fork|export|files|compact|checkpoints|prune|cleanup|delete` for full local session lifecycle control with explicit archive checkpoints
+- `mergeproof sessions rename|fork|export|files|compact|checkpoints|prune|cleanup|delete` for full local session lifecycle control with explicit archive checkpoints; export supports Markdown, JSON, and self-contained HTML sharing
 - `mergeproof chat-turn <ask|plan|review|implement> ... --json` for editor and desktop session-backed turns
 - `mergeproof remote <ask|plan|review> ... --endpoint <url> --secret <secret>` for signed, read-only remote session steering
 - `mergeproof fleet ask|plan|review` for parallel model/sub-agent work with repository-head consistency and disagreement reporting
@@ -50,7 +50,8 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof complete <file>` non-mutating Copilot-style code completion at a line/column, with OpenAI-compatible/local-model support and a source digest
 - `mergeproof stats` aggregates bounded review/finding/outcome history; `review --save-prompts` and `review --show-prompts` provide explicit local prompt replay without silent prompt retention
 - `mergeproof search <query...>` bounded local timeline search across sessions, findings, audit events, and outcomes
-- `mergeproof plugins` / `mergeproof extensions` discovers local agent plugins, skills, commands, and client surfaces
+- `mergeproof plugins` / `mergeproof extensions` discovers local agent plugins, skills, commands, and client surfaces; `mergeproof skills list|show|validate` audits checked-in skills without executing them
+- `mergeproof mcp list|validate|add|update|remove` manages bounded repository-scoped MCP configuration without printing header values; analysis only calls tools that advertise `readOnlyHint`
 - `mergeproof init --repo <checkout>` idempotently scaffolds a local policy, safe mutation defaults, evidence checks, and instructions
 - `mergeproof auth status|org` reports model/integration authentication and GitHub organization access without printing credential values; `auth login|logout --github` delegates GitHub authentication to `gh`
 - Desktop shell boundary in `apps/desktop`

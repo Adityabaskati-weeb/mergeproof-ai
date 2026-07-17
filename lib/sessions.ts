@@ -132,6 +132,17 @@ export function renderSessionMarkdown(session: SessionRecord): string {
   return [`# MergeProof session ${session.name ? `${session.name} (${session.id})` : session.id}`, "", `Repository: ${session.repository}`, `Created: ${session.createdAt}`, `Updated: ${session.updatedAt}`, "", checkpoints ? `## Checkpoints\n${checkpoints}\n` : "", turns || "No turns recorded.", ""].join("\n");
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>\"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '\"': "&quot;", "'": "&#39;" })[character] ?? character);
+}
+
+export function renderSessionHtml(session: SessionRecord): string {
+  const title = session.name ? `${session.name} (${session.id})` : session.id;
+  const turns = session.turns.map((turn, index) => `<details${index === session.turns.length - 1 ? " open" : ""}><summary>Turn ${index + 1}: ${escapeHtml(turn.action)} <span class=\"${turn.outcome === "success" ? "success" : "error"}\">${escapeHtml(turn.outcome)}</span></summary><p class=\"meta\">${escapeHtml(turn.createdAt)}</p><h3>Request</h3><pre>${escapeHtml(turn.request)}</pre><h3>Summary</h3><pre>${escapeHtml(turn.summary)}</pre></details>`).join("\n");
+  const checkpoints = session.checkpoints.map((checkpoint) => `<li>${escapeHtml(checkpoint.createdAt)}: archived ${checkpoint.archivedTurns}, retained ${checkpoint.retainedTurns}, digest <code>${escapeHtml(checkpoint.digest.slice(0, 12))}</code></li>`).join("");
+  return `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>${escapeHtml(title)} | MergeProof</title><style>:root{color-scheme:dark;--bg:#0b1020;--panel:#131b2e;--text:#e8edf7;--muted:#9ca9c4;--accent:#73daca;--danger:#ff9d9d}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#182846,var(--bg) 55%);color:var(--text);font:16px/1.55 system-ui,sans-serif}main{max-width:960px;margin:0 auto;padding:40px 20px}header,details{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid #2a3855;border-radius:14px;padding:20px;margin:0 0 14px;box-shadow:0 12px 32px #05091455}h1{margin:0 0 8px;font-size:clamp(1.7rem,4vw,2.8rem)}h2{font-size:1rem;color:var(--muted);font-weight:500;margin:0}summary{cursor:pointer;font-weight:700}pre{white-space:pre-wrap;overflow:auto;background:#0a0f1d;border-radius:10px;padding:14px;color:#d9e4f4}.meta{color:var(--muted);font-size:.85rem}.success{color:var(--accent)}.error{color:var(--danger)}code{color:var(--accent)}</style></head><body><main><header><h1>${escapeHtml(title)}</h1><h2>${escapeHtml(session.repository)}</h2><p class=\"meta\">Created ${escapeHtml(session.createdAt)} · Updated ${escapeHtml(session.updatedAt)} · ${session.turns.length} turn(s)</p></header>${checkpoints ? `<section><h2>Compaction checkpoints</h2><ul>${checkpoints}</ul></section>` : ""}${turns || "<details open><summary>No turns recorded</summary></details>"}</main></body></html>\n`;
+}
+
 export async function compactSession(repository: string, id: string, keep = 20): Promise<SessionRecord> {
   if (!Number.isFinite(keep) || keep < 1 || keep > MAX_TURNS) throw new Error(`Session compaction keep must be between 1 and ${MAX_TURNS}.`);
   const session = await readSession(repository, id);

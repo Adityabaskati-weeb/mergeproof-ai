@@ -59,9 +59,34 @@ describe("CodeRabbit configuration migration", () => {
       expect(preview?.policy.instructions).toContain("org/shared-contracts");
       expect(preview?.policy.instructions).toContain("Verify API compatibility.\nRequire a focused test.");
       expect(preview?.policy.customChecks?.[0].name).toContain("title");
+      expect(preview?.policy.customChecks?.[0].instructions).toContain("pull-request title");
+      expect(preview?.policy.customChecks?.[0].mode).toBe("warning");
       expect(preview?.policy.customChecks?.some((check) => check.name === "API contract" && check.instructions.includes("contract evidence"))).toBe(true);
       expect(preview?.recipes[0]).toMatchObject({ name: "api-contract", instructions: "Add tests for every changed endpoint.", paths: ["src"] });
       expect(preview?.unsupported).toEqual([]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("maps built-in checks with thresholds and disabled settings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mergeproof-coderabbit-builtins-"));
+    try {
+      await writeFile(join(root, ".coderabbit.yaml"), [
+        "pre_merge_checks:",
+        "  docstrings:",
+        "    mode: error",
+        "    threshold: 90",
+        "  description:",
+        "    mode: warning",
+        "    enabled: false",
+        "  issue_assessment:",
+        "    mode: error",
+      ].join("\n"), "utf8");
+      const preview = await readCoderabbitConfiguration(root);
+      expect(preview?.policy.customChecks).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "CodeRabbit pre-merge: docstrings", mode: "error", instructions: expect.stringContaining("90%") }),
+        expect.objectContaining({ name: "CodeRabbit pre-merge: issue_assessment", mode: "error", instructions: expect.stringContaining("linked issue") }),
+      ]));
+      expect(preview?.policy.customChecks?.some((check) => check.name.endsWith("description"))).toBe(false);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
