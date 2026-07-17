@@ -24,6 +24,7 @@ import { fetchGithubReviewThreads, resolveGithubReviewThreads } from "./github-t
 import { autofixPullRequest } from "./autofix";
 import { runRecipe } from "./recipes";
 import { processDiscordInteraction, verifyDiscordRequestSignature } from "./discord-agent";
+import { runChatTurn, type ChatTurnAction } from "./chat-turn";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -42,6 +43,7 @@ export type GithubWebhookOptions = {
   bitbucketWebhookSecret?: string;
   azureDevopsWebhookSecret?: string;
   automationWebhookSecret?: string;
+  remoteSessionSecret?: string;
   log?: (message: string) => void;
 };
 
@@ -52,6 +54,17 @@ export function verifyGithubWebhookSignature(body: string, signature: string | u
   const expected = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
   const actualBuffer = Buffer.from(signature);
   const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+export function verifyRemoteSessionSignature(body: string, signature: string | undefined, timestamp: string | undefined, secret: string, now = Date.now()): boolean {
+  if (!signature || !timestamp || !secret) return false;
+  const seconds = Number(timestamp);
+  if (!Number.isFinite(seconds) || Math.abs(now - seconds * 1000) > 300_000) return false;
+  const expected = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
+  const actual = signature.replace(/^sha256=/, "");
+  const actualBuffer = Buffer.from(actual, "utf8");
+  const expectedBuffer = Buffer.from(expected, "utf8");
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
@@ -227,8 +240,38 @@ async function readBody(request: IncomingMessage): Promise<string> {
 }
 
 export function startGithubWebhookServer(options: GithubWebhookOptions): Server {
-  if (!options.secret && !options.slackSigningSecret && !options.discordPublicKey && !options.gitlabWebhookSecret && !options.bitbucketWebhookSecret && !options.azureDevopsWebhookSecret && !options.automationWebhookSecret) throw new Error("At least one webhook signing secret is required.");
+  if (!options.secret && !options.slackSigningSecret && !options.discordPublicKey && !options.gitlabWebhookSecret && !options.bitbucketWebhookSecret && !options.azureDevopsWebhookSecret && !options.automationWebhookSecret && !options.remoteSessionSecret) throw new Error("At least one webhook signing secret is required.");
   const server = createServer(async (request, response) => {
+    if (request.method === "POST" && request.url === "/session/turn") {
+      try {
+        const body = await readBody(request);
+        const signature = request.headers["x-mergeproof-signature"];
+        const timestamp = request.headers["x-mergeproof-timestamp"];
+        if (!options.remoteSessionSecret || typeof signature !== "string" || typeof timestamp !== "string" || !verifyRemoteSessionSignature(body, signature, timestamp, options.remoteSessionSecret)) {
+          respond(response, 401, { error: "Invalid remote session signature" });
+          return;
+        }
+        if (!options.repoPath) {
+          respond(response, 400, { error: "A repository checkout is required for remote session turns." });
+          return;
+        }
+        const payload = JSON.parse(body) as { action?: unknown; request?: unknown; sessionId?: unknown; model?: unknown; provider?: unknown; agent?: unknown };
+        const action = payload.action;
+        if (action !== "ask" && action !== "plan" && action !== "review") {
+          respond(response, 400, { error: "Remote session turns allow only ask, plan, or review." });
+          return;
+        }
+        if (typeof payload.request !== "string" || !payload.request.trim() || payload.request.length > 16_000) {
+          respond(response, 400, { error: "request must be a non-empty string of at most 16,000 characters." });
+          return;
+        }
+        const result = await runChatTurn(action as ChatTurnAction, payload.request, { repoPath: options.repoPath, sessionId: typeof payload.sessionId === "string" ? payload.sessionId : undefined, model: options.model ?? (typeof payload.model === "string" ? payload.model : undefined), provider: options.provider ?? (typeof payload.provider === "string" ? payload.provider : undefined), agent: typeof payload.agent === "string" ? payload.agent : undefined });
+        respond(response, 200, result);
+      } catch (error) {
+        respond(response, 400, { error: error instanceof Error ? error.message : "Invalid remote session request" });
+      }
+      return;
+    }
     if (request.method === "POST" && request.url === "/automation/webhook") {
       try {
         const body = await readBody(request);

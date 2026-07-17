@@ -10,6 +10,7 @@ import { scanPullRequestSecurity } from "./security";
 import { scanPullRequestPrivacy } from "./privacy";
 import { scanSlopSignals } from "./slop";
 import { scanExternalSecurity, type ExternalSecurityReport } from "./external-security";
+import { scanLspDiagnostics } from "./lsp-diagnostics";
 import { validateAnalysis } from "./validator";
 import { attestAnalysis } from "./attestation";
 import { readKnowledge } from "./knowledge";
@@ -27,7 +28,7 @@ const MAX_DIFF_BYTES = 20 * 1024 * 1024;
 const MAX_UNTRACKED_BYTES = 250_000;
 
 export type WorkingTreeFile = PullRequestContext["files"][number];
-export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; hooks?: boolean };
+export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; hooks?: boolean };
 
 function runGit(root: string, args: string[]): string {
   try {
@@ -153,11 +154,13 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const qualitySignals = scanSlopSignals(context);
   const suggestedReviewers = await suggestReviewers(repositoryRoot, changes.files.map((file) => file.path));
   const externalSecurity = options.externalSecurity || options.codeqlDatabase || options.toolSarif?.length ? await scanExternalSecurity({ repoPath: repositoryRoot, commitSha: reviewSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, sarifPaths: options.toolSarif }) : { findings: [], tools: [], unavailable: [] };
-  const securityFindings = [...baseSecurityFindings, ...privacyFindings, ...externalSecurity.findings];
+  const lsp = options.lspDiagnostics ? await scanLspDiagnostics(repositoryRoot, options.lspDiagnostics, reviewSha) : { findings: [], unavailable: [] };
+  const externalSecurityWithLsp = { ...externalSecurity, unavailable: [...externalSecurity.unavailable, ...lsp.unavailable] };
+  const securityFindings = [...baseSecurityFindings, ...privacyFindings, ...externalSecurity.findings, ...lsp.findings];
   context.securityFindings = securityFindings;
   context.qualitySignals = qualitySignals;
   context.suggestedReviewers = suggestedReviewers;
-  return { repositoryRoot, context, changes, criteria, policy, retrieval, knowledge, scopePaths: (options.directories ?? []).map((directory) => directory.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean), securityFindings, qualitySignals, externalSecurity, hooksBefore };
+  return { repositoryRoot, context, changes, criteria, policy, retrieval, knowledge, scopePaths: (options.directories ?? []).map((directory) => directory.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean), securityFindings, qualitySignals, externalSecurity: externalSecurityWithLsp, hooksBefore };
 }
 
 export async function reviewWorkingTree(model?: string, options: LocalReviewOptions = {}): Promise<Analysis> {

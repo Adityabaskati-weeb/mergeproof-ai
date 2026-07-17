@@ -10,6 +10,7 @@ import { scanPullRequestSecurity } from "./security";
 import { scanPullRequestPrivacy } from "./privacy";
 import { scanSlopSignals } from "./slop";
 import { scanExternalSecurity } from "./external-security";
+import { scanLspDiagnostics } from "./lsp-diagnostics";
 import { validateAnalysis } from "./validator";
 import { attestAnalysis } from "./attestation";
 import { fetchMcpContext } from "./mcp";
@@ -24,7 +25,7 @@ import { recordAuditEvent } from "./audit";
 import { buildWalkthrough } from "./walkthrough";
 import type { Analysis } from "./types";
 
-export type AnalyzeOptions = { provider?: string; repoPath?: string; relatedRepos?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; remember?: boolean; memoryRoot?: string; memoryLimit?: number; knowledgeLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; mcp?: boolean; webSearch?: boolean; hooks?: boolean };
+export type AnalyzeOptions = { provider?: string; repoPath?: string; relatedRepos?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; remember?: boolean; memoryRoot?: string; memoryLimit?: number; knowledgeLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; mcp?: boolean; webSearch?: boolean; hooks?: boolean };
 
 export async function analyzePullRequest(prUrl: string, model?: string, options: AnalyzeOptions = {}): Promise<Analysis> {
   const started = Date.now();
@@ -51,7 +52,8 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const qualitySignals = scanSlopSignals(fetchedContext);
   const suggestedReviewers = await suggestReviewers(options.repoPath, fetchedContext.files.map((file) => file.path));
   const externalSecurity = options.repoPath && (options.externalSecurity || options.codeqlDatabase || options.toolSarif?.length) ? await scanExternalSecurity({ repoPath: options.repoPath, commitSha: fetchedContext.headSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, sarifPaths: options.toolSarif }) : { findings: [], tools: [], unavailable: [] };
-  const securityFindings = [...baseSecurityFindings, ...privacyFindings, ...externalSecurity.findings];
+  const lsp = options.repoPath && options.lspDiagnostics ? await scanLspDiagnostics(options.repoPath, options.lspDiagnostics, fetchedContext.headSha) : { findings: [], unavailable: [] };
+  const securityFindings = [...baseSecurityFindings, ...privacyFindings, ...externalSecurity.findings, ...lsp.findings];
   const context = { ...fetchedContext, issues, repositoryEvidence: [...retrieval.chunks, ...relatedEvidence], sourceCommits, customInstructions: combineInstructions(policy.instructions, agentProfile), customChecks: policy.customChecks ?? [], reviewMemory, knowledge, reviewEffort: effort, reviewProfile: profile, securityFindings, qualitySignals, suggestedReviewers };
   issues.forEach((issue) => context.sources.add(issue.url));
   retrieval.chunks.forEach((chunk) => context.sources.add(chunk.url));
@@ -92,7 +94,7 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
       walkthrough: buildWalkthrough(context),
       suggestedReviewers,
       securityFindings,
-      trace: { fetchedSources: context.sources.size, citedSources: 0, unsupportedClaims: 0, model: `${provider}:${selectedModel}`, elapsedMs: Date.now() - started, headSha: context.headSha, retrieval: retrievalTrace, relatedRepositories: relatedResults.length, linkedIssues: issues.length, securityFindings: securityFindings.length, customChecks: context.customChecks?.length ?? 0, suggestedReviewers: suggestedReviewers.length, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, agent: agentProfile?.name, scope: "pull-request", unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks: hooksBefore },
+      trace: { fetchedSources: context.sources.size, citedSources: 0, unsupportedClaims: 0, model: `${provider}:${selectedModel}`, elapsedMs: Date.now() - started, headSha: context.headSha, retrieval: retrievalTrace, relatedRepositories: relatedResults.length, linkedIssues: issues.length, securityFindings: securityFindings.length, customChecks: context.customChecks?.length ?? 0, suggestedReviewers: suggestedReviewers.length, externalSecurity: { tools: externalSecurity.tools, unavailable: [...externalSecurity.unavailable, ...lsp.unavailable] }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, agent: agentProfile?.name, scope: "pull-request", unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks: hooksBefore },
     });
   }
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);
@@ -102,5 +104,5 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const hooksAfter = await runHooks(policyRoot, "afterReview", options.hooks);
   const hooks: HookReport = { enabled: hooksBefore.enabled || hooksAfter.enabled, before: hooksBefore.before, after: hooksAfter.after, failed: [...hooksBefore.failed, ...hooksAfter.failed] };
   const gatedAnalysis = hooks.failed.length ? { ...analysis, decision: analysis.decision === "ready" ? "needs-evidence" as const : analysis.decision } : analysis;
-  return persist({ ...gatedAnalysis, walkthrough, suggestedReviewers, trace: { ...gatedAnalysis.trace, customChecks: context.customChecks?.length ?? 0, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, suggestedReviewers: suggestedReviewers.length, agent: agentProfile?.name, relatedRepositories: relatedResults.length, unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks } });
+  return persist({ ...gatedAnalysis, walkthrough, suggestedReviewers, trace: { ...gatedAnalysis.trace, customChecks: context.customChecks?.length ?? 0, externalSecurity: { tools: externalSecurity.tools, unavailable: [...externalSecurity.unavailable, ...lsp.unavailable] }, mcp: { successful: mcp.successful, failed: mcp.failed }, webSearch: { provider: webSearch.provider, resultCount: webSearch.resultCount, unavailable: webSearch.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: effort, reviewProfile: profile, suggestedReviewers: suggestedReviewers.length, agent: agentProfile?.name, relatedRepositories: relatedResults.length, unresolvedReviewThreads: context.reviewThreads?.filter((thread) => !thread.isResolved && !thread.isOutdated).length ?? 0, ...(context.reviewThreadsUnavailable ? { reviewThreadsUnavailable: context.reviewThreadsUnavailable } : {}), hooks } });
 }

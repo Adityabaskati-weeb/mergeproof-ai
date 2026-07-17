@@ -1,0 +1,19 @@
+{
+  "name": "mergeproof",
+  "description": "Evidence-backed pull-request review, repository agents, and safe engineering workflows.",
+  "version": "0.1.0",
+  "author": {
+    "name": "MergeProof"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/Adityabaskati-weeb/mergeproof-ai",
+  "agents": [
+    ".github/agents"
+  ],
+  "commands": [
+    "commands"
+  ],
+  "skills": [
+    "skills"
+  ]
+}

@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { parseGithubCommentCommand, processGithubWebhookPayload, verifyGithubWebhookSignature } from "./webhook";
+import { parseGithubCommentCommand, processGithubWebhookPayload, verifyGithubWebhookSignature, verifyRemoteSessionSignature } from "./webhook";
 
 describe("GitHub webhook boundary", () => {
   it("verifies the GitHub sha256 signature", () => {
@@ -8,6 +8,15 @@ describe("GitHub webhook boundary", () => {
     const signature = `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`;
     expect(verifyGithubWebhookSignature(body, signature, "secret")).toBe(true);
     expect(verifyGithubWebhookSignature(body, signature, "wrong")).toBe(false);
+  });
+
+  it("verifies fresh signed read-only remote session turns", () => {
+    const body = JSON.stringify({ action: "ask", request: "What changed?" });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = createHmac("sha256", "remote-secret").update(`${timestamp}.${body}`).digest("hex");
+    expect(verifyRemoteSessionSignature(body, signature, timestamp, "remote-secret")).toBe(true);
+    expect(verifyRemoteSessionSignature(body, signature, String(Number(timestamp) - 301), "remote-secret")).toBe(false);
+    expect(verifyRemoteSessionSignature(body, "sha256=bad", timestamp, "remote-secret")).toBe(false);
   });
 
   it("ignores unrelated event types without invoking a model", async () => {
