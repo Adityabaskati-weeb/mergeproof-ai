@@ -20,18 +20,33 @@ describe("CodeRabbit configuration migration", () => {
         "        Verify API compatibility.",
         "        Require a focused test.",
         "  high_level_summary: false",
+        "  finishing_touches:",
+        "    custom:",
+        "      - name: api-contract",
+        "        description: Add contract tests",
+        "        instructions: |",
+        "          Add tests for every changed endpoint.",
+        "        paths:",
+        "          - src",
         "knowledge_base:",
         "  linked_repositories:",
         "    - org/shared-contracts",
         "pre_merge_checks:",
         "  title:",
         "    mode: warning",
+        "  custom_checks:",
+        "    - mode: error",
+        "      name: API contract",
+        "      instructions: |",
+        "        Every changed endpoint needs contract evidence.",
       ].join("\n"), "utf8");
       const preview = await readCoderabbitConfiguration(root);
       expect(preview?.policy).toMatchObject({ profile: "assertive", pathFilters: ["src/**"], requestChangesWorkflow: true, highLevelSummary: false });
       expect(preview?.policy.instructions).toContain("org/shared-contracts");
       expect(preview?.policy.instructions).toContain("Verify API compatibility.\nRequire a focused test.");
       expect(preview?.policy.customChecks?.[0].name).toContain("title");
+      expect(preview?.policy.customChecks?.some((check) => check.name === "API contract" && check.instructions.includes("contract evidence"))).toBe(true);
+      expect(preview?.recipes[0]).toMatchObject({ name: "api-contract", instructions: "Add tests for every changed endpoint.", paths: ["src"] });
       expect(preview?.unsupported).toEqual([]);
     } finally { await rm(root, { recursive: true, force: true }); }
   });

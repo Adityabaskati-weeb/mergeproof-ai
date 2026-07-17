@@ -66,7 +66,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Local code completion | `complete <file> --line --column` returns a non-mutating insertion with model/provider selection and a source digest; the VS Code client surfaces it as inline completion | Inline completion and IDE agent mode | IDE review extension and agent handoff |
 | Review statistics | `stats` aggregates bounded local audit, finding, and outcome records with model/decision/severity/latency counts | Usage and lifecycle metrics | `cr stats` and review history |
 | Prompt replay | `--save-prompts` and `--show-prompts` persist/replay bounded prompts only by explicit operator request, with SHA-256 digests | Session and prompt history surfaces | `cr review --show-prompts` |
-| CodeRabbit migration | `configuration --from-coderabbit` previews a bounded migration from `.coderabbit.yaml`/`.coderabbit.yml`; `--apply-coderabbit` writes `.mergeproof/config.json` only when the target is absent or `--force` is explicit, and imported path filters are enforced | Existing repository configuration | `.coderabbit.yaml` and configuration reference |
+| CodeRabbit migration | `configuration --from-coderabbit` previews a bounded migration from `.coderabbit.yaml`/`.coderabbit.yml`; `--apply-coderabbit` writes `.mergeproof/config.json` and imported custom recipes to `.mergeproof/recipes.json` only when the target is absent or `--force` is explicit, and imported path filters are enforced | Existing repository configuration | `.coderabbit.yaml` and configuration reference |
 
 ## Differentiation
 
@@ -115,6 +115,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 41. CodeRabbit adoption is explicit and reversible: a bounded importer maps review intent into MergeProof policy, reports unsupported hosted settings, and refuses to overwrite an existing policy without an explicit force flag.
 42. Background task results are durable artifacts separate from logs: status, exit code, completion time, output size, and output digest remain machine-readable after the terminal exits.
 43. Configuration migration preserves behavior rather than just names: imported include/exclude globs constrain the evidence context and multiline path guidance survives into the model instruction contract.
+44. CodeRabbit finishing touches are portable: bounded custom recipes migrate into the same sandboxed, path-scoped, verification-aware recipe engine instead of becoming inert configuration.
 
 ## Remaining Deliberate Gaps
 

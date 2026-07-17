@@ -8,6 +8,7 @@ const MAX_BYTES = 200_000;
 export type CoderabbitMigration = {
   sourcePath: string;
   policy: MergeProofPolicy;
+  recipes: Array<{ name: string; description: string; instructions: string; paths?: string[] }>;
   warnings: string[];
   unsupported: string[];
 };
@@ -85,11 +86,106 @@ function preMergeChecks(lines: string[]): CustomCheck[] {
     if (line.trim() && line.search(/\S|$/) <= base) break;
     const name = line.match(/^\s{2,}([\w-]+):\s*$/)?.[1];
     if (!name) continue;
+    if (name === "custom_checks") continue;
     const mode = lines.slice(index + 1, index + 5).find((candidate) => /^\s+mode:\s*/.test(candidate));
     const modeValue = mode ? scalar(mode.replace(/^\s+mode:\s*/, "")) : "warning";
     checks.push({ name: `CodeRabbit pre-merge: ${name}`, instructions: `Run the ${name} pre-merge check and treat its configured mode (${modeValue}) as review evidence.` });
   }
   return checks.slice(0, 20);
+}
+
+function customPreMergeChecks(lines: string[]): CustomCheck[] {
+  const start = lines.findIndex((line) => /^\s*custom_checks:\s*$/.test(line));
+  if (start < 0) return [];
+  const base = lines[start].search(/\S|$/);
+  const checks: CustomCheck[] = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const item = lines[index].match(/^(\s*)-\s*mode:\s*(.+?)\s*$/);
+    if (!item) {
+      if (lines[index].trim() && lines[index].search(/\S|$/) <= base) break;
+      continue;
+    }
+    const itemIndent = item[1].length;
+    let name = "";
+    let instructions = "";
+    for (let fieldIndex = index + 1; fieldIndex < lines.length; fieldIndex += 1) {
+      const field = lines[fieldIndex];
+      if (field.trim() && field.search(/\S|$/) <= itemIndent) break;
+      const match = field.match(/^\s+(name|instructions):\s*(.*)$/);
+      if (!match) continue;
+      const [, key, rawValue] = match;
+      let value = scalar(rawValue);
+      if (value === "|" || value === ">" || value === "|-" || value === ">-") {
+        const fieldIndent = field.search(/\S|$/);
+        const block: string[] = [];
+        for (const blockLine of lines.slice(fieldIndex + 1)) {
+          if (blockLine.trim() && blockLine.search(/\S|$/) <= fieldIndent) break;
+          block.push(blockLine);
+        }
+        const indents = block.filter((blockLine) => blockLine.trim()).map((blockLine) => blockLine.search(/\S|$/));
+        const commonIndent = indents.length ? Math.min(...indents) : fieldIndent + 2;
+        value = block.map((blockLine) => blockLine.length >= commonIndent ? blockLine.slice(commonIndent) : "").join("\n").trim();
+      }
+      if (key === "name") name = value;
+      if (key === "instructions") instructions = value;
+    }
+    if (name && instructions) checks.push({ name, instructions });
+  }
+  return checks.slice(0, 20);
+}
+
+function linkedRepositoryGuidance(lines: string[]): string[] {
+  const entries: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const repository = lines[index].match(/^\s*-\s*repository:\s*(.+?)\s*$/)?.[1];
+    if (!repository) continue;
+    const instruction = lines.slice(index + 1, index + 10).find((line) => /^\s*instructions:\s*/.test(line));
+    const guidance = instruction ? scalar(instruction.replace(/^\s*instructions:\s*/, "")) : "";
+    entries.push(`Use related repository ${scalar(repository)} as optional context${guidance ? `: ${guidance}` : "."}`);
+  }
+  return entries.slice(0, 20);
+}
+
+function customRecipes(lines: string[]): CoderabbitMigration["recipes"] {
+  const start = lines.findIndex((line) => /^\s*custom:\s*$/.test(line));
+  if (start < 0) return [];
+  const base = lines[start].search(/\S|$/);
+  const recipes: CoderabbitMigration["recipes"] = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() && line.search(/\S|$/) <= base) break;
+    const item = line.match(/^(\s*)-\s*name:\s*(.+?)\s*$/);
+    if (!item) continue;
+    const itemIndent = item[1].length;
+    const recipe = { name: scalar(item[2]), description: "CodeRabbit finishing-touch recipe", instructions: "", paths: [] as string[] };
+    for (let fieldIndex = index + 1; fieldIndex < lines.length; fieldIndex += 1) {
+      const field = lines[fieldIndex];
+      if (field.trim() && field.search(/\S|$/) <= itemIndent) break;
+      const fieldMatch = field.match(/^\s+(description|instructions|paths):\s*(.*)$/);
+      if (!fieldMatch) continue;
+      const [, key, rawValue] = fieldMatch;
+      if (key === "paths") {
+        recipe.paths = readList(lines.slice(fieldIndex), "paths");
+        continue;
+      }
+      let value = scalar(rawValue);
+      if (value === "|" || value === ">" || value === "|-" || value === ">-") {
+        const fieldIndent = field.search(/\S|$/);
+        const block: string[] = [];
+        for (const blockLine of lines.slice(fieldIndex + 1)) {
+          if (blockLine.trim() && blockLine.search(/\S|$/) <= fieldIndent) break;
+          block.push(blockLine);
+        }
+        const indents = block.filter((blockLine) => blockLine.trim()).map((blockLine) => blockLine.search(/\S|$/));
+        const commonIndent = indents.length ? Math.min(...indents) : fieldIndent + 2;
+        value = block.map((blockLine) => blockLine.length >= commonIndent ? blockLine.slice(commonIndent) : "").join("\n").trim();
+      }
+      if (key === "description") recipe.description = value;
+      if (key === "instructions") recipe.instructions = value;
+    }
+    if (/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(recipe.name) && recipe.instructions) recipes.push({ name: recipe.name, description: recipe.description.slice(0, 500), instructions: recipe.instructions.slice(0, 20_000), ...(recipe.paths.length ? { paths: recipe.paths.slice(0, 50) } : {}) });
+  }
+  return recipes.slice(0, 20);
 }
 
 export async function readCoderabbitConfiguration(root: string): Promise<CoderabbitMigration | undefined> {
@@ -102,16 +198,18 @@ export async function readCoderabbitConfiguration(root: string): Promise<Coderab
       const lines = content.split(/\r?\n/);
       const reviews = section(lines, "reviews");
       const knowledge = section(lines, "knowledge_base");
+      const finishingTouches = section(reviews, "finishing_touches");
       const profileValue = findValue(reviews, "profile");
       const profile = profileValue === "quiet" || profileValue === "chill" || profileValue === "assertive" ? profileValue : undefined;
       const pathFilters = readList(reviews, "path_filters");
-      const linkedRepositories = readList(knowledge, "linked_repositories");
+      const linkedRepositories = [...readList(knowledge, "linked_repositories").filter((value) => !value.startsWith("repository:")), ...linkedRepositoryGuidance(lines)];
       const instructions = [
         ...(pathFilters.length ? [`Apply these CodeRabbit review path filters when interpreting findings: ${pathFilters.join(", ")}.`] : []),
         ...pathInstructions(reviews),
         ...(linkedRepositories.length ? [`Use these CodeRabbit linked repositories as optional related context: ${linkedRepositories.join(", ")}.`] : []),
       ];
-      const customChecks = preMergeChecks(lines);
+      const customChecks = [...preMergeChecks(lines), ...customPreMergeChecks(lines)].slice(0, 20);
+      const recipes = customRecipes(finishingTouches);
       const requestChanges = findValue(reviews, "request_changes_workflow");
       const highLevelSummary = findValue(reviews, "high_level_summary");
       const policy: MergeProofPolicy = {
@@ -124,7 +222,7 @@ export async function readCoderabbitConfiguration(root: string): Promise<Coderab
         compatibility: { source: "coderabbit", importedAt: new Date().toISOString() },
       };
       const unsupported = ["auto_review", "chat", "early_access", "knowledge_base.web_search", "mcp", "code_generation"].filter((key) => content.includes(`${key}:`));
-      return { sourcePath: name, policy, warnings: ["Migration uses a bounded YAML subset; review the generated JSON before committing it."], unsupported };
+      return { sourcePath: name, policy, recipes, warnings: ["Migration uses a bounded YAML subset; review the generated JSON before committing it."], unsupported };
     } catch (error) {
       if (error instanceof Error && error.message.includes("migration limit")) throw error;
     }
@@ -145,5 +243,6 @@ export async function importCoderabbitConfiguration(root: string, force = false)
   }
   await fs.mkdir(join(repositoryRoot, ".mergeproof"), { recursive: true });
   await fs.writeFile(path, `${JSON.stringify(migration.policy, null, 2)}\n`, "utf8");
+  if (migration.recipes.length) await fs.writeFile(join(repositoryRoot, ".mergeproof", "recipes.json"), `${JSON.stringify({ recipes: migration.recipes }, null, 2)}\n`, "utf8");
   return { created: true, path: ".mergeproof/config.json", migration };
 }
