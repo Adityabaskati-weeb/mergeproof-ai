@@ -30,7 +30,7 @@ fn cli_args(
     re_review: bool,
     session_id: Option<String>,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "benchmark" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "benchmark" | "search" | "plugins" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -212,6 +212,14 @@ fn cli_args(
     if command == "benchmark" {
         let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Benchmark requires an explicit repository path."))?;
         return Ok(vec![command.to_string(), "--repo".to_string(), repo, "--format".to_string(), "json".to_string()]);
+    }
+    if command == "search" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Search requires an explicit repository path."))?;
+        return Ok(vec![command.to_string(), pr_url, "--repo".to_string(), repo, "--json".to_string()]);
+    }
+    if command == "plugins" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Plugin discovery requires an explicit repository path."))?;
+        return Ok(vec![command.to_string(), "--repo".to_string(), repo, "--json".to_string()]);
     }
     if command == "bundle-verify" {
         if pr_url.trim().is_empty() { return Err(String::from("Review bundle verification requires a bundle JSON path.")); }

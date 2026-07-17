@@ -13,7 +13,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof security-review [repo-path]` focused security review of active local changes
 - `.mergeproof/checks.json` natural-language pre-merge checks evaluated as cited criteria on every review
 - `.mergeproof/tools.json` SARIF ingestion for existing CI/security tools without executing arbitrary repository commands
-- `mergeproof agent [repo-path]` sandboxed fix generation with optional verification
+- `mergeproof agent [repo-path]` / `mergeproof sandbox [repo-path]` sandboxed fix generation with optional verification
 - `mergeproof task <github-issue-url> --repo <checkout>` evidence-retrieved issue implementation with sandbox verification and optional handoff PR
 - `mergeproof implement <request...> --repo <checkout>` Copilot-style local implementation agent with bounded retrieval, sandbox verification, optional re-review, and explicit apply
 - `mergeproof work-plan <request...> --repo <checkout>` CodeRabbit-style free-form planning from a PRD, design, issue text, or product request with local evidence citations
@@ -42,6 +42,8 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof ask <question...>` (also `chat`) for read-only Copilot-style repository Q&A with bounded retrieval and an auditable trace
 - `mergeproof research <topic...>` opt-in web research with a preserved source pack and model synthesis
 - `mergeproof doctor --repo <checkout>` actionable environment and integration diagnostics without printing secrets
+- `mergeproof search <query...>` bounded local timeline search across sessions, findings, audit events, and outcomes
+- `mergeproof plugins` / `mergeproof extensions` discovers local agent plugins, skills, commands, and client surfaces
 - `mergeproof init --repo <checkout>` idempotently scaffolds a local policy, safe mutation defaults, evidence checks, and instructions
 - `mergeproof auth status` reports model and integration authentication state without printing credential values; `auth login|logout --github` delegates GitHub authentication to `gh`
 - Desktop shell boundary in `apps/desktop`

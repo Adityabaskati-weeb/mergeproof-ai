@@ -63,6 +63,8 @@ import { readAuthStatus, renderAuthStatus, runGithubAuth } from "../lib/auth";
 import { runInteractiveReview } from "../lib/review-interactive";
 import { benchmarkReviews, renderBenchmarkMarkdown } from "../lib/benchmark";
 import { requestRemoteTurn, type RemoteAction } from "../lib/remote";
+import { renderSearchResults, searchWorkspace } from "../lib/search";
+import { discoverWorkspacePlugins, renderWorkspacePlugins } from "../lib/plugins";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -328,6 +330,28 @@ program.command("doctor").description("Diagnose repository, model, integration, 
     process.exitCode = report.ok ? 0 : 1;
   } catch (error) {
     console.error(`MergeProof doctor error: ${error instanceof Error ? error.message : "Diagnostics failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("search").description("Search local session, finding, audit, and outcome timelines").argument("<query...>", "Search text").option("--repo <path>", "Repository path", process.cwd()).option("--limit <number>", "Maximum matches", "50").option("--json", "Print machine-readable JSON").action(async (query, options) => {
+  try {
+    const hits = await searchWorkspace(options.repo, query.join(" "), Number(options.limit));
+    if (options.json) console.log(JSON.stringify(hits, null, 2));
+    else console.log(renderSearchResults(query.join(" "), hits));
+  } catch (error) {
+    console.error(`MergeProof search error: ${error instanceof Error ? error.message : "Timeline search failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("plugins").alias("extensions").description("Discover local MergeProof plugins, skills, agents, commands, and clients").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const plugins = await discoverWorkspacePlugins(options.repo);
+    if (options.json) console.log(JSON.stringify(plugins, null, 2));
+    else console.log(renderWorkspacePlugins(plugins));
+  } catch (error) {
+    console.error(`MergeProof plugins error: ${error instanceof Error ? error.message : "Plugin discovery failed."}`);
     process.exitCode = 1;
   }
 });
@@ -967,7 +991,7 @@ program.command("security").description("Scan the committed repository tree for 
   }
 });
 
-program.command("agent").description("Generate and verify a fix inside an ephemeral Git worktree").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the agent run JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--hooks", "Run configured safe lifecycle hooks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--tool-sarif <path...>", "Ingest existing SARIF output from configured CI/security tools").option("--lsp-diagnostics <path>", "Ingest bounded LSP diagnostics JSON from the repository").option("--verify <command>", "Sandbox verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Review the verified sandbox patch once before reporting success").action(async (repoPath, options) => {
+program.command("agent").alias("sandbox").description("Generate and verify a fix inside an ephemeral Git worktree").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the agent run JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--hooks", "Run configured safe lifecycle hooks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--tool-sarif <path...>", "Ingest existing SARIF output from configured CI/security tools").option("--lsp-diagnostics <path>", "Ingest bounded LSP diagnostics JSON from the repository").option("--verify <command>", "Sandbox verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Review the verified sandbox patch once before reporting success").action(async (repoPath, options) => {
   try {
     const run = await runLocalAgent(options.model, { repoPath, provider: options.provider, effort: parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, directories: options.dir, criteria: parseCriteria(options.criteria), retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, hooks: options.hooks, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, toolSarif: options.toolSarif, lspDiagnostics: options.lspDiagnostics, verify: parseVerificationCommand(options.verify), reReview: options.reReview });
     if (options.save) await writeFile(options.save, JSON.stringify(run, null, 2), "utf8");

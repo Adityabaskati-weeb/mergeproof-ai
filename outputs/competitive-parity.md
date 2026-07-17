@@ -59,6 +59,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Diagnostics | `doctor` checks Node, Git, repository state, writable storage, model credentials, GitHub auth, npm, Cargo, and opt-in search configuration without printing secrets | `/diagnose`, `/env`, settings and auth diagnostics | `cr doctor`, auth status, service reachability |
 | Research | Opt-in `research` source pack plus model synthesis, with explicit source URLs and no network call without Tavily/Brave credentials | `/research` with GitHub/web sources | Web search and research context |
 | Permission governance | `.mergeproof/permissions.json` action/path policy, verification requirement, signed remote-session boundary, and permission checks before local apply or PR publication | Tool/path/URL approvals, `/permissions`, managed enterprise restrictions | Slack scopes, sandboxes, roles, spend limits, and governed agent actions |
+| Timeline search / local extensions | `search` searches bounded session, finding, audit, and outcome history; `plugins`/`extensions` discovers checked-in agents, skills, commands, plugins, and clients; `sandbox` aliases the isolated worktree agent | `/search`, `/extensions`, `/plugin`, `/skills`, `/sandbox` | CLI plugins, skills, and interactive integrations |
 
 ## Differentiation
 
@@ -96,6 +97,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 30. Repository initialization is idempotent and policy-aware, giving a new team a safe local control plane without silently overwriting existing instructions or credentials.
 31. `benchmark` turns the evidence ledger into a measurable quality loop: teams can compare review reliability and calibration offline before trusting automation on production repositories.
 32. Remote steering is a signed read-only protocol with a first-class client, not an exposed unauthenticated HTTP endpoint; mutation remains local and explicitly permission-gated.
+33. The repository is self-describing: the same checkout can report its installed agent surfaces and search its decision timeline without a hosted control plane.
 
 ## Remaining Deliberate Gaps
 
