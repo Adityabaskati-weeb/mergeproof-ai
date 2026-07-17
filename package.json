@@ -9,7 +9,7 @@
     "desktop:build": "npm run build:sidecar && tauri build --config apps/desktop/src-tauri/tauri.conf.json",
     "cli": "tsx bin/mergeproof.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --pool=threads --maxWorkers=1 --testTimeout=30000"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.0",

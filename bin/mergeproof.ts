@@ -65,6 +65,7 @@ import { benchmarkReviews, renderBenchmarkMarkdown } from "../lib/benchmark";
 import { requestRemoteTurn, type RemoteAction } from "../lib/remote";
 import { renderSearchResults, searchWorkspace } from "../lib/search";
 import { discoverWorkspacePlugins, renderWorkspacePlugins } from "../lib/plugins";
+import { cancelTask, isTaskAction, listTasks, readTask, runTaskWorker, startTask, pruneTasks } from "../lib/tasks";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -517,6 +518,78 @@ sessionsCommand.command("files").description("Show the local storage files for a
     console.error(`MergeProof session files error: ${error instanceof Error ? error.message : "Session files lookup failed."}`);
     process.exitCode = 1;
   }
+});
+
+const tasksCommand = program.command("tasks").description("Run bounded MergeProof actions as durable local background tasks");
+tasksCommand.command("start").description("Start an allowlisted review, research, ask, benchmark, or doctor task").argument("<action>", "review, research, ask, benchmark, or doctor").argument("[request...]", "Research topic, repository question, or optional review path").option("--repo <path>", "Repository path", process.cwd()).option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--effort <level>", "Review effort: low, medium, or high").option("--external-security", "Run external security tools for review tasks").option("--foreground", "Run in this process and wait for completion").option("--json", "Print machine-readable JSON").action(async (action, request, options) => {
+  try {
+    if (!isTaskAction(action)) throw new Error(`Unsupported task action: ${action}.`);
+    const repo = options.repo;
+    const args = action === "review"
+      ? ["review", ...(request.length ? request : [repo]), "--json", ...(options.model ? ["--model", options.model] : []), ...(options.provider ? ["--provider", options.provider] : []), ...(options.effort ? ["--effort", options.effort] : []), ...(options.externalSecurity ? ["--external-security"] : [])]
+      : action === "research"
+        ? ["research", ...request, "--repo", repo, "--json", ...(options.model ? ["--model", options.model] : []), ...(options.provider ? ["--provider", options.provider] : []), ...(options.agent ? ["--agent", options.agent] : [])]
+        : action === "ask"
+          ? ["ask", ...request, "--repo", repo, "--json", ...(options.model ? ["--model", options.model] : []), ...(options.provider ? ["--provider", options.provider] : []), ...(options.agent ? ["--agent", options.agent] : [])]
+          : action === "benchmark"
+            ? ["benchmark", "--repo", repo, "--format", "json"]
+            : ["doctor", "--repo", repo, "--json"];
+    if ((action === "research" || action === "ask") && request.length === 0) throw new Error(`${action} tasks require a request.`);
+    const task = await startTask(repo, action, args.slice(1), !options.foreground);
+    if (options.json) console.log(JSON.stringify(task, null, 2));
+    else console.log(`${task.id}\t${task.status}\t${task.action}\t${task.logPath}`);
+  } catch (error) {
+    console.error(`MergeProof tasks start error: ${error instanceof Error ? error.message : "Task start failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+tasksCommand.command("list").description("List recent local background tasks").option("--repo <path>", "Repository path", process.cwd()).option("--limit <number>", "Maximum tasks", "20").option("--json", "Print machine-readable JSON").action(async (options) => {
+  const tasks = await listTasks(options.repo, Number(options.limit));
+  if (options.json) console.log(JSON.stringify(tasks, null, 2));
+  else console.log(tasks.map((task) => `${task.id}\t${task.status}\t${task.action}\t${task.createdAt}`).join("\n") || "No saved tasks.");
+});
+
+tasksCommand.command("show").description("Show one task and its bounded output tail").argument("<task-id>", "Task ID").option("--repo <path>", "Repository path", process.cwd()).option("--tail <bytes>", "Maximum log bytes to print", "4000").option("--json", "Print machine-readable JSON").action(async (id, options) => {
+  try {
+    const task = await readTask(options.repo, id);
+    if (!task) throw new Error(`Task not found: ${id}`);
+    let logTail = "";
+    try { const content = await readFile(task.logPath, "utf8"); logTail = content.slice(-Math.max(0, Math.min(20_000, Number(options.tail)))); } catch { /* no output yet */ }
+    if (options.json) console.log(JSON.stringify({ ...task, logTail }, null, 2));
+    else console.log(`${task.id}\nStatus: ${task.status}\nAction: ${task.action}\nLog: ${task.logPath}\n\n${logTail}`);
+  } catch (error) {
+    console.error(`MergeProof tasks show error: ${error instanceof Error ? error.message : "Task lookup failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+tasksCommand.command("cancel").description("Cancel a queued or running task").argument("<task-id>", "Task ID").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (id, options) => {
+  try {
+    const task = await cancelTask(options.repo, id);
+    if (!task) throw new Error(`Task not found: ${id}`);
+    if (options.json) console.log(JSON.stringify(task, null, 2));
+    else console.log(`Task ${task.id}: ${task.status}.`);
+  } catch (error) {
+    console.error(`MergeProof tasks cancel error: ${error instanceof Error ? error.message : "Task cancellation failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+tasksCommand.command("prune").description("Delete completed tasks older than a bounded age").option("--repo <path>", "Repository path", process.cwd()).option("--older-than-days <days>", "Age threshold", "30").option("--yes", "Confirm deletion").action(async (options) => {
+  try {
+    if (!options.yes) throw new Error("Pass --yes to prune tasks.");
+    console.log(`Pruned ${await pruneTasks(options.repo, Number(options.olderThanDays))} task(s).`);
+  } catch (error) {
+    console.error(`MergeProof tasks prune error: ${error instanceof Error ? error.message : "Task cleanup failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("__task-worker").description("Internal worker for durable local tasks").argument("<task-id>", "Task ID").action(async (id) => {
+  const task = await readTask(process.cwd(), id);
+  if (!task) { process.exitCode = 1; return; }
+  await runTaskWorker(task.repository, id);
 });
 
 program.command("ask").description("Answer a read-only repository question using bounded local evidence").argument("<question...>", "Question to answer").option("--repo <path>", "Repository path", process.cwd()).option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--json", "Print machine-readable JSON").action(async (question, options) => {

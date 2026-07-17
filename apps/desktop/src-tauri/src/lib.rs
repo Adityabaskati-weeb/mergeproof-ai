@@ -30,7 +30,7 @@ fn cli_args(
     re_review: bool,
     session_id: Option<String>,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "benchmark" | "search" | "plugins" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "benchmark" | "search" | "plugins" | "tasks" | "tasks-list" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -212,6 +212,21 @@ fn cli_args(
     if command == "benchmark" {
         let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Benchmark requires an explicit repository path."))?;
         return Ok(vec![command.to_string(), "--repo".to_string(), repo, "--format".to_string(), "json".to_string()]);
+    }
+    if command == "tasks-list" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Task inspection requires an explicit repository path."))?;
+        return Ok(vec!["tasks".to_string(), "list".to_string(), "--repo".to_string(), repo, "--json".to_string()]);
+    }
+    if command == "tasks" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Background tasks require an explicit repository path."))?;
+        let task_action = criteria.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| String::from("review"));
+        if !matches!(task_action.as_str(), "review" | "research" | "ask" | "benchmark" | "doctor") { return Err(String::from("Desktop task action must be review, research, ask, benchmark, or doctor.")); }
+        let mut args = vec!["tasks".to_string(), "start".to_string(), task_action, "--repo".to_string(), repo];
+        if !pr_url.trim().is_empty() { args.push(pr_url); }
+        if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
+        if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
+        args.push("--json".to_string());
+        return Ok(args);
     }
     if command == "search" {
         let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Search requires an explicit repository path."))?;
