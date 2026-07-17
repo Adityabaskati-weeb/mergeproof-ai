@@ -7,8 +7,8 @@ import { evaluateAnalysis } from "../lib/evaluation";
 import { verifyAnalysisAttestation } from "../lib/attestation";
 import { fixPullRequest, simplifyPullRequest } from "../lib/fix";
 import { autofixPullRequest, type AutofixResult } from "../lib/autofix";
-import { publishChangeRequestCheck, publishChangeRequestReview } from "../lib/change-publish";
-import { applyPullRequestLabels, publishPullRequestComment, requestPullRequestReviewers } from "../lib/github-review";
+import { publishChangeRequestCheck, publishChangeRequestComment, publishChangeRequestReview } from "../lib/change-publish";
+import { applyPullRequestLabels, requestPullRequestReviewers } from "../lib/github-review";
 import { createJiraIssue, createLinearIssue } from "../lib/issues";
 import { indexRepository } from "../lib/retrieval";
 import { planPullRequest } from "../lib/plan";
@@ -437,16 +437,13 @@ program.command("plan").description("Generate a citation-aware implementation pl
   }
 });
 
-program.command("walkthrough").description("Generate an evidence-backed PR summary, change stack, effort estimate, and Mermaid change-flow diagram").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the walkthrough JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--publish", "Publish the walkthrough as a GitHub PR comment").action(async (prUrl, options) => {
+program.command("walkthrough").description("Generate an evidence-backed PR summary, change stack, effort estimate, and Mermaid change-flow diagram").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the walkthrough JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--publish", "Publish the walkthrough as a provider comment").action(async (prUrl, options) => {
   try {
     const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, effort: parseReviewEffort(options.effort), profile: options.profile });
     if (!analysis.walkthrough) throw new Error("Walkthrough generation returned no artifact.");
     const output = { decision: analysis.decision, walkthrough: analysis.walkthrough, trace: analysis.trace };
     if (options.save) await writeFile(options.save, JSON.stringify(output, null, 2), "utf8");
-    if (options.publish) {
-      if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i.test(prUrl)) throw new Error("--publish currently supports GitHub pull requests only.");
-      console.error(`Walkthrough published: ${await publishPullRequestComment(prUrl, renderWalkthroughMarkdown(analysis.walkthrough, analysis.decision))}`);
-    }
+    if (options.publish) console.error(`Walkthrough published: ${await publishChangeRequestComment(prUrl, renderWalkthroughMarkdown(analysis.walkthrough, analysis.decision))}`);
     if (options.json) console.log(JSON.stringify(output, null, 2));
     else printWalkthrough(analysis);
   } catch (error) {
@@ -455,17 +452,16 @@ program.command("walkthrough").description("Generate an evidence-backed PR summa
   }
 });
 
-program.command("erd").description("Generate an evidence-backed Mermaid entity relationship impact diagram").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the ERD JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--publish", "Publish the ERD as a GitHub PR comment").action(async (prUrl, options) => {
+program.command("erd").description("Generate an evidence-backed Mermaid entity relationship impact diagram").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the ERD JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--publish", "Publish the ERD as a provider comment").action(async (prUrl, options) => {
   try {
     const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo });
     if (!analysis.walkthrough) throw new Error("ERD generation returned no artifact.");
     const output = { decision: analysis.decision, diagram: analysis.walkthrough.entityRelationshipDiagram, entities: analysis.walkthrough.entityEvidence, trace: analysis.trace };
     if (options.save) await writeFile(options.save, JSON.stringify(output, null, 2), "utf8");
     if (options.publish) {
-      if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+\/?$/i.test(prUrl)) throw new Error("--publish currently supports GitHub pull requests only.");
       const entityLines = output.entities.map((entity) => `- **${entity.name}** from \`${entity.source}\` [evidence](${entity.citation.url})`);
       const body = ["## MergeProof schema impact", "", "```mermaid", output.diagram, "```", "", entityLines.join("\n") || "No schema/model entities were detected."].join("\n");
-      console.error(`ERD published: ${await publishPullRequestComment(prUrl, body)}`);
+      console.error(`ERD published: ${await publishChangeRequestComment(prUrl, body)}`);
     }
     if (options.json) console.log(JSON.stringify(output, null, 2));
     else console.log(`${output.diagram}\n\nEntities: ${output.entities.map((entity) => `${entity.name} (${entity.source})`).join(", ") || "none"}`);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { publishChangeRequestCheck, publishChangeRequestReview } from "./change-publish";
+import { publishChangeRequestCheck, publishChangeRequestComment, publishChangeRequestReview } from "./change-publish";
 import type { Analysis } from "./types";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -25,5 +25,15 @@ describe("provider publication", () => {
 
     expect(calls.some((call) => call.method === "POST" && call.url.includes("/statuses/"))).toBe(true);
     expect(calls.some((call) => call.method === "POST" && call.url.includes("/notes"))).toBe(true);
+  });
+
+  it("uses the Azure DevOps project segment before _git for provider comments", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return { ok: true, status: 200, json: async () => ({}) };
+    }));
+    await publishChangeRequestComment("https://dev.azure.com/acme/platform/_git/api/pullrequest/11", "hello");
+    expect(calls[0]).toContain("/platform/_apis/git/repositories/api/pullRequests/11/threads");
   });
 });

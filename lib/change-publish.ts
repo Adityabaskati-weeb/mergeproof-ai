@@ -1,7 +1,7 @@
 import { fetchChangeRequest, parseChangeRequestUrl, type ChangeRequestTarget } from "./change-request";
 import type { Analysis } from "./types";
 import { publishPullRequestCheck } from "./github-publish";
-import { publishPullRequestReview } from "./github-review";
+import { publishPullRequestComment } from "./github-review";
 
 function authHeaders(provider: ChangeRequestTarget["provider"]): Record<string, string> {
   if (provider === "gitlab" && process.env.GITLAB_TOKEN) return { "PRIVATE-TOKEN": process.env.GITLAB_TOKEN };
@@ -29,7 +29,8 @@ function gitlabBase(target: ChangeRequestTarget): { base: string; project: strin
 
 function azureBase(target: ChangeRequestTarget): { base: string; repository: string } {
   const path = new URL(target.ref.url).pathname.split("/");
-  const project = encodeURIComponent(path[2] ?? "");
+  const gitIndex = path.findIndex((segment) => segment.toLowerCase() === "_git");
+  const project = encodeURIComponent(gitIndex > 0 ? path[gitIndex - 1] : path[1] ?? "");
   return { base: `https://dev.azure.com/${encodeURIComponent(target.ref.owner)}/${project}/_apis/git`, repository: encodeURIComponent(target.ref.repo) };
 }
 
@@ -54,9 +55,12 @@ export async function publishChangeRequestCheck(prUrl: string, analysis: Analysi
 }
 
 export async function publishChangeRequestReview(prUrl: string, analysis: Analysis): Promise<string | undefined> {
+  return publishChangeRequestComment(prUrl, bodyFor(analysis));
+}
+
+export async function publishChangeRequestComment(prUrl: string, body: string): Promise<string | undefined> {
   const target = parseChangeRequestUrl(prUrl);
-  if (target.provider === "github") return publishPullRequestReview(prUrl, analysis);
-  const body = bodyFor(analysis);
+  if (target.provider === "github") return (await publishPullRequestComment(prUrl, body)) ?? target.ref.url;
   if (target.provider === "gitlab") {
     const { base, project } = gitlabBase(target);
     const response = await postJson(`${base}/projects/${project}/merge_requests/${target.ref.number}/notes`, authHeaders(target.provider), { body }, "GitLab");
