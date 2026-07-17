@@ -37,3 +37,14 @@ export async function publishPullRequestComment(prUrl: string, body: string): Pr
   const response = await octokit.rest.issues.createComment({ owner: ref.owner, repo: ref.repo, issue_number: ref.number, body });
   return response.data.html_url ?? undefined;
 }
+
+export async function requestPullRequestReviewers(prUrl: string, reviewers: string[]): Promise<string> {
+  const ref = parsePullRequestUrl(prUrl);
+  const normalized = reviewers.map((reviewer) => reviewer.replace(/^@/, "").trim()).filter(Boolean);
+  const users = normalized.filter((reviewer) => !reviewer.startsWith("team:"));
+  const teams = normalized.filter((reviewer) => reviewer.startsWith("team:")).map((reviewer) => reviewer.slice("team:".length)).filter(Boolean);
+  if (!users.length && !teams.length) throw new Error("At least one GitHub username or team:<slug> reviewer is required.");
+  const octokit = await createGithubClient(true);
+  await octokit.rest.pulls.requestReviewers({ owner: ref.owner, repo: ref.repo, pull_number: ref.number, ...(users.length ? { reviewers: users } : {}), ...(teams.length ? { team_reviewers: teams } : {}) });
+  return ref.url;
+}

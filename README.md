@@ -144,6 +144,7 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --json
 npm run cli -- index .
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --provider openai-compatible --model your-model
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --save analysis.json
+npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --request-reviewers @alice team:platform
 npm run cli -- evaluate analysis.json
 npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json
 npm run cli -- plan https://acme.atlassian.net/browse/PLAT-42 -- --save plan.json
