@@ -1,7 +1,7 @@
 import { fetchChangeRequest, parseChangeRequestUrl, type ChangeRequestTarget } from "./change-request";
 import type { Analysis } from "./types";
 import { publishPullRequestCheck } from "./github-publish";
-import { publishPullRequestComment } from "./github-review";
+import { publishPullRequestComment, publishPullRequestReview } from "./github-review";
 
 function authHeaders(provider: ChangeRequestTarget["provider"]): Record<string, string> {
   if (provider === "gitlab" && process.env.GITLAB_TOKEN) return { "PRIVATE-TOKEN": process.env.GITLAB_TOKEN };
@@ -55,6 +55,7 @@ export async function publishChangeRequestCheck(prUrl: string, analysis: Analysi
 }
 
 export async function publishChangeRequestReview(prUrl: string, analysis: Analysis): Promise<string | undefined> {
+  if (parseChangeRequestUrl(prUrl).provider === "github") return publishPullRequestReview(prUrl, analysis);
   return publishChangeRequestComment(prUrl, bodyFor(analysis));
 }
 
