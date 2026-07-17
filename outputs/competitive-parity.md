@@ -14,6 +14,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Governed external automations | Signed `/automation/webhook` with event, nested-field, and URL matching; read-only review/plan/fix actions | Actions, MCP, and cloud-agent workflows | Scheduled, message-triggered, and custom webhook automations |
 | Full PR context | Files, commits, checks, discussion, Jira/Linear, local and explicitly linked repositories, opt-in read-only MCP tools, and labeled web search | Full changeset, repository, and MCP context | PR, issue, repository, knowledge base context |
 | Direct issue planning | GitHub, GitLab, Jira, and Linear issue URL to acceptance criteria, evidence plan, and citations; GitHub issues can also drive a guarded implementation patch | Issue and task workflows | Issue planning and task actions |
+| Free-form product planning | `work-plan` accepts PRDs, designs, issue text, or plain requests; retrieves current checkout evidence and removes unsupported citations | Cloud-agent research and planning | Plans from PRDs, designs, issues, and free-form descriptions |
 | Suggested reviewers | Path-aware suggestions from CODEOWNERS and `.mergeproof/reviewers.json` | Suggested reviewers and team rules | Suggested reviewer rules |
 | Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files, and named custom-agent profiles | Custom instructions, custom agents, skills, MCP | Repository and path-based instructions |
 | Citation-backed decision | Exact head-SHA citations and source validation | Actionable suggestions | Review findings and summaries |
@@ -21,7 +22,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Local audit history | Bounded JSONL metadata trail with decision, model, head SHA, and attestation lookup | Enterprise audit logs | Workspace audit logs |
 | Review effort / scope | Low, medium, or high effort; local `--dir` scopes | Low/medium effort; IDE and repository scope | Directory-scoped CLI review |
 | Review profiles | Quiet, chill, and assertive profiles with publication filtering and an attested selected profile | Review customization and repository instructions | Quiet, chill, and assertive profiles |
-| Security gate | Deterministic scanner plus optional npm audit, Semgrep, and CodeQL database creation/SARIF adapters | Security risk review and GitHub security ecosystem | Security Agent and built-in checks |
+| Security gate | Deterministic changed-line gate plus `security` full-repository scanner and optional npm audit, Semgrep, and CodeQL database creation/SARIF adapters | Security risk review and GitHub security ecosystem | Security Agent and built-in checks |
 | Privacy / slop gate | Deterministic PII-pattern and placeholder/large-change signals, never removable by model output | Security and quality ecosystem | PII and slop detection |
 | Safe fixes | Unified-diff suggestion; explicit checked apply; unresolved-thread autofix in a detached worktree with optional verification, re-review, default-branch PR, or GitHub stacked PR | Suggested multi-line fixes and cloud-agent handoff | Autofix and agent handoff |
 | Simplify | Evidence-bounded behavior-preserving refactor patch with checked apply | Agent/code editing workflows | Simplify code command and walkthrough action |
@@ -29,7 +30,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Test generation | Test-only unified-diff suggestion | Agent/code generation workflows | Generate unit tests |
 | Documentation generation | Documentation-only patch suggestion bounded to changed non-test files | Agent/code generation workflows | Generate docstrings |
 | Issue creation | GitHub, GitLab, Jira, and Linear | GitHub task workflows | GitHub, GitLab, Jira, Linear |
-| Slack | Signed slash commands, Events API mentions, thread follow-ups, `learn`, rate-limit visibility, governed automations, and guarded stacked-PR autofix | GitHub ecosystem integrations | Conversational agent, learning, automations, and PR actions |
+| Slack | Signed slash commands, Events API mentions, thread follow-ups, `learn`, rate-limit visibility, native GitHub/GitLab issue creation plus explicit Jira/Linear routing, governed automations, and guarded stacked-PR autofix | GitHub ecosystem integrations | Conversational agent, learning, automations, and PR actions |
 | Model choice | OpenAI, OpenAI-compatible including local endpoints, Anthropic | GitHub-managed model controls | Product-managed model controls |
 | Client surfaces | CLI, native Windows desktop, VS Code, Cursor plugin metadata/rule, JetBrains plugin source, CI, and installable agent skill | GitHub, IDE, CLI, cloud agent | Git platforms, IDE, CLI, Slack |
 | Consensus gate | Parallel provider/model reviews with per-criterion agreement; `ready` requires unanimous evidence | Agent/sub-agent orchestration | Agent workflows and review automation |
@@ -40,7 +41,8 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Natural-language editing | Local `mergeproof implement <request>` plus explicit `/mergeproof implement <request>` PR handoff; both use evidence-grounded patches and never mutate the source checkout/branch without an explicit gate | `@copilot` cloud-agent task handoff | Agent chat code editing and stacked PR handoff |
 | Repository Q&A | Read-only `mergeproof ask` / `chat` with bounded local retrieval, instructions, selected model, and trace metadata | Copilot CLI question answering and repository exploration | IDE/CLI review context and chat |
 | Outcome calibration | Local outcome ledger records merged/closed or human-labeled outcomes against decision, head SHA, and attestation; `feedback` and `metrics` expose calibration | Copilot usage metrics focus on adoption and PR lifecycle | CodeRabbit dashboards and reports focus on review activity and outcomes |
-| Reports / export | Local `report` command aggregates activity, decisions, models, attestation coverage, outcomes, calibration, and CSV export; scheduled review workflow uploads weekly Markdown/CSV artifacts and can deliver Markdown to Slack, Discord, or Teams | GitHub and IDE usage surfaces | Dashboard filters, scheduled/on-demand reports, Slack/Discord/Teams delivery, and CSV export |
+| Post-merge actions | Optional GitHub Actions workflow records merged lifecycle outcomes and uploads a machine-readable artifact without invoking a model | Cloud-agent and workflow automations | Post-merge actions for changelogs, tickets, and notifications |
+| Reports / export | Local `report` command aggregates activity, decisions, models, attestation coverage, outcomes, calibration, CSV export, natural-language custom reports, and opt-in Slack/Discord/Teams/SendGrid email delivery; scheduled review workflow uploads weekly Markdown/CSV artifacts | GitHub and IDE usage surfaces | Dashboard filters, scheduled/on-demand custom reports, email/Slack/Discord/Teams delivery, and CSV export |
 
 ## Differentiation
 
@@ -59,6 +61,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 11. Outcome feedback closes the loop between a merge decision and what happened after merge, allowing teams to measure ready-decision calibration instead of optimizing only for review volume.
 12. Saved analyses can be independently attestation-verified after transport or publication, making tampering observable instead of trusting the displayed decision.
 13. A local natural-language implementation request is treated as a reproducible, evidence-bounded patch job: clean HEAD, bounded retrieval, ephemeral worktree, verification, optional re-review, and stale-checkout refusal before apply.
+14. Free-form planning uses the same ledger boundary as review: a plan is not allowed to retain citations from a different checkout or commit, so planning and implementation start from the same verifiable evidence surface.
 
 ## Remaining Deliberate Gaps
 

@@ -3,6 +3,7 @@ import "dotenv/config";
 import { readFile, writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import { analyzePullRequest } from "../lib/analyze";
+import { scanRepositorySecurity } from "../lib/security";
 import { evaluateAnalysis } from "../lib/evaluation";
 import { verifyAnalysisAttestation } from "../lib/attestation";
 import { fixPullRequest, simplifyPullRequest } from "../lib/fix";
@@ -12,6 +13,7 @@ import { applyPullRequestLabels, requestPullRequestReviewers } from "../lib/gith
 import { createGitLabIssue, createJiraIssue, createLinearIssue } from "../lib/issues";
 import { indexRepository } from "../lib/retrieval";
 import { planPullRequest } from "../lib/plan";
+import { planWorkItem } from "../lib/work-plan";
 import { parseIssueUrl, planIssue } from "../lib/issue-plan";
 import { publishSlackSummary } from "../lib/slack";
 import { readRepositoryMemory } from "../lib/memory";
@@ -41,7 +43,8 @@ import { parseChangeRequestUrl } from "../lib/change-request";
 import { generateMergeProofConfiguration, readMergeProofConfiguration, renderConfiguration } from "../lib/configuration";
 import { askRepository } from "../lib/ask";
 import { buildReviewReport, filterReviewRecords, renderReviewReportCsv, renderReviewReportMarkdown } from "../lib/report";
-import { publishReviewReport, type ReportDestination } from "../lib/report-delivery";
+import { generateCustomReport } from "../lib/report-ai";
+import { publishReviewReport, publishReviewReportEmail, type ReportDestination } from "../lib/report-delivery";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -319,7 +322,7 @@ program.command("metrics").description("Summarize evidence-review outcomes and r
   }
 });
 
-program.command("report").description("Generate local review activity, outcome, and calibration reports").argument("[repository]", "Repository owner/repo filter").option("--repo <path>", "Repository path", process.cwd()).option("--days <number>", "Only include the last N days").option("--format <format>", "json, markdown, or csv", "markdown").option("--output <path>", "Write the report to a file").option("--slack-webhook <url>", "Deliver the Markdown report to a Slack incoming webhook").option("--discord-webhook <url>", "Deliver the Markdown report to a Discord webhook").option("--teams-webhook <url>", "Deliver the Markdown report to a Microsoft Teams webhook").action(async (repository, options) => {
+program.command("report").description("Generate local review activity, outcome, and calibration reports").argument("[repository]", "Repository owner/repo filter").option("--repo <path>", "Repository path", process.cwd()).option("--days <number>", "Only include the last N days").option("--format <format>", "json, markdown, or csv", "markdown").option("--output <path>", "Write the report to a file").option("--prompt <request>", "Generate a custom natural-language report from the measured report data").option("--model <model>", "Model name for --prompt").option("--provider <provider>", "Provider for --prompt").option("--agent <profile>", "Custom agent profile for --prompt").option("--slack-webhook <url>", "Deliver the Markdown report to a Slack incoming webhook").option("--discord-webhook <url>", "Deliver the Markdown report to a Discord webhook").option("--teams-webhook <url>", "Deliver the Markdown report to a Microsoft Teams webhook").option("--email-to <address>", "Deliver the Markdown report to an email address", process.env.MERGEPROOF_REPORT_EMAIL_TO).option("--email-from <address>", "Verified sender address for email delivery", process.env.MERGEPROOF_REPORT_EMAIL_FROM).option("--email-subject <subject>", "Subject for email delivery", "MergeProof review report").action(async (repository, options) => {
   try {
     const events = await readAuditEvents(options.repo, 500);
     const outcomes = await readOutcomes(options.repo, undefined, 2_000);
@@ -327,13 +330,21 @@ program.command("report").description("Generate local review activity, outcome, 
     const filtered = filterReviewRecords(events, outcomes, filters);
     const report = buildReviewReport(events, outcomes, filters);
     const format = String(options.format).toLowerCase();
-    const content = format === "json" ? JSON.stringify(report, null, 2) : format === "csv" ? renderReviewReportCsv(filtered.events, filtered.outcomes) : renderReviewReportMarkdown(report);
+    if (options.prompt && format !== "markdown") throw new Error("Custom report prompts require --format markdown.");
+    const content = options.prompt
+      ? (await generateCustomReport(options.prompt, report, { repoPath: options.repo, model: options.model, provider: options.provider, agent: options.agent })).report
+      : format === "json" ? JSON.stringify(report, null, 2) : format === "csv" ? renderReviewReportCsv(filtered.events, filtered.outcomes) : renderReviewReportMarkdown(report);
     if (options.output) await writeFile(options.output, `${content}${content.endsWith("\n") ? "" : "\n"}`, "utf8");
     else console.log(content);
     const destinations: Array<[ReportDestination, string | undefined]> = [["slack", options.slackWebhook], ["discord", options.discordWebhook], ["teams", options.teamsWebhook]];
     for (const [destination, webhook] of destinations) if (webhook) {
       await publishReviewReport(destination, webhook, renderReviewReportMarkdown(report));
       console.error(`Report delivered to ${destination}.`);
+    }
+    if (options.emailTo || options.emailFrom) {
+      if (!options.emailTo || !options.emailFrom) throw new Error("Email report delivery requires both --email-to and --email-from.");
+      await publishReviewReportEmail(renderReviewReportMarkdown(report), { to: options.emailTo, from: options.emailFrom, subject: options.emailSubject });
+      console.error(`Report delivered by email to ${options.emailTo}.`);
     }
   } catch (error) {
     console.error(`MergeProof report error: ${error instanceof Error ? error.message : "Report generation failed."}`);
@@ -433,6 +444,18 @@ program.command("plan").description("Generate a citation-aware implementation pl
     else printPlan(plan);
   } catch (error) {
     console.error(`MergeProof plan error: ${error instanceof Error ? error.message : "Planning failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("work-plan").description("Create a citation-aware implementation plan from a PRD, design, issue text, or free-form request").argument("<request...>", "Work item or product request").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--repo <path>", "Local repository to inspect", process.cwd()).option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "12").action(async (request, options) => {
+  try {
+    const plan = await planWorkItem(request.join(" "), options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK) });
+    if (options.save) await writeFile(options.save, JSON.stringify(plan, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(plan, null, 2));
+    else printPlan(plan);
+  } catch (error) {
+    console.error(`MergeProof work-plan error: ${error instanceof Error ? error.message : "Work planning failed."}`);
     process.exitCode = 1;
   }
 });
@@ -584,6 +607,22 @@ program.command("review").description("Review staged, unstaged, and untracked wo
     process.exitCode = analysis.decision === "ready" ? 0 : 2;
   } catch (error) {
     console.error(`MergeProof review error: ${error instanceof Error ? error.message : "Working-tree review failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("security").description("Scan the committed repository tree for deterministic security findings").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the security report to a file").action(async (options) => {
+  try {
+    const findings = await scanRepositorySecurity(options.repo);
+    const output = { findings, trace: { scope: "repository", scannedAt: new Date().toISOString(), deterministic: true, sensitiveFilesExcluded: true } };
+    if (options.save) await writeFile(options.save, JSON.stringify(output, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(output, null, 2));
+    else {
+      console.log(`Repository security findings: ${findings.length}`);
+      for (const finding of findings) console.log(`[${finding.severity}] ${finding.path}:${finding.line} ${finding.title}`);
+    }
+  } catch (error) {
+    console.error(`MergeProof security error: ${error instanceof Error ? error.message : "Repository security scan failed."}`);
     process.exitCode = 1;
   }
 });

@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { analyzePullRequest } from "./analyze";
 import { createGithubIssueFromAnalysis } from "./github-issues";
 import { planPullRequest } from "./plan";
+import { planWorkItem } from "./work-plan";
 import { parseChangeRequestUrl } from "./change-request";
 import { fixPullRequest, simplifyPullRequest } from "./fix";
 import { generateTestsPullRequest } from "./tests";
@@ -9,6 +10,7 @@ import { readSlackThread, recordSlackThread } from "./slack-memory";
 import { loadSlackAutomations, matchSlackAutomation } from "./slack-automations";
 import { addKnowledge } from "./knowledge";
 import { createGithubClient } from "./github-auth";
+import { createGitLabIssue, createJiraIssue, createLinearIssue } from "./issues";
 import { autofixPullRequest } from "./autofix";
 import { VERIFICATION_COMMANDS, type VerificationCommand } from "./local-agent";
 import { parseIssueUrl, planIssue } from "./issue-plan";
@@ -17,7 +19,7 @@ import { updateReviewState } from "./review-state";
 import { generateDocstringsPullRequest } from "./docstrings";
 
 export type SlackAgentOptions = { signingSecret: string; botToken?: string; repoPath?: string; model?: string; provider?: string; log?: (message: string) => void };
-export type SlackCommand = { action: "review" | "investigate" | "walkthrough" | "erd" | "docstrings" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "issue" | "learn" | "rate" | "autofix" | "pause" | "resume"; prUrl?: string; fact?: string; stackedPr?: boolean };
+export type SlackCommand = { action: "review" | "investigate" | "walkthrough" | "erd" | "docstrings" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "issue" | "learn" | "rate" | "autofix" | "pause" | "resume"; prUrl?: string; request?: string; fact?: string; stackedPr?: boolean };
 
 export function verifySlackRequestSignature(body: string, timestamp: string | undefined, signature: string | undefined, secret: string, now = Date.now()): boolean {
   if (!timestamp || !signature || !secret || Math.abs(now - Number(timestamp) * 1000) > 5 * 60 * 1000) return false;
@@ -43,7 +45,13 @@ export function parseSlackCommand(text: string, fallbackPrUrl?: string): SlackCo
     return { action: "learn", prUrl, fact: fact.slice(0, 2_000) };
   }
   const prUrl = (urlMatch?.[0] ?? fallbackPrUrl)?.replace(/[),.;]+$/, "").replace(/\/$/, "");
-  if (!prUrl) return undefined;
+  if (!prUrl) {
+    if (action === "plan") {
+      const request = normalized.replace(actionMatch?.[0] ?? "", "").trim();
+      return request ? { action: "plan", request: request.slice(0, 16_000) } : undefined;
+    }
+    return undefined;
+  }
   try { parseChangeRequestUrl(prUrl); } catch {
     if (action !== "plan") return undefined;
     try { parseIssueUrl(prUrl); } catch { return undefined; }
@@ -100,6 +108,10 @@ export async function runSlackCommand(command: SlackCommand, options: SlackAgent
     const state = await updateReviewState(options.repoPath, { paused: command.action === "pause", reason: `${command.action === "pause" ? "Paused" : "Resumed"} by Slack command.` });
     return `MergeProof automatic reviews are now ${state.paused ? "paused" : "resumed"}.`;
   }
+  if (command.action === "plan" && command.request) {
+    if (!options.repoPath) throw new Error("Free-form Slack planning requires the server to have an explicit repository checkout.");
+    return resultText(command.action, "free-form work item", await planWorkItem(command.request, options.model, { repoPath: options.repoPath, provider: options.provider }));
+  }
   if (!command.prUrl) throw new Error(`${command.action} requires a change-request URL.`);
   const prUrl = command.prUrl;
   if (command.action === "autofix") {
@@ -121,8 +133,16 @@ export async function runSlackCommand(command: SlackCommand, options: SlackAgent
   if (command.action === "docstrings") return resultText(command.action, prUrl, await generateDocstringsPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath }));
   const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
   if (command.action === "issue") {
-    if (parseChangeRequestUrl(prUrl).provider !== "github") throw new Error("Slack issue creation currently supports GitHub pull requests only.");
-    return resultText(command.action, prUrl, await createGithubIssueFromAnalysis(prUrl, analysis));
+    const target = parseChangeRequestUrl(prUrl);
+    const title = `MergeProof follow-up for ${prUrl}`;
+    const findings = analysis.rows.filter((row) => row.state !== "pass").map((row) => `${row.state.toUpperCase()}: ${row.criterion}\n${row.evidence}`).join("\n\n") || "MergeProof found no non-passing criteria; review the analysis trace.";
+    const requestedProvider = (process.env.MERGEPROOF_SLACK_ISSUE_PROVIDER || "").toLowerCase();
+    if (requestedProvider === "jira") return resultText(command.action, prUrl, await createJiraIssue(title, findings));
+    if (requestedProvider === "linear") return resultText(command.action, prUrl, await createLinearIssue(title, findings));
+    if (requestedProvider && !["github", "gitlab"].includes(requestedProvider)) throw new Error("MERGEPROOF_SLACK_ISSUE_PROVIDER must be github, gitlab, jira, or linear.");
+    if (target.provider === "github") return resultText(command.action, prUrl, await createGithubIssueFromAnalysis(prUrl, analysis));
+    if (target.provider === "gitlab") return resultText(command.action, prUrl, await createGitLabIssue(prUrl, title, findings));
+    throw new Error("Slack issue creation for Bitbucket and Azure DevOps requires MERGEPROOF_SLACK_ISSUE_PROVIDER=jira or linear.");
   }
   return resultText(command.action, prUrl, analysis);
 }
@@ -130,7 +150,7 @@ export async function runSlackCommand(command: SlackCommand, options: SlackAgent
 export async function processSlackCommand(body: string, options: SlackAgentOptions): Promise<{ text: string; responseUrl?: string }> {
   const params = new URLSearchParams(body);
   const command = parseSlackCommand(params.get("text") ?? "");
-  if (!command) return { text: "Usage: `review|investigate|walkthrough|erd|docstrings|plan|fix|simplify|tests|consensus|autofix <change-request URL>`, `learn <fact> <change-request URL>`, `pause`, `resume`, `rate`, or `issue <GitHub PR URL>`." };
+  if (!command) return { text: "Usage: `review|investigate|walkthrough|erd|docstrings|plan|fix|simplify|tests|consensus|autofix <change-request URL>`, `learn <fact> <change-request URL>`, `pause`, `resume`, `rate`, or `issue <GitHub or GitLab change-request URL>`." };
   const responseUrl = params.get("response_url") ?? undefined;
   try {
     const text = await runSlackCommand(command, options);

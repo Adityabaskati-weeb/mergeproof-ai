@@ -20,6 +20,6 @@ The desktop client currently provides:
 - quiet/chill/assertive review profiles
 - reviewer suggestions from CODEOWNERS and `.mergeproof/reviewers.json`
 - privacy and quality signals, consensus gate, simplify, and conflict resolution actions
-- analyze, evidence-backed walkthrough, review-thread resolution, docstring generation, plan, and guarded fix actions through the bundled CLI
+- analyze, evidence-backed walkthrough, review-thread resolution, docstring generation, URL-based plan, free-form work plan, and guarded fix actions through the bundled CLI
 
 The CLI and desktop client call the same `lib/analyze.ts` engine and share the same `Analysis` contract. Install Rust and Tauri prerequisites, then run `npm run desktop:dev` from the repository root. Development falls back to the local `tsx` runner; `npm run desktop:build` creates a self-contained Windows sidecar and native MSI/NSIS installers. Set `MERGEPROOF_CLI` only when using an installed executable during development.

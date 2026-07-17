@@ -16,7 +16,7 @@ const modelPlanSchema = z.object({
   steps: z.array(z.object({ title: z.string(), detail: z.string(), citations: z.array(z.object({ path: z.string(), commitSha: z.string(), url: z.string().url() })) })),
 });
 export type ModelPlan = z.infer<typeof modelPlanSchema>;
-export type ReviewPlan = ModelPlan & { trace: { model: string; headSha: string; fetchedSources: number; citedSources: number } };
+export type ReviewPlan = ModelPlan & { trace: { model: string; headSha: string; fetchedSources: number; citedSources: number; evidenceCoverage?: number; local?: boolean; elapsedMs?: number } };
 const modelFixSchema = z.object({ summary: z.string(), patch: z.string() });
 export type ModelFix = z.infer<typeof modelFixSchema>;
 export type ModelQuestionContext = { prompt: string; repository: string; headSha: string; status: string; repositoryEvidence: EvidenceChunk[]; customInstructions?: string };

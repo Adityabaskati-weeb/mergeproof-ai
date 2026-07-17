@@ -1,3 +1,6 @@
+import { promises as fs } from "node:fs";
+import { basename, extname, join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { PullRequestContext } from "./github";
 import type { SecurityFinding } from "./types";
 
@@ -14,6 +17,43 @@ const PATTERNS: Pattern[] = [
   { id: "unsafe-html", title: "Raw HTML injection sink added", severity: "medium", detail: "Raw HTML rendering was added and requires sanitization review.", pattern: /dangerouslySetInnerHTML|innerHTML\s*=/ },
   { id: "install-script", title: "Dependency install script changed", severity: "medium", detail: "Install-time scripts execute with developer or CI privileges.", pattern: /["'](?:preinstall|install|postinstall)["']\s*:/i },
 ];
+
+const REPOSITORY_IGNORED_DIRECTORIES = new Set([".git", ".mergeproof", "node_modules", "dist", "build", "target", ".next", "coverage"]);
+const REPOSITORY_SENSITIVE_NAMES = new Set([".env", ".env.local", ".env.production", ".env.development", "id_rsa", "credentials.json"]);
+const REPOSITORY_SENSITIVE_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx"]);
+
+async function collectRepositoryFiles(root: string, current: string, output: string[], depth = 0): Promise<void> {
+  if (depth > 20 || output.length >= 5_000) return;
+  for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+    if (entry.isDirectory() && REPOSITORY_IGNORED_DIRECTORIES.has(entry.name)) continue;
+    const absolute = join(current, entry.name);
+    if (entry.isDirectory()) await collectRepositoryFiles(root, absolute, output, depth + 1);
+    else if (entry.isFile()) output.push(relative(root, absolute).replace(/\\/g, "/"));
+  }
+}
+
+export async function scanRepositorySecurity(root: string, commitSha = "repository"): Promise<SecurityFinding[]> {
+  const repositoryRoot = resolve(root);
+  const paths: string[] = [];
+  await collectRepositoryFiles(repositoryRoot, repositoryRoot, paths);
+  const findings: SecurityFinding[] = [];
+  for (const path of paths) {
+    if (REPOSITORY_SENSITIVE_NAMES.has(basename(path).toLowerCase()) || REPOSITORY_SENSITIVE_EXTENSIONS.has(extname(path).toLowerCase())) continue;
+    const absolute = join(repositoryRoot, path);
+    const stat = await fs.stat(absolute).catch(() => undefined);
+    if (!stat || stat.size > 250_000) continue;
+    const buffer = await fs.readFile(absolute).catch(() => undefined);
+    if (!buffer || buffer.includes(0)) continue;
+    const lines = buffer.toString("utf8").split(/\r?\n/);
+    for (const [index, text] of lines.entries()) {
+      for (const pattern of PATTERNS) {
+        if (!pattern.pattern.test(text)) continue;
+        findings.push({ id: `repository:${pattern.id}:${path}:${index + 1}`, title: pattern.title, severity: pattern.severity, path, line: index + 1, detail: pattern.detail, citation: { path, commitSha, url: `${pathToFileURL(absolute).toString()}#L${index + 1}` }, category: "security" });
+      }
+    }
+  }
+  return findings;
+}
 
 export function addedLines(patch: string): Array<{ line: number; text: string }> {
   const result: Array<{ line: number; text: string }> = [];

@@ -32,11 +32,11 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const ref = target.ref;
   const policyRoot = options.repoPath || process.cwd();
   const hooksBefore = await runHooks(policyRoot, "beforeReview", options.hooks);
-  const policy = await loadPolicy(policyRoot);
+  const fetchedContext = await fetchChangeRequest(target);
+  const policy = await loadPolicy(policyRoot, fetchedContext.files.map((file) => file.path));
   const agentProfile = await loadAgentProfile(policyRoot, options.agent);
   const effort = normalizeReviewEffort(options.effort || policy.effort || process.env.MERGEPROOF_REVIEW_EFFORT);
   const profile = normalizeReviewProfile(options.profile || policy.profile || process.env.MERGEPROOF_REVIEW_PROFILE);
-  const fetchedContext = await fetchChangeRequest(target);
   const issues = await fetchLinkedIssues(fetchedContext.body);
   const retrieval = options.repoPath && target.provider === "github" ? await retrieveRepositoryEvidence(options.repoPath, ref, fetchedContext.headSha, `${fetchedContext.title} ${fetchedContext.body}`, options.retrievalTopK ?? policy.retrievalTopK ?? retrievalTopKForEffort(effort)) : { chunks: [], indexedChunks: 0 };
   const relatedResults = await Promise.all([...new Set((options.relatedRepos ?? []).map((path) => path.trim()).filter(Boolean))].map((path) => retrieveLocalEvidence(path, `related:${path}`, `${fetchedContext.title} ${fetchedContext.body}`, options.retrievalTopK ?? policy.retrievalTopK ?? retrievalTopKForEffort(effort))));

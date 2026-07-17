@@ -29,4 +29,14 @@ describe("loadPolicy", () => {
     await expect(loadPolicy(root)).resolves.toMatchObject({ instructions: expect.stringContaining(".github/instructions/typescript.instructions.md") });
     await expect(loadPolicy(root)).resolves.toMatchObject({ instructions: expect.stringContaining("Review error paths.") });
   });
+
+  it("applies Copilot-style applyTo globs to changed paths", async () => {
+    const root = await fs.mkdtemp(join(process.env.TEMP ?? ".", "mergeproof-policy-scoped-"));
+    temporaryDirectories.push(root);
+    await fs.mkdir(join(root, ".github", "instructions"), { recursive: true });
+    await fs.writeFile(join(root, ".github", "instructions", "typescript.instructions.md"), "---\napplyTo: \"**/*.ts\"\n---\nUse strict TypeScript.", "utf8");
+    await fs.writeFile(join(root, ".github", "instructions", "python.instructions.md"), "---\napplyTo: \"**/*.py\"\n---\nUse typed Python.", "utf8");
+    await expect(loadPolicy(root, ["src/auth.ts"])).resolves.toMatchObject({ instructions: expect.stringContaining("Use strict TypeScript.") });
+    await expect(loadPolicy(root, ["src/auth.ts"])).resolves.toMatchObject({ instructions: expect.not.stringContaining("Use typed Python.") });
+  });
 });

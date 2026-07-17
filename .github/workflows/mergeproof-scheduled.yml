@@ -34,6 +34,9 @@ jobs:
       MAX_PRS: ${{ inputs.max_prs || '5' }}
       PUBLISH_REVIEW: ${{ inputs.publish_review || 'false' }}
       REPORT_SLACK_WEBHOOK: ${{ secrets.MERGEPROOF_REPORT_SLACK_WEBHOOK }}
+      REPORT_EMAIL_TO: ${{ secrets.MERGEPROOF_REPORT_EMAIL_TO }}
+      REPORT_EMAIL_FROM: ${{ secrets.MERGEPROOF_REPORT_EMAIL_FROM }}
+      SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
     steps:
       - name: Checkout MergeProof
         uses: actions/checkout@v4
@@ -77,6 +80,9 @@ jobs:
           npm run cli -- report "${GITHUB_REPOSITORY}" -- --repo . --days 7 --format csv --output results/weekly-report.csv
           if [[ -n "$REPORT_SLACK_WEBHOOK" ]]; then
             npm run cli -- report "${GITHUB_REPOSITORY}" -- --repo . --days 7 --format markdown --slack-webhook "$REPORT_SLACK_WEBHOOK" > /dev/null
+          fi
+          if [[ -n "$REPORT_EMAIL_TO" && -n "$REPORT_EMAIL_FROM" && -n "$SENDGRID_API_KEY" ]]; then
+            npm run cli -- report "${GITHUB_REPOSITORY}" -- --repo . --days 7 --format markdown --email-to "$REPORT_EMAIL_TO" --email-from "$REPORT_EMAIL_FROM" > /dev/null
           fi
 
       - name: Upload scheduled review results
