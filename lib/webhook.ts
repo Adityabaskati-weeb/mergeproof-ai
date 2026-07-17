@@ -23,6 +23,7 @@ import { generateTestsPullRequest } from "./tests";
 import { fetchGithubReviewThreads, resolveGithubReviewThreads } from "./github-threads";
 import { autofixPullRequest } from "./autofix";
 import { runRecipe } from "./recipes";
+import { processDiscordInteraction, verifyDiscordRequestSignature } from "./discord-agent";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -36,6 +37,7 @@ export type GithubWebhookOptions = {
   publishReview?: boolean;
   slackSigningSecret?: string;
   slackBotToken?: string;
+  discordPublicKey?: string;
   gitlabWebhookSecret?: string;
   bitbucketWebhookSecret?: string;
   azureDevopsWebhookSecret?: string;
@@ -225,7 +227,7 @@ async function readBody(request: IncomingMessage): Promise<string> {
 }
 
 export function startGithubWebhookServer(options: GithubWebhookOptions): Server {
-  if (!options.secret && !options.slackSigningSecret && !options.gitlabWebhookSecret && !options.bitbucketWebhookSecret && !options.azureDevopsWebhookSecret && !options.automationWebhookSecret) throw new Error("At least one webhook signing secret is required.");
+  if (!options.secret && !options.slackSigningSecret && !options.discordPublicKey && !options.gitlabWebhookSecret && !options.bitbucketWebhookSecret && !options.azureDevopsWebhookSecret && !options.automationWebhookSecret) throw new Error("At least one webhook signing secret is required.");
   const server = createServer(async (request, response) => {
     if (request.method === "POST" && request.url === "/automation/webhook") {
       try {
@@ -278,6 +280,27 @@ export function startGithubWebhookServer(options: GithubWebhookOptions): Server 
         void processSlackEvent(payload, { signingSecret: options.slackSigningSecret, botToken: options.slackBotToken, repoPath: options.repoPath, model: options.model, provider: options.provider, log: options.log }).catch((error) => options.log?.(`MergeProof Slack event failed: ${error instanceof Error ? error.message : "unknown error"}`));
       } catch (error) {
         respond(response, 400, { error: error instanceof Error ? error.message : "Invalid Slack event" });
+      }
+      return;
+    }
+    if (request.method === "POST" && request.url === "/discord/interactions") {
+      try {
+        const body = await readBody(request);
+        const timestamp = request.headers["x-signature-timestamp"];
+        const signature = request.headers["x-signature-ed25519"];
+        if (!options.discordPublicKey || typeof timestamp !== "string" || typeof signature !== "string" || !verifyDiscordRequestSignature(body, timestamp, signature, options.discordPublicKey)) {
+          respond(response, 401, { error: "Invalid Discord signature" });
+          return;
+        }
+        const payload = JSON.parse(body) as { type?: number };
+        if (payload.type === 1) {
+          respond(response, 200, { type: 1 });
+          return;
+        }
+        respond(response, 200, { type: 5, data: { content: "MergeProof is reviewing the request. Results will follow here." } });
+        void processDiscordInteraction(payload, { publicKey: options.discordPublicKey, repoPath: options.repoPath, model: options.model, provider: options.provider, log: options.log }).then((text) => options.log?.(`MergeProof Discord interaction result: ${text}`)).catch((error) => options.log?.(`MergeProof Discord interaction failed: ${error instanceof Error ? error.message : "unknown error"}`));
+      } catch (error) {
+        respond(response, 400, { error: error instanceof Error ? error.message : "Invalid Discord interaction" });
       }
       return;
     }

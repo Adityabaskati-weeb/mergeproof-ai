@@ -65,6 +65,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Accept signed GitHub pull-request webhooks for automatic review runs
 - Run governed Slack message automations configured by channel, author, and text match
 - Accept signed custom automation webhooks with event, nested-field, and change-request URL matching
+- Accept signed Discord `/mergeproof` interactions with deferred follow-up results through the same governed command engine
 - Emit a reproducible SHA-256 attestation for each decision and evidence set
 - Record a bounded local audit trail inspectable with `mergeproof audit`
 - Record merge/close lifecycle outcomes and explicit human feedback against the original decision, head SHA, and attestation
