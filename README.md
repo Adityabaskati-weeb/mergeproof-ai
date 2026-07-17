@@ -45,6 +45,8 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof tasks start|list|show|cancel|prune` durable local background execution for allowlisted review, research, ask, benchmark, and doctor actions
 - `mergeproof knowledge --propose|--proposals|--approve|--reject` governed learning proposals that stay out of retrieval until explicitly approved
 - `mergeproof lsp show|test` repository-scoped LSP configuration and executable checks; diagnostics remain bounded JSON evidence for reviews
+- `mergeproof complete <file>` non-mutating Copilot-style code completion at a line/column, with OpenAI-compatible/local-model support and a source digest
+- `mergeproof stats` aggregates bounded review/finding/outcome history; `review --save-prompts` and `review --show-prompts` provide explicit local prompt replay without silent prompt retention
 - `mergeproof search <query...>` bounded local timeline search across sessions, findings, audit events, and outcomes
 - `mergeproof plugins` / `mergeproof extensions` discovers local agent plugins, skills, commands, and client surfaces
 - `mergeproof init --repo <checkout>` idempotently scaffolds a local policy, safe mutation defaults, evidence checks, and instructions

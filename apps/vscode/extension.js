@@ -1,19 +1,31 @@
 const vscode = require("vscode");
 const { execFile } = require("node:child_process");
 
-function runMergeProof(command, url, cwd) {
+function runMergeProof(command, url, cwd, extraArgs = []) {
   const configuredPath = vscode.workspace.getConfiguration("mergeproof").get("cliPath");
   const executable = configuredPath || (process.platform === "win32" ? "npm.cmd" : "npm");
   const commandParts = command === "bundle-verify" ? ["bundle", "verify"] : [command];
-  const repoArgs = command === "analyze" || command === "consensus" || command === "walkthrough" || command === "docstrings" || command === "fix" || command === "simplify" || command === "tests" || command === "autofix" || command === "task" || command === "work-plan" || command === "security" || command === "plan-history" ? ["--repo", cwd] : [];
+  const repoArgs = command === "analyze" || command === "consensus" || command === "walkthrough" || command === "docstrings" || command === "fix" || command === "simplify" || command === "tests" || command === "autofix" || command === "task" || command === "work-plan" || command === "security" || command === "plan-history" || command === "complete" ? ["--repo", cwd] : [];
   const positional = command === "security" || command === "plan-history" ? [] : [url];
-  const args = configuredPath ? [...commandParts, ...positional, "--json", ...repoArgs] : ["run", "cli", "--", ...commandParts, ...positional, "--", "--json", ...repoArgs];
+  const args = configuredPath ? [...commandParts, ...positional, "--json", ...repoArgs, ...extraArgs] : ["run", "cli", "--", ...commandParts, ...positional, "--", "--json", ...repoArgs, ...extraArgs];
   return new Promise((resolve, reject) => execFile(executable, args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
     const jsonStart = stdout.indexOf("{");
     const json = jsonStart >= 0 ? stdout.slice(jsonStart).trim() : "";
     if (!json) return reject(new Error(stderr.trim() || error?.message || "MergeProof returned no JSON."));
     try { resolve(JSON.parse(json)); } catch { reject(new Error(stderr.trim() || "MergeProof returned invalid JSON.")); }
   }));
+}
+
+async function provideCompletion(document, position) {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) return [];
+  try {
+    const result = await runMergeProof("complete", document.uri.fsPath, folder, ["--line", String(position.line + 1), "--column", String(position.character + 1), "--content", document.getText()]);
+    if (!result.completion) return [];
+    return [new vscode.InlineCompletionItem(result.completion, new vscode.Range(position, position))];
+  } catch {
+    return [];
+  }
 }
 
 async function analyze(command) {
@@ -145,6 +157,7 @@ async function verifyBundle() {
 }
 
 function activate(context) {
+  context.subscriptions.push(vscode.languages.registerInlineCompletionItemProvider({ scheme: "file" }, { provideInlineCompletionItems: provideCompletion }));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.analyzePullRequest", () => analyze("analyze")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.consensus", () => analyze("consensus")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.reviewWorkingTree", reviewWorkingTree));

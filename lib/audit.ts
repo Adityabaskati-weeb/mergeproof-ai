@@ -10,6 +10,7 @@ export type AuditEvent = {
   model?: string;
   headSha?: string;
   attestation?: string;
+  elapsedMs?: number;
 };
 
 const MAX_EVENTS = 500;

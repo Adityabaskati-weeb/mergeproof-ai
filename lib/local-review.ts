@@ -20,6 +20,8 @@ import { combineInstructions, loadAdditionalInstructions, loadAgentProfile } fro
 import { runHooks, type HookReport } from "./hooks";
 import { suggestReviewers } from "./reviewers";
 import { recordAuditEvent } from "./audit";
+import { renderAnalysisPrompts } from "./models";
+import { recordPrompt } from "./prompt-log";
 import type { PullRequestContext } from "./github";
 import type { Analysis } from "./types";
 
@@ -29,7 +31,7 @@ const MAX_UNTRACKED_BYTES = 250_000;
 
 export type WorkingTreeFile = PullRequestContext["files"][number];
 export type LocalReviewType = "all" | "committed" | "uncommitted";
-export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; instructionFiles?: string[]; directories?: string[]; reviewType?: LocalReviewType; base?: string; baseCommit?: string; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; hooks?: boolean };
+export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; instructionFiles?: string[]; directories?: string[]; reviewType?: LocalReviewType; base?: string; baseCommit?: string; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; hooks?: boolean; savePrompts?: boolean };
 
 function runGit(root: string, args: string[]): string {
   try {
@@ -182,6 +184,9 @@ export async function reviewWorkingTree(model?: string, options: LocalReviewOpti
   const providerName = (options.provider || policy.provider || process.env.MERGEPROOF_PROVIDER || "openai").toLowerCase();
   const selectedModel = model || policy.model || (providerName === "anthropic" ? process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" : process.env.OPENAI_MODEL || "gpt-5.6");
   const provider = createModelProvider(selectedModel, providerName as Parameters<typeof createModelProvider>[1]);
+  if (options.savePrompts || process.env.MERGEPROOF_SAVE_PROMPTS === "true") {
+    await recordPrompt(workingTree.repositoryRoot, { action: "review", model: provider.name, ...renderAnalysisPrompts(context, criteria) });
+  }
   const retrievalTrace = { enabled: true, indexedChunks: retrieval.indexedChunks, selectedChunks: retrieval.chunks.length, ...(retrieval.indexCommitSha ? { indexCommitSha: retrieval.indexCommitSha } : {}) };
   const result = await provider.analyze(context, criteria, AbortSignal.timeout(45_000));
   const analysis = validateAnalysis(result, context, criteria, provider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings, qualitySignals);
@@ -191,7 +196,7 @@ export async function reviewWorkingTree(model?: string, options: LocalReviewOpti
   const withScope = { ...gated, suggestedReviewers: context.suggestedReviewers, trace: { ...gated.trace, scope: "working-tree" as const, reviewType: options.reviewType ?? "all", ...(options.base || options.baseCommit ? { reviewBase: options.baseCommit || options.base } : {}), workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: context.reviewEffort, reviewProfile: context.reviewProfile, suggestedReviewers: context.suggestedReviewers?.length, reviewPaths: scopePaths, agent: options.agent, hooks } };
   const completed = { ...withScope, trace: { ...withScope.trace, attestation: attestAnalysis(withScope) } };
   try {
-    await recordAuditEvent(workingTree.repositoryRoot, { action: "review", target: context.ref.url, decision: completed.decision, model: completed.trace.model, headSha: completed.trace.headSha, attestation: completed.trace.attestation?.digest });
+    await recordAuditEvent(workingTree.repositoryRoot, { action: "review", target: context.ref.url, decision: completed.decision, model: completed.trace.model, headSha: completed.trace.headSha, attestation: completed.trace.attestation?.digest, elapsedMs: completed.trace.elapsedMs });
   } catch {
     // Audit persistence must not turn a completed review into a runtime failure.
   }

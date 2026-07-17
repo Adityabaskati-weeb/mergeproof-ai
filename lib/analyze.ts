@@ -23,9 +23,11 @@ import { runHooks, type HookReport } from "./hooks";
 import { suggestReviewers } from "./reviewers";
 import { recordAuditEvent } from "./audit";
 import { buildWalkthrough } from "./walkthrough";
+import { renderAnalysisPrompts } from "./models";
+import { recordPrompt } from "./prompt-log";
 import type { Analysis } from "./types";
 
-export type AnalyzeOptions = { provider?: string; repoPath?: string; relatedRepos?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; remember?: boolean; memoryRoot?: string; memoryLimit?: number; knowledgeLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; mcp?: boolean; webSearch?: boolean; hooks?: boolean };
+export type AnalyzeOptions = { provider?: string; repoPath?: string; relatedRepos?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; remember?: boolean; memoryRoot?: string; memoryLimit?: number; knowledgeLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; mcp?: boolean; webSearch?: boolean; hooks?: boolean; savePrompts?: boolean };
 
 export async function analyzePullRequest(prUrl: string, model?: string, options: AnalyzeOptions = {}): Promise<Analysis> {
   const started = Date.now();
@@ -77,7 +79,7 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
     const auditRoot = options.repoPath || options.memoryRoot;
     if (auditRoot) {
       try {
-        await recordAuditEvent(auditRoot, { action: "analyze", target: prUrl, decision: withAttestation.decision, model: withAttestation.trace.model, headSha: withAttestation.trace.headSha, attestation: withAttestation.trace.attestation?.digest });
+        await recordAuditEvent(auditRoot, { action: "analyze", target: prUrl, decision: withAttestation.decision, model: withAttestation.trace.model, headSha: withAttestation.trace.headSha, attestation: withAttestation.trace.attestation?.digest, elapsedMs: withAttestation.trace.elapsedMs });
       } catch {
         // Audit persistence must not turn a completed review into a runtime failure.
       }
@@ -98,6 +100,9 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
     });
   }
   const modelProvider = createModelProvider(selectedModel, provider as Parameters<typeof createModelProvider>[1]);
+  if (options.savePrompts || process.env.MERGEPROOF_SAVE_PROMPTS === "true") {
+    await recordPrompt(policyRoot, { action: "analyze", model: modelProvider.name, ...renderAnalysisPrompts(context, criteria) });
+  }
   const result = await modelProvider.analyze(context, criteria, AbortSignal.timeout(45_000));
   const analysis = validateAnalysis(result, context, criteria, modelProvider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings, qualitySignals);
   const walkthrough = buildWalkthrough(context, analysis);

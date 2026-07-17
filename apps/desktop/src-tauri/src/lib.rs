@@ -30,7 +30,7 @@ fn cli_args(
     re_review: bool,
     session_id: Option<String>,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "sessions-compact" | "sessions-checkpoints" | "benchmark" | "search" | "plugins" | "lsp" | "tasks" | "tasks-list" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "sessions-compact" | "sessions-checkpoints" | "benchmark" | "search" | "plugins" | "lsp" | "complete" | "stats" | "prompts" | "tasks" | "tasks-list" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -246,6 +246,19 @@ fn cli_args(
         let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("LSP inspection requires an explicit repository path."))?;
         let subcommand = if criteria.as_deref().map(|value| value.eq_ignore_ascii_case("test")).unwrap_or(false) { "test" } else { "show" };
         return Ok(vec![command.to_string(), subcommand.to_string(), "--repo".to_string(), repo, "--json".to_string()]);
+    }
+    if command == "complete" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url.clone())).ok_or_else(|| String::from("Completion requires an explicit repository path."))?;
+        if pr_url.trim().is_empty() { return Err(String::from("Completion requires a file path.")); }
+        let mut args = vec![command.to_string(), pr_url, "--repo".to_string(), repo];
+        if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
+        if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
+        args.push("--json".to_string());
+        return Ok(args);
+    }
+    if command == "stats" || command == "prompts" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Statistics or prompt replay requires an explicit repository path."))?;
+        return Ok(vec![command.to_string(), "--repo".to_string(), repo, "--json".to_string()]);
     }
     if command == "bundle-verify" {
         if pr_url.trim().is_empty() { return Err(String::from("Review bundle verification requires a bundle JSON path.")); }
