@@ -1,0 +1,82 @@
+name: MergeProof issue agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_url:
+        description: Public GitHub issue URL
+        required: true
+        type: string
+      verify:
+        description: Allowlisted verification command
+        required: true
+        default: npm test
+        type: choice
+        options:
+          - npm test
+          - npm run build
+          - npm run typecheck
+          - pytest
+          - cargo test
+          - go test ./...
+      create_pr:
+        description: Push the verified patch and open a handoff PR
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: gpt-5.6
+      MERGEPROOF_PROVIDER: openai
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_URL: ${{ inputs.issue_url }}
+      VERIFY_COMMAND: ${{ inputs.verify }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup GitHub credentials
+        run: gh auth setup-git
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Generate and verify issue patch
+        id: agent
+        shell: bash
+        run: |
+          set +e
+          args=(run cli -- task "$ISSUE_URL" -- --repo . --verify "$VERIFY_COMMAND" --json)
+          if [[ "${{ inputs.create_pr }}" == "true" ]]; then args+=(--create-pr); fi
+          npm "${args[@]}" > mergeproof-task.json
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload task result
+        uses: actions/upload-artifact@v4
+        with:
+          name: mergeproof-issue-agent
+          path: mergeproof-task.json
+          if-no-files-found: error
+      - name: Comment on source issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("mergeproof-task.json","utf8")); const trace=value.trace||{}; const body=["## MergeProof issue agent", value.summary||"No summary returned.", `Changed paths: ${(trace.changedPaths||[]).join(", ")||"none"}`, `Verification: ${trace.verificationCommand||"not requested"} (${trace.verified?"passed":"failed"})`, trace.pullRequestUrl ? `Handoff PR: ${trace.pullRequestUrl}` : "The patch was verified in an ephemeral worktree and was not pushed.", `Evidence sources: ${trace.evidenceSources||0}`].join("\n\n"); fs.writeFileSync("mergeproof-task-comment.md", body);'
+          issue_number=$(gh issue view "$ISSUE_URL" --json number --jq .number)
+          repo=$(gh issue view "$ISSUE_URL" --json repository --jq .repository.nameWithOwner)
+          gh issue comment "$issue_number" --repo "$repo" --body-file mergeproof-task-comment.md

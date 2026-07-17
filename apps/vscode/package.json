@@ -7,7 +7,7 @@
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Linters", "Other"],
   "main": "extension.js",
-  "activationEvents": ["onCommand:mergeproof.analyzePullRequest", "onCommand:mergeproof.consensus", "onCommand:mergeproof.reviewWorkingTree", "onCommand:mergeproof.resolveConflicts", "onCommand:mergeproof.resolveReviewThreads", "onCommand:mergeproof.runSandboxAgent", "onCommand:mergeproof.generatePlan", "onCommand:mergeproof.generateWalkthrough", "onCommand:mergeproof.generateDocstrings", "onCommand:mergeproof.suggestFix", "onCommand:mergeproof.simplify", "onCommand:mergeproof.generateTests", "onCommand:mergeproof.autofix"],
+  "activationEvents": ["onCommand:mergeproof.analyzePullRequest", "onCommand:mergeproof.consensus", "onCommand:mergeproof.reviewWorkingTree", "onCommand:mergeproof.resolveConflicts", "onCommand:mergeproof.resolveReviewThreads", "onCommand:mergeproof.runSandboxAgent", "onCommand:mergeproof.implementIssue", "onCommand:mergeproof.generatePlan", "onCommand:mergeproof.generateWalkthrough", "onCommand:mergeproof.generateDocstrings", "onCommand:mergeproof.suggestFix", "onCommand:mergeproof.simplify", "onCommand:mergeproof.generateTests", "onCommand:mergeproof.autofix"],
   "contributes": {
     "commands": [
       { "command": "mergeproof.analyzePullRequest", "title": "MergeProof: Analyze Pull Request" },
@@ -17,6 +17,7 @@
       { "command": "mergeproof.generateDocstrings", "title": "MergeProof: Generate Docstrings" },
       { "command": "mergeproof.reviewWorkingTree", "title": "MergeProof: Review Working Tree" },
       { "command": "mergeproof.runSandboxAgent", "title": "MergeProof: Run Sandbox Agent" },
+      { "command": "mergeproof.implementIssue", "title": "MergeProof: Implement GitHub Issue" },
       { "command": "mergeproof.generatePlan", "title": "MergeProof: Generate Evidence Plan" },
       { "command": "mergeproof.generateWalkthrough", "title": "MergeProof: Generate PR Walkthrough" },
       { "command": "mergeproof.suggestFix", "title": "MergeProof: Suggest Safe Fix" },

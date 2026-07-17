@@ -7,6 +7,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof analyze <change-request-url>` CLI workflow for GitHub, GitLab, Bitbucket, and Azure DevOps
 - `mergeproof review [repo-path]` pre-commit workflow for staged, unstaged, and untracked changes
 - `mergeproof agent [repo-path]` sandboxed fix generation with optional verification
+- `mergeproof task <github-issue-url> --repo <checkout>` evidence-retrieved issue implementation with sandbox verification and optional handoff PR
 - `mergeproof autofix <github-or-gitlab-url> --repo <checkout>` review-thread autofix with optional verification, re-review, and explicit new-PR/MR handoff
 - `mergeproof simplify <change-request-url>` behavior-preserving simplification suggestions
 - `mergeproof docstrings <change-request-url>` documentation-only patch suggestions
@@ -143,6 +144,8 @@ npm run cli -- analyze https://github.com/owner/repo/pull/123 --related-repo ..\
 npm run cli -- analyze https://github.com/owner/repo/pull/123 --repo . --agent security
 npm run cli -- agent . -- --verify "npm test"
 npm run cli -- agent . --verify "npm test" --re-review --dir src tests
+npm run cli -- task https://github.com/owner/repo/issues/123 -- --repo . --verify "npm test" --re-review
+npm run cli -- task https://github.com/owner/repo/issues/123 -- --repo . --verify "npm test" --re-review --create-pr
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --json
 npm run cli -- index .
 npm run cli -- analyze https://github.com/owner/repo/pull/123 -- --repo . --provider openai-compatible --model your-model
@@ -189,6 +192,8 @@ For repository retrieval, check out the PR head locally and run `npm run cli -- 
 The included workflow reviews opened, synchronized, reopened, and ready-for-review pull requests, and supports manual `workflow_dispatch` runs. It checks out the PR head, publishes a Check and review, runs the deterministic security gate, and records memory for that repository. Add `OPENAI_API_KEY`; if your token cannot publish reviews, the workflow still retains the Check/status fallback. For a deployable GitHub App receiver, configure `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_PRIVATE_KEY`; `GITHUB_TOKEN` takes precedence for local and Actions runs. The `serve` command also accepts signed GitLab, Bitbucket, and Azure DevOps webhook events at `/gitlab/webhook`, `/bitbucket/webhook`, and `/azure-devops/webhook` when their provider webhook secrets are configured.
 
 The manual `.github/workflows/mergeproof-agent.yml` workflow checks out a selected PR into an ephemeral Actions runner, runs the sandbox agent with an allowlisted verification command, uploads the JSON result as an artifact, and posts a summary comment. Its default-off `create_pr` input can apply the already-verified patch to a new branch and open a separate handoff PR; it never mutates the original PR branch. Agent-compatible editors can use `skills/mergeproof-review/SKILL.md` to invoke the same CLI contract.
+
+The manual `.github/workflows/mergeproof-task.yml` workflow implements a GitHub issue from retrieved repository evidence in an ephemeral worktree. It requires an allowlisted verification command, uploads the machine-readable result, comments on the source issue, and only pushes a separate handoff PR when the explicit `create_pr` input is enabled.
 
 The `.github/workflows/mergeproof-scheduled.yml` workflow reviews up to five open pull requests hourly when the repository variable `MERGEPROOF_SCHEDULE_ENABLED=true` is set, or immediately through `workflow_dispatch`. It publishes evidence checks, optionally publishes reviews when selected at dispatch time, uploads machine-readable results, and never applies code or merges a pull request. Scheduled model usage is opt-in because it can incur API cost.
 

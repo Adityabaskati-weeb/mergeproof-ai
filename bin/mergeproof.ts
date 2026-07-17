@@ -32,6 +32,7 @@ import type { FixSuggestion, SimplifySuggestion } from "../lib/fix";
 import { parsePullRequestUrl, type PullRequestRef } from "../lib/github";
 import type { ReviewEffort } from "../lib/types";
 import { renderWalkthroughMarkdown } from "../lib/walkthrough";
+import { runIssueAgent, type TaskAgentRun } from "../lib/task-agent";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -151,6 +152,17 @@ function printAgent(run: LocalAgentRun) {
   console.log(`Verification: ${run.trace.verificationCommand ? `${run.trace.verificationCommand} (${run.trace.verified ? "passed" : "failed"})` : "not requested"}`);
   if (run.trace.reReviewDecision) console.log(`Autonomous re-review: ${run.trace.reReviewDecision} (${run.trace.reReviewPassed ? "passed" : "failed"})`);
   if (run.trace.reReviewError) console.log(`Re-review detail: ${run.trace.reReviewError}`);
+  if (run.trace.verificationOutput) console.log(`\nVerification output:\n${run.trace.verificationOutput}`);
+}
+
+function printTaskAgent(run: TaskAgentRun) {
+  console.log(`\nMERGEPROOF ISSUE AGENT (${run.trace.model})\n\n${run.summary}\n`);
+  console.log(run.patch || "No patch was proposed.");
+  console.log(`\nSandbox applied: ${run.trace.appliedToSandbox ? "yes" : "no"}`);
+  console.log(`Evidence sources: ${run.trace.evidenceSources}`);
+  console.log(`Verification: ${run.trace.verificationCommand ? `${run.trace.verificationCommand} (${run.trace.verified ? "passed" : "failed"})` : run.trace.verified ? "patch application passed" : "not requested"}`);
+  if (run.trace.reReviewDecision) console.log(`Evidence re-review: ${run.trace.reReviewDecision} (${run.trace.reReviewPassed ? "passed" : "failed"})`);
+  if (run.trace.pullRequestUrl) console.log(`Created PR: ${run.trace.pullRequestUrl}`);
   if (run.trace.verificationOutput) console.log(`\nVerification output:\n${run.trace.verificationOutput}`);
 }
 
@@ -429,6 +441,20 @@ program.command("agent").description("Generate and verify a fix inside an epheme
     process.exitCode = !gated || verificationPassed && reReviewPassed ? 0 : 2;
   } catch (error) {
     console.error(`MergeProof agent error: ${error instanceof Error ? error.message : "Sandbox agent failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("task").description("Implement a GitHub issue from retrieved repository evidence in an ephemeral worktree").argument("<github-issue-url>", "GitHub issue URL").requiredOption("--repo <path>", "Local checkout of the target repository").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the task-agent JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "10").option("--verify <command>", "Sandbox verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Re-review the sandbox patch before reporting success").option("--create-pr", "Push a separate branch and open a pull request").option("--branch <name>", "Branch name when --create-pr is enabled").action(async (issueUrl, options) => {
+  try {
+    const run = await runIssueAgent(issueUrl, options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK), verify: parseVerificationCommand(options.verify), reReview: options.reReview, createPr: options.createPr, branch: options.branch });
+    if (options.patch) await writeFile(options.patch, run.patch, "utf8");
+    if (options.save) await writeFile(options.save, JSON.stringify(run, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(run, null, 2));
+    else printTaskAgent(run);
+    process.exitCode = options.createPr && (!run.trace.verified || options.reReview && run.trace.reReviewPassed !== true) ? 2 : 0;
+  } catch (error) {
+    console.error(`MergeProof task error: ${error instanceof Error ? error.message : "Issue-agent workflow failed."}`);
     process.exitCode = 1;
   }
 });

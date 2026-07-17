@@ -9,11 +9,11 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | GitHub PR review | Yes | Yes | Yes |
 | GitLab / Bitbucket / Azure DevOps ingestion | Yes: normalized read-only analysis | Azure DevOps and broader provider support | GitLab, Bitbucket, and Azure DevOps support |
 | Local uncommitted review | Yes: staged, unstaged, and untracked changes | IDE and CLI surfaces | IDE and CLI surfaces |
-| Agent handoff / fix verification | Yes: local ephemeral Git worktree, optional one-pass re-review, manual ephemeral GitHub Actions runner, and GitHub/GitLab review-finding autofix with explicit new-PR/MR handoff | Cloud-agent handoff | Agent handoff, Autofix, and autonomous fix/review cycles |
+| Agent handoff / fix verification | Yes: local ephemeral Git worktree, optional one-pass re-review, GitHub-issue-to-PR task agent, manual ephemeral GitHub Actions runner, and GitHub/GitLab review-finding autofix with explicit new-PR/MR handoff | Cloud-agent handoff | Agent handoff, Autofix, and autonomous fix/review cycles |
 | Automatic review trigger | GitHub Actions, signed webhook, and opt-in hourly scheduled review | Yes | Yes: GitHub, GitLab, Bitbucket, and Azure DevOps signed receivers plus Actions |
 | Governed external automations | Signed `/automation/webhook` with event, nested-field, and URL matching; read-only review/plan/fix actions | Actions, MCP, and cloud-agent workflows | Scheduled, message-triggered, and custom webhook automations |
 | Full PR context | Files, commits, checks, discussion, Jira/Linear, local and explicitly linked repositories, opt-in read-only MCP tools, and labeled web search | Full changeset, repository, and MCP context | PR, issue, repository, knowledge base context |
-| Direct issue planning | Jira and Linear issue URL to acceptance criteria, evidence plan, and citations | Issue and task workflows | Issue planning and task actions |
+| Direct issue planning | Jira and Linear issue URL to acceptance criteria, evidence plan, and citations; GitHub issues can drive a guarded implementation patch | Issue and task workflows | Issue planning and task actions |
 | Suggested reviewers | Path-aware suggestions from CODEOWNERS and `.mergeproof/reviewers.json` | Suggested reviewers and team rules | Suggested reviewer rules |
 | Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files, and named custom-agent profiles | Custom instructions, custom agents, skills, MCP | Repository and path-based instructions |
 | Citation-backed decision | Exact head-SHA citations and source validation | Actionable suggestions | Review findings and summaries |
@@ -53,4 +53,4 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 
 ## Remaining Deliberate Gaps
 
-MergeProof is not a complete replacement for the surrounding GitHub platform or CodeRabbit product. It does not reproduce GitHub's hosted Copilot cloud-agent service, CodeRabbit's hosted knowledge administration, or their managed billing/tenant controls. Its differentiator is an inspectable evidence ledger, deterministic privacy/quality gates, model disagreement visibility, and conservative mutation boundary: review-thread autofix, lifecycle hooks, and scheduled remote autofix are opt-in, allowlisted, sandboxed, and never silently modify the original branch.
+MergeProof is not a complete replacement for the surrounding GitHub platform or CodeRabbit product. It does not reproduce GitHub's hosted Copilot cloud-agent runtime, CodeRabbit's hosted knowledge administration, or their managed billing/tenant controls. Its local equivalent is the explicit issue-agent and sandbox handoff: repository evidence is bounded, patches are verified in an ephemeral worktree, and a PR is only pushed when the operator enables it. The differentiator remains an inspectable evidence ledger, deterministic privacy/quality gates, model disagreement visibility, and a conservative mutation boundary.
