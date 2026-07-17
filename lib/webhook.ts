@@ -11,6 +11,7 @@ import type { Analysis } from "./types";
 import { processWebhookAutomationPayload, verifyWebhookAutomationSignature } from "./webhook-automations";
 import { renderWalkthroughMarkdown } from "./walkthrough";
 import { reviewSuppression, updateReviewState } from "./review-state";
+import { generateDocstringsPullRequest } from "./docstrings";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -45,7 +46,7 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
   if (!payload || typeof payload !== "object") return { accepted: false, reason: "invalid_payload" };
   const value = payload as { action?: string; pull_request?: { html_url?: string }; issue?: { html_url?: string; pull_request?: unknown }; comment?: { body?: string } };
   if (options.event === "issue_comment") {
-    const command = value.comment?.body?.match(/^\s*\/mergeproof\s+(full review|review|plan|issue|summary|diagram|help|pause|resume|ignore|unignore)\b/im)?.[1]?.toLowerCase();
+    const command = value.comment?.body?.match(/^\s*\/mergeproof\s+(full review|review|plan|issue|summary|diagram|docstrings|help|pause|resume|ignore|unignore)\b/im)?.[1]?.toLowerCase();
     const issueUrl = value.issue?.html_url?.replace("/issues/", "/pull/");
     if (!command) return { accepted: true, ignored: true, reason: "no_mergeproof_command" };
     if (!value.issue?.pull_request || !issueUrl) return { accepted: true, ignored: true, reason: "comment_not_on_pull_request" };
@@ -61,7 +62,7 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       return { accepted: true, prUrl: issueUrl };
     }
     if (command === "help") {
-      await publishPullRequestComment(issueUrl, "## MergeProof commands\n\n- `/mergeproof review` - run the evidence gate\n- `/mergeproof full review` - run a complete evidence gate\n- `/mergeproof summary` - publish the cited walkthrough and change stack\n- `/mergeproof diagram` - publish the evidence-derived Mermaid change flow\n- `/mergeproof plan` - publish a cited implementation plan\n- `/mergeproof issue` - create a follow-up GitHub issue\n- `/mergeproof pause` or `/mergeproof resume` - control automatic reviews\n- `/mergeproof ignore` or `/mergeproof unignore` - control this PR's automatic reviews\n\nMergeProof never applies code or merges a pull request from a comment.");
+      await publishPullRequestComment(issueUrl, "## MergeProof commands\n\n- `/mergeproof review` - run the evidence gate\n- `/mergeproof full review` - run a complete evidence gate\n- `/mergeproof summary` - publish the cited walkthrough and change stack\n- `/mergeproof diagram` - publish the evidence-derived Mermaid change flow\n- `/mergeproof docstrings` - publish a documentation-only patch suggestion\n- `/mergeproof plan` - publish a cited implementation plan\n- `/mergeproof issue` - create a follow-up GitHub issue\n- `/mergeproof pause` or `/mergeproof resume` - control automatic reviews\n- `/mergeproof ignore` or `/mergeproof unignore` - control this PR's automatic reviews\n\nMergeProof never applies code or merges a pull request from a comment.");
       return { accepted: true, prUrl: issueUrl };
     }
     if (command === "plan") {
@@ -78,6 +79,12 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       await publishPullRequestComment(issueUrl, body);
       options.log?.(`MergeProof published ${command} for ${issueUrl}`);
       return { accepted: true, prUrl: issueUrl, analysis };
+    }
+    if (command === "docstrings") {
+      const suggestion = await generateDocstringsPullRequest(issueUrl, options.model, { provider: options.provider, repoPath: options.repoPath });
+      await publishPullRequestComment(issueUrl, `## MergeProof docstrings suggestion\n\n${suggestion.summary}\n\nChanged paths: ${suggestion.trace.changedPaths.join(", ") || "none"}\n\n\`\`\`diff\n${suggestion.patch || "No documentation patch was proposed."}\n\`\`\``);
+      options.log?.(`MergeProof published docstring suggestion for ${issueUrl}`);
+      return { accepted: true, prUrl: issueUrl };
     }
     if (command === "issue") {
       const url = await createGithubIssueFromAnalysis(issueUrl, analysis);

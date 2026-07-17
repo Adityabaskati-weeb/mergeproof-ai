@@ -19,7 +19,7 @@ export async function publishPullRequestReview(prUrl: string, analysis: Analysis
   const event = analysis.decision === "ready" ? "APPROVE" : analysis.decision === "needs-evidence" ? "REQUEST_CHANGES" : "COMMENT";
   const security = (analysis.securityFindings ?? []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.path}:${finding.line} ${finding.title}`).join("\n");
   const quality = (analysis.qualitySignals ?? []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.path}:${finding.line} ${finding.title}`).join("\n");
-  const walkthrough = analysis.walkthrough ? `\n\n### Walkthrough\n${analysis.walkthrough.summary}\n\nChange stack: ${analysis.walkthrough.changeStack.map((layer) => `${layer.title} (${layer.files.length})`).join(" -> ")}\nReview effort: ${analysis.walkthrough.effortScore}/5` : "";
+  const walkthrough = analysis.walkthrough ? `\n\n### Walkthrough\n${analysis.walkthrough.summary}\n\nChange stack: ${analysis.walkthrough.changeStack.map((layer) => `${layer.title} (${layer.files.length})`).join(" -> ")}\nReview effort: ${analysis.walkthrough.effortScore}/5${analysis.walkthrough.suggestedLabels.length ? `\nSuggested labels: ${analysis.walkthrough.suggestedLabels.join(", ")}` : ""}` : "";
   const body = `MergeProof decision: **${analysis.decision}**\n\n${security ? `Security/privacy findings:\n${security}\n\n` : ""}${quality ? `Quality signals:\n${quality}\n\n` : ""}${rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}`).join("\n")}\n\nProfile: ${profile} | Verified citations: ${analysis.trace.citedSources}${walkthrough}`;
   const octokit = await createGithubClient(true);
   try {
@@ -47,5 +47,14 @@ export async function requestPullRequestReviewers(prUrl: string, reviewers: stri
   if (!users.length && !teams.length) throw new Error("At least one GitHub username or team:<slug> reviewer is required.");
   const octokit = await createGithubClient(true);
   await octokit.rest.pulls.requestReviewers({ owner: ref.owner, repo: ref.repo, pull_number: ref.number, ...(users.length ? { reviewers: users } : {}), ...(teams.length ? { team_reviewers: teams } : {}) });
+  return ref.url;
+}
+
+export async function applyPullRequestLabels(prUrl: string, labels: string[]): Promise<string> {
+  const ref = parsePullRequestUrl(prUrl);
+  const normalized = [...new Set(labels.map((label) => label.trim()).filter((label) => /^[A-Za-z0-9][A-Za-z0-9:_ -]{0,49}$/.test(label)))].slice(0, 20);
+  if (!normalized.length) throw new Error("At least one safe GitHub label is required.");
+  const octokit = await createGithubClient(true);
+  await octokit.rest.issues.addLabels({ owner: ref.owner, repo: ref.repo, issue_number: ref.number, labels: normalized });
   return ref.url;
 }

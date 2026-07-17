@@ -7,6 +7,8 @@
     <actions>
         <action id="MergeProof.AnalyzePullRequest" class="ai.mergeproof.jetbrains.AnalyzePullRequestAction" text="MergeProof: Analyze Pull Request" description="Analyze a GitHub pull request with MergeProof" />
         <action id="MergeProof.Walkthrough" class="ai.mergeproof.jetbrains.WalkthroughAction" text="MergeProof: Generate PR Walkthrough" description="Generate an evidence-backed PR walkthrough" />
+        <action id="MergeProof.ResolveReviewThreads" class="ai.mergeproof.jetbrains.ResolveReviewThreadsAction" text="MergeProof: Resolve Review Threads" description="Inspect current GitHub review threads" />
+        <action id="MergeProof.Docstrings" class="ai.mergeproof.jetbrains.DocstringsAction" text="MergeProof: Generate Docstrings" description="Generate a documentation-only patch" />
         <action id="MergeProof.ReviewWorkingTree" class="ai.mergeproof.jetbrains.ReviewWorkingTreeAction" text="MergeProof: Review Working Tree" description="Review local changes with MergeProof" />
         <action id="MergeProof.Autofix" class="ai.mergeproof.jetbrains.AutofixAction" text="MergeProof: Autofix Review Threads" description="Verify a review-thread fix in a detached worktree" />
     </actions>

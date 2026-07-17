@@ -27,6 +27,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Simplify | Evidence-bounded behavior-preserving refactor patch with checked apply | Agent/code editing workflows | Simplify code command and walkthrough action |
 | Conflict resolution | Read-only conflict inventory plus explicit `git apply --3way` resolution patch and staging gate | Agent workflows | Resolve merge conflicts action |
 | Test generation | Test-only unified-diff suggestion | Agent/code generation workflows | Generate unit tests |
+| Documentation generation | Documentation-only patch suggestion bounded to changed non-test files | Agent/code generation workflows | Generate docstrings |
 | Issue creation | GitHub, Jira, and Linear | GitHub task workflows | GitHub, GitLab, Jira, Linear |
 | Slack | Signed slash commands, Events API mentions, thread follow-ups, `learn`, rate-limit visibility, governed automations, and guarded stacked-PR autofix | GitHub ecosystem integrations | Conversational agent, learning, automations, and PR actions |
 | Model choice | OpenAI, OpenAI-compatible including local endpoints, Anthropic | GitHub-managed model controls | Product-managed model controls |
@@ -34,6 +35,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Consensus gate | Parallel provider/model reviews with per-criterion agreement; `ready` requires unanimous evidence | Agent/sub-agent orchestration | Agent workflows and review automation |
 | Walkthrough / change stack | Evidence-derived summary, ordered change layers, review effort, related issues, reviewers, and Mermaid change-flow diagram; citations resolve to fetched files | Repository and PR context, agent workflows | Walkthrough, changed-file summary, sequence diagrams, effort estimate, related issues, labels, reviewers |
 | Review lifecycle controls | Explicit local pause/resume and per-PR ignore/unignore state suppress signed automatic reviews without disabling manual analysis | Pause/resume and repository policy controls | Pause, resume, ignore, and review controls |
+| Review-thread resolution | Read-only current-thread inventory; explicit `--apply` GraphQL resolution for selected or all current threads | Review feedback and agent actions | Resolve all review comments command |
 
 ## Differentiation
 

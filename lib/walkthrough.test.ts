@@ -30,6 +30,7 @@ describe("review walkthrough", () => {
     expect(walkthrough.sequenceDiagram).toContain("sequenceDiagram");
     expect(walkthrough.sequenceDiagram).toContain("Evidence-derived change flow");
     expect(walkthrough.suggestedReviewers).toEqual(["@payments-team"]);
+    expect(walkthrough.suggestedLabels).toEqual(["tests"]);
   });
 
   it("renders a publishable markdown artifact without inventing sources", () => {

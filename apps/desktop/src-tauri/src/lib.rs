@@ -29,7 +29,7 @@ fn cli_args(
     remember: bool,
     re_review: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "plan" | "fix" | "simplify" | "tests" | "review" | "agent" | "autofix" | "conflicts") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "autofix" | "conflicts" | "resolve") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -159,8 +159,8 @@ fn cli_args(
         }
     }
     if apply {
-        if !matches!(command, "fix" | "simplify") {
-            return Err(String::from("--apply is only valid for fix or simplify."));
+        if !matches!(command, "fix" | "simplify" | "resolve") {
+            return Err(String::from("--apply is only valid for fix, simplify, or resolve."));
         }
         args.push(String::from("--apply"));
     }

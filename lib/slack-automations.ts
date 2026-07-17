@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { join, resolve } from "node:path";
 
-export type SlackAutomationAction = "review" | "investigate" | "walkthrough" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "learn";
+export type SlackAutomationAction = "review" | "investigate" | "walkthrough" | "docstrings" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "learn";
 export type SlackAutomation = {
   id: string;
   action: SlackAutomationAction;
@@ -15,7 +15,7 @@ export type SlackAutomationEvent = { type?: string; text?: string; channel?: str
 const MAX_AUTOMATIONS = 50;
 
 function validAction(value: unknown): value is SlackAutomationAction {
-  return value === "review" || value === "investigate" || value === "walkthrough" || value === "plan" || value === "fix" || value === "simplify" || value === "tests" || value === "consensus" || value === "learn";
+  return value === "review" || value === "investigate" || value === "walkthrough" || value === "docstrings" || value === "plan" || value === "fix" || value === "simplify" || value === "tests" || value === "consensus" || value === "learn";
 }
 
 export async function loadSlackAutomations(root: string): Promise<SlackAutomation[]> {

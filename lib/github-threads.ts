@@ -25,6 +25,10 @@ type GraphqlPayload = {
 
 export type ReviewThreadReport = { threads: ReviewThread[]; sources: string[]; unavailable?: string };
 
+const RESOLVE_MUTATION = `mutation($threadId:ID!) {
+  resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } }
+}`;
+
 export async function fetchGithubReviewThreads(ref: PullRequestRef): Promise<ReviewThreadReport> {
   const token = await resolveGithubToken(false, true);
   if (!token) return { threads: [], sources: [], unavailable: "No GitHub token available for review-thread access." };
@@ -47,4 +51,26 @@ export async function fetchGithubReviewThreads(ref: PullRequestRef): Promise<Rev
     threads.push({ id: node.id, path: node.path ?? "unknown", ...(node.line != null ? { line: node.line } : {}), ...(node.originalLine != null ? { originalLine: node.originalLine } : {}), isResolved: Boolean(node.isResolved), isOutdated: Boolean(node.isOutdated), comments, url });
   }
   return { threads, sources: [...sources] };
+}
+
+export async function resolveGithubReviewThreads(ref: PullRequestRef, threadIds?: string[]): Promise<string[]> {
+  const token = await resolveGithubToken(true, true);
+  if (!token) throw new Error("No GitHub token available for review-thread resolution.");
+  const report = await fetchGithubReviewThreads(ref);
+  const unresolved = report.threads.filter((thread) => !thread.isResolved && !thread.isOutdated);
+  const selected = threadIds?.length ? unresolved.filter((thread) => threadIds.includes(thread.id)) : unresolved;
+  if (threadIds?.length && selected.length !== new Set(threadIds).size) throw new Error("One or more requested review-thread IDs are not unresolved and current.");
+  const resolved: string[] = [];
+  for (const thread of selected) {
+    const response = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { accept: "application/vnd.github+json", "content-type": "application/json", authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" },
+      body: JSON.stringify({ query: RESOLVE_MUTATION, variables: { threadId: thread.id } }),
+    });
+    if (!response.ok) throw new Error(`GitHub review-thread resolution failed with HTTP ${response.status}.`);
+    const payload = await response.json() as { data?: { resolveReviewThread?: { thread?: { id?: string; isResolved?: boolean } } }; errors?: Array<{ message?: string }> };
+    if (payload.errors?.length || payload.data?.resolveReviewThread?.thread?.isResolved !== true) throw new Error(payload.errors?.map((error) => error.message ?? "GraphQL error").join("; ") || `GitHub did not resolve review thread ${thread.id}.`);
+    resolved.push(thread.id);
+  }
+  return resolved;
 }

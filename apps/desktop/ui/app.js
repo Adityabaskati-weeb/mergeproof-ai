@@ -23,12 +23,12 @@ const agentProfile = document.querySelector("#agent-profile");
 const relatedRepos = document.querySelector("#related-repos");
 
 function updateActionLabel() {
-  const labels = { analyze: "Analyze change", walkthrough: "Generate walkthrough", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", autofix: "Review-thread autofix", plan: "Generate plan", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
+  const labels = { analyze: "Analyze change", walkthrough: "Generate walkthrough", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", autofix: "Review-thread autofix", plan: "Generate plan", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
   button.innerHTML = `${labels[action.value]} <span>&rarr;</span>`;
   const local = ["review", "agent", "conflicts"].includes(action.value);
   targetLabel.textContent = local ? "Repository path" : action.value === "plan" ? "Change request or issue" : "GitHub pull request";
   input.placeholder = local ? "C:\\path\\to\\repository" : "https://github.com/owner/repo/pull/123";
-  apply.disabled = !["fix", "simplify", "conflicts"].includes(action.value);
+  apply.disabled = !["fix", "simplify", "conflicts", "resolve"].includes(action.value);
   if (apply.disabled) apply.checked = false;
   remember.disabled = action.value !== "analyze";
   if (action.value !== "analyze") remember.checked = false;
@@ -71,7 +71,9 @@ button.addEventListener("click", async () => {
   try {
     const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: target, model: model.value || null, provider: provider.value || null, effort: effort.value || null, profile: profile.value || null, agent: agentProfile.value || null, directories: directories.value || null, relatedRepos: relatedRepos.value || null, repoPath: ["review", "agent", "conflicts"].includes(action.value) ? null : (repo.value || null), criteria: criteria.value || null, verify: verify.value || null, externalSecurity: externalSecurity.checked, codeqlDatabase: codeqlDatabase.value || null, mcp: mcp.checked, webSearch: webSearch.checked, apply: apply.checked, remember: remember.checked, reReview: reReview.checked });
     empty.classList.add("hidden");
-    if (action.value === "walkthrough") {
+    if (action.value === "resolve") {
+      result.innerHTML = `<h2>REVIEW THREADS ${apply.checked ? "RESOLVED" : "INSPECTED"}</h2><p>${output.resolved?.length ?? output.unresolved?.length ?? 0} thread(s) &middot; ${apply.checked ? "GitHub mutation applied" : "read-only inspection"}</p><div class="evidence">${(output.unresolved || output.resolved || []).map((thread) => `<div class="row"><span>${escapeHtml(thread.id || thread)}</span><code>${escapeHtml(thread.path || "resolved")}</code><span class="badge">${apply.checked ? "RESOLVED" : "OPEN"}</span></div>`).join("")}</div>`;
+    } else if (action.value === "walkthrough") {
       const walkthrough = output.walkthrough;
       result.innerHTML = `<h2>PR WALKTHROUGH</h2><p>Decision: ${escapeHtml(output.decision)} &middot; Effort: ${escapeHtml(walkthrough.effortScore)}/5 &middot; ${walkthrough.citations.length} cited files</p><p>${escapeHtml(walkthrough.summary)}</p><div class="evidence">${walkthrough.changeStack.map((layer, index) => `<div class="row"><span>${index + 1}. ${escapeHtml(layer.title)}<br /><small>${escapeHtml(layer.purpose)}</small></span><code>${layer.files.length} files</code><span class="badge">${layer.citations.length} CITED</span></div>`).join("")}</div><h3>Evidence-derived change flow</h3><pre class="patch">${escapeHtml(walkthrough.sequenceDiagram)}</pre>`;
     } else if (action.value === "analyze" || action.value === "review" || action.value === "consensus") {
@@ -82,6 +84,8 @@ button.addEventListener("click", async () => {
     } else if (action.value === "conflicts") {
       const conflictCount = output.conflictCount ?? output.trace?.changedPaths?.length ?? 0;
       result.innerHTML = `<h2>MERGE CONFLICTS ${output.trace ? (output.trace.applied ? "RESOLVED" : "SUGGESTED") : "DETECTED"}</h2><p>${conflictCount} conflict hunks &middot; ${output.trace ? `Model: ${escapeHtml(output.trace.model)}` : "read-only inspection"}</p><p>${escapeHtml(output.summary || "Resolve active conflicts before merging.")}</p>${output.patch ? `<pre class="patch">${escapeHtml(output.patch)}</pre>` : ""}`;
+    } else if (action.value === "docstrings") {
+      result.innerHTML = `<h2>DOCSTRINGS SUGGESTED</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.changedPaths.length} documentation paths</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No documentation patch was proposed.")}</pre>`;
     } else if (action.value === "agent" || action.value === "autofix") {
       const title = action.value === "autofix" ? "REVIEW-THREAD AUTOFIX" : `SANDBOX AGENT ${output.trace.verified && output.trace.reReviewPassed !== false ? "VERIFIED" : "SUGGESTED"}`;
       const detail = action.value === "autofix" ? `Unresolved threads: ${output.trace.unresolvedThreads ?? 0}${output.trace.pullRequestUrl ? ` &middot; Created PR: ${escapeHtml(output.trace.pullRequestUrl)}` : ""}` : `${output.trace.changedPaths.length} changed paths &middot; ${output.trace.verificationCommand ? escapeHtml(output.trace.verificationCommand) : "no verification"}${output.trace.reReviewDecision ? ` &middot; Re-review: ${escapeHtml(output.trace.reReviewDecision)}` : ""}`;

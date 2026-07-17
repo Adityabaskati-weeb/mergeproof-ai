@@ -75,6 +75,14 @@ export function buildWalkthrough(context: PullRequestContext, analysis?: Pick<An
   const totalDeletions = context.files.reduce((total, file) => total + file.deletions, 0);
   const promise = analysis?.contract.promise && analysis.contract.promise !== context.title ? ` Contract: ${analysis.contract.promise}` : "";
   const summary = `${context.title}. This change is organized into ${layers.length} evidence-backed layer${layers.length === 1 ? "" : "s"} across ${context.files.length} file${context.files.length === 1 ? "" : "s"} (+${totalAdditions}/-${totalDeletions}).${promise}`;
+  const labels = new Set<string>();
+  if (layers.some((layer) => layer.id === "tests")) labels.add("tests");
+  if (layers.some((layer) => layer.id === "docs")) labels.add("documentation");
+  if (layers.some((layer) => layer.id === "delivery")) labels.add("infrastructure");
+  if (context.securityFindings?.some((finding) => finding.category === "security")) labels.add("security");
+  if (context.securityFindings?.some((finding) => finding.category === "privacy")) labels.add("privacy");
+  if (context.checks.some((check) => check.conclusion && !["success", "neutral", "skipped"].includes(check.conclusion.toLowerCase()))) labels.add("needs-evidence");
+  if (analysis?.decision === "needs-owner") labels.add("needs-owner");
   return {
     summary,
     changeStack: layers,
@@ -83,6 +91,7 @@ export function buildWalkthrough(context: PullRequestContext, analysis?: Pick<An
     effortReason: effort.reason,
     relatedIssues: (context.issues ?? []).map((issue) => ({ provider: issue.provider, key: issue.key, summary: issue.summary, url: issue.url })),
     suggestedReviewers: context.suggestedReviewers ?? [],
+    suggestedLabels: [...labels].sort(),
     citations: uniqueCitations(layers.flatMap((layer) => layer.citations)),
     evidenceMode: "deterministic",
   };
@@ -93,5 +102,6 @@ export function renderWalkthroughMarkdown(walkthrough: ReviewWalkthrough, decisi
   const files = walkthrough.changeStack.flatMap((layer) => layer.files).slice(0, 40).map((file) => `- \`${file.path}\` (${file.status}, +${file.additions}/-${file.deletions}) [evidence](${file.citation.url})`).join("\n");
   const issues = walkthrough.relatedIssues.length ? `\n### Related issues\n${walkthrough.relatedIssues.map((issue) => `- [${issue.key}](${issue.url}) ${issue.summary}`).join("\n")}` : "";
   const reviewers = walkthrough.suggestedReviewers.length ? `\n### Suggested reviewers\n${walkthrough.suggestedReviewers.map((reviewer) => `- ${reviewer}`).join("\n")}` : "";
-  return ["## MergeProof walkthrough", decision ? `**Decision:** ${decision}` : "", `**Evidence mode:** ${walkthrough.evidenceMode} | **Review effort:** ${walkthrough.effortScore}/5`, `\n${walkthrough.summary}`, `\n### Change stack\n| Layer | Purpose | Files | Citations |\n| --- | --- | ---: | ---: |\n${stack || "| No changed files returned | | 0 | 0 |"}`, `\n### Changed files\n${files || "No changed file evidence was returned."}`, `\n### Change flow\n\n\`\`\`mermaid\n${walkthrough.sequenceDiagram}\n\`\`\``, `\n### Effort rationale\n${walkthrough.effortReason}`, issues, reviewers, `\nVerified file citations: ${walkthrough.citations.length}`].filter(Boolean).join("\n");
+  const labels = walkthrough.suggestedLabels.length ? `\n### Suggested labels\n${walkthrough.suggestedLabels.map((label) => `- \`${label}\``).join("\n")}` : "";
+  return ["## MergeProof walkthrough", decision ? `**Decision:** ${decision}` : "", `**Evidence mode:** ${walkthrough.evidenceMode} | **Review effort:** ${walkthrough.effortScore}/5`, `\n${walkthrough.summary}`, `\n### Change stack\n| Layer | Purpose | Files | Citations |\n| --- | --- | ---: | ---: |\n${stack || "| No changed files returned | | 0 | 0 |"}`, `\n### Changed files\n${files || "No changed file evidence was returned."}`, `\n### Change flow\n\n\`\`\`mermaid\n${walkthrough.sequenceDiagram}\n\`\`\``, `\n### Effort rationale\n${walkthrough.effortReason}`, issues, reviewers, labels, `\nVerified file citations: ${walkthrough.citations.length}`].filter(Boolean).join("\n");
 }

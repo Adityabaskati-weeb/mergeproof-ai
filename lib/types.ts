@@ -78,6 +78,7 @@ export type ReviewWalkthrough = {
   effortReason: string;
   relatedIssues: Array<{ provider: string; key: string; summary: string; url: string }>;
   suggestedReviewers: string[];
+  suggestedLabels: string[];
   citations: WalkthroughCitation[];
   evidenceMode: "deterministic";
 };

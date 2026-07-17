@@ -7,7 +7,7 @@ import { evaluateAnalysis } from "../lib/evaluation";
 import { fixPullRequest, simplifyPullRequest } from "../lib/fix";
 import { autofixPullRequest, type AutofixResult } from "../lib/autofix";
 import { publishChangeRequestCheck, publishChangeRequestReview } from "../lib/change-publish";
-import { publishPullRequestComment, requestPullRequestReviewers } from "../lib/github-review";
+import { applyPullRequestLabels, publishPullRequestComment, requestPullRequestReviewers } from "../lib/github-review";
 import { createJiraIssue, createLinearIssue } from "../lib/issues";
 import { indexRepository } from "../lib/retrieval";
 import { planPullRequest } from "../lib/plan";
@@ -20,14 +20,16 @@ import { inspectConflicts, resolveConflicts, type ConflictReport, type ConflictR
 import { addKnowledge, readKnowledge } from "../lib/knowledge";
 import { startGithubWebhookServer } from "../lib/webhook";
 import { createGithubIssueFromAnalysis } from "../lib/github-issues";
+import { fetchGithubReviewThreads, resolveGithubReviewThreads } from "../lib/github-threads";
 import { generateTestsPullRequest, type TestSuggestion } from "../lib/tests";
+import { generateDocstringsPullRequest, type DocstringSuggestion } from "../lib/docstrings";
 import { reviewWorkingTree } from "../lib/local-review";
 import { runConsensus, type ConsensusResult } from "../lib/consensus";
 import { runLocalAgent, VERIFICATION_COMMANDS, type LocalAgentRun, type VerificationCommand } from "../lib/local-agent";
 import type { Analysis } from "../lib/types";
 import type { ReviewPlan } from "../lib/models";
 import type { FixSuggestion, SimplifySuggestion } from "../lib/fix";
-import type { PullRequestRef } from "../lib/github";
+import { parsePullRequestUrl, type PullRequestRef } from "../lib/github";
 import type { ReviewEffort } from "../lib/types";
 import { renderWalkthroughMarkdown } from "../lib/walkthrough";
 
@@ -136,6 +138,12 @@ function printTests(suggestion: TestSuggestion) {
   console.log(`\nChanged test paths: ${suggestion.trace.changedPaths.join(", ") || "none"}\n`);
 }
 
+function printDocstrings(suggestion: DocstringSuggestion) {
+  console.log(`\nMERGEPROOF DOCSTRINGS (${suggestion.trace.model})\n\n${suggestion.summary}\n`);
+  console.log(suggestion.patch || "No documentation patch was proposed.");
+  console.log(`\nChanged documentation paths: ${suggestion.trace.changedPaths.join(", ") || "none"}\n`);
+}
+
 function printAgent(run: LocalAgentRun) {
   console.log(`\nMERGEPROOF SANDBOX AGENT (${run.trace.model})\n\n${run.summary}\n`);
   console.log(run.patch || "No patch was proposed.");
@@ -234,6 +242,27 @@ program.command("conflicts").description("Inspect active Git merge conflicts or 
     process.exitCode = resolution.trace.applied ? 0 : 2;
   } catch (error) {
     console.error(`MergeProof conflicts error: ${error instanceof Error ? error.message : "Conflict workflow failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("resolve").description("Inspect or explicitly resolve current GitHub pull-request review threads").argument("<github-pull-request-url>", "GitHub pull request URL").option("--thread-id <id...>", "Only select explicit unresolved thread IDs").option("--apply", "Resolve selected threads through the GitHub GraphQL API").option("--json", "Print machine-readable JSON").action(async (prUrl, options) => {
+  try {
+    const ref = parsePullRequestUrl(prUrl);
+    const report = await fetchGithubReviewThreads(ref);
+    const selected = report.threads.filter((thread) => !thread.isResolved && !thread.isOutdated && (!options.threadId?.length || options.threadId.includes(thread.id)));
+    if (options.apply) {
+      const resolved = await resolveGithubReviewThreads(ref, options.threadId?.length ? options.threadId : undefined);
+      const output = { pullRequestUrl: ref.url, resolved, remainingUnresolved: selected.length - resolved.length };
+      if (options.json) console.log(JSON.stringify(output, null, 2));
+      else console.log(`Resolved ${resolved.length} review thread(s) on ${ref.url}.`);
+      return;
+    }
+    const output = { pullRequestUrl: ref.url, unresolved: selected.map((thread) => ({ id: thread.id, path: thread.path, line: thread.line, url: thread.url })) };
+    if (options.json) console.log(JSON.stringify(output, null, 2));
+    else console.log(selected.length ? selected.map((thread) => `${thread.id} ${thread.path}:${thread.line ?? "?"} ${thread.url}`).join("\n") : "No unresolved current review threads.");
+  } catch (error) {
+    console.error(`MergeProof resolve error: ${error instanceof Error ? error.message : "Review-thread resolution failed."}`);
     process.exitCode = 1;
   }
 });
@@ -362,6 +391,19 @@ program.command("tests").description("Generate a test-only unified diff suggesti
   }
 });
 
+program.command("docstrings").description("Generate a documentation-only unified diff suggestion").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the documentation suggestion JSON to a file").option("--patch <path>", "Save the unified diff to a patch file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout for repository retrieval").option("--agent <profile>", "Repository custom-agent profile").action(async (prUrl, options) => {
+  try {
+    const suggestion = await generateDocstringsPullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, agent: options.agent });
+    if (options.patch) await writeFile(options.patch, suggestion.patch, "utf8");
+    if (options.save) await writeFile(options.save, JSON.stringify(suggestion, null, 2), "utf8");
+    if (options.json) console.log(JSON.stringify(suggestion, null, 2));
+    else printDocstrings(suggestion);
+  } catch (error) {
+    console.error(`MergeProof docstrings error: ${error instanceof Error ? error.message : "Documentation generation failed."}`);
+    process.exitCode = 1;
+  }
+});
+
 program.command("review").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--hooks", "Run configured safe lifecycle hooks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").action(async (repoPath, options) => {
   try {
     const analysis = await reviewWorkingTree(options.model, { repoPath, provider: options.provider, effort: parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, directories: options.dir, criteria: parseCriteria(options.criteria), retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, hooks: options.hooks, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery });
@@ -391,12 +433,16 @@ program.command("agent").description("Generate and verify a fix inside an epheme
   }
 });
 
-program.command("analyze").description("Analyze a GitHub, GitLab, Bitbucket, or Azure DevOps change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the JSON analysis to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--related-repo <path...>", "Additional local repositories for read-only context").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--knowledge-limit <number>", "Maximum approved knowledge facts to include", "12").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--mcp", "Use explicitly configured read-only MCP context tools").option("--web-search", "Use opt-in Brave or Tavily web-search snippets as external context").option("--hooks", "Run explicitly configured safe lifecycle hooks from .mergeproof/hooks.json").option("--remember", "Persist this review in repository-scoped memory").option("--memory-root <path>", "Memory repository root").option("--memory-limit <number>", "Prior memory entries to provide", "5").option("--publish-check", "Publish the result as a GitHub Check").option("--publish-review", "Publish a pull-request review or fallback comment").option("--request-reviewers <reviewer...>", "Explicitly request GitHub users or team:<slug> reviewers").option("--slack-webhook <url>", "Post a summary to a Slack incoming webhook").option("--create-jira", "Create a Jira follow-up for non-passing criteria").option("--create-linear", "Create a Linear follow-up for non-passing criteria").option("--create-github-issue", "Create one GitHub follow-up issue from unresolved findings").option("--github-issue-title <title>", "Title for the created GitHub issue").action(async (prUrl, options) => {
+program.command("analyze").description("Analyze a GitHub, GitLab, Bitbucket, or Azure DevOps change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the JSON analysis to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--repo <path>", "Local checkout to use for repository retrieval").option("--related-repo <path...>", "Additional local repositories for read-only context").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--knowledge-limit <number>", "Maximum approved knowledge facts to include", "12").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--mcp", "Use explicitly configured read-only MCP context tools").option("--web-search", "Use opt-in Brave or Tavily web-search snippets as external context").option("--hooks", "Run explicitly configured safe lifecycle hooks from .mergeproof/hooks.json").option("--remember", "Persist this review in repository-scoped memory").option("--memory-root <path>", "Memory repository root").option("--memory-limit <number>", "Prior memory entries to provide", "5").option("--publish-check", "Publish the result as a GitHub Check").option("--publish-review", "Publish a pull-request review or fallback comment").option("--request-reviewers <reviewer...>", "Explicitly request GitHub users or team:<slug> reviewers").option("--apply-labels", "Apply deterministic suggested labels to a GitHub pull request").option("--slack-webhook <url>", "Post a summary to a Slack incoming webhook").option("--create-jira", "Create a Jira follow-up for non-passing criteria").option("--create-linear", "Create a Linear follow-up for non-passing criteria").option("--create-github-issue", "Create one GitHub follow-up issue from unresolved findings").option("--github-issue-title <title>", "Title for the created GitHub issue").action(async (prUrl, options) => {
   try {
     const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, relatedRepos: options.relatedRepo, effort: parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, remember: options.remember, memoryRoot: options.memoryRoot, memoryLimit: Number(options.memoryLimit), knowledgeLimit: Number(options.knowledgeLimit), externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, mcp: options.mcp, webSearch: options.webSearch, hooks: options.hooks });
     if (options.publishCheck) console.error(`Change Check: ${await publishChangeRequestCheck(prUrl, analysis)}`);
     if (options.publishReview) console.error(`Change Review: ${await publishChangeRequestReview(prUrl, analysis)}`);
     if (options.requestReviewers) console.error(`Reviewers requested: ${await requestPullRequestReviewers(prUrl, options.requestReviewers)}`);
+    if (options.applyLabels) {
+      if (!analysis.walkthrough?.suggestedLabels.length) console.error("No deterministic labels were suggested.");
+      else console.error(`Labels applied: ${await applyPullRequestLabels(prUrl, analysis.walkthrough.suggestedLabels)}`);
+    }
     if (options.slackWebhook) await publishSlackSummary(options.slackWebhook, prUrl, analysis);
     if (options.createJira) {
       const findings = analysis.rows.filter((row) => row.state !== "pass").map((row) => `${row.state.toUpperCase()}: ${row.criterion}\n${row.evidence}`).join("\n\n") || "MergeProof found no failing criteria; review the analysis trace.";
