@@ -47,6 +47,7 @@ import { generateCustomReport } from "../lib/report-ai";
 import { publishReviewReport, publishReviewReportEmail, type ReportDestination } from "../lib/report-delivery";
 import { readPlanHistory, recordPlanVersion } from "../lib/plan-history";
 import { createReviewBundle, verifyReviewBundle } from "../lib/review-bundle";
+import { runInteractiveChat } from "../lib/chat";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -256,7 +257,16 @@ program.command("configuration").alias("config").description("Inspect or explici
   }
 });
 
-program.command("ask").alias("chat").description("Answer a read-only repository question using bounded local evidence").argument("<question...>", "Question to answer").option("--repo <path>", "Repository path", process.cwd()).option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--json", "Print machine-readable JSON").action(async (question, options) => {
+program.command("chat").description("Run an interactive evidence-backed CLI session").option("--repo <path>", "Repository path", process.cwd()).option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--verify <command>", "Sandbox verification for implement actions: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Re-review an implementation patch before reporting success").option("--apply", "Apply an implementation patch only after verification and optional re-review").action(async (options) => {
+  try {
+    await runInteractiveChat({ repoPath: options.repo, model: options.model, provider: options.provider, agent: options.agent, verify: parseVerificationCommand(options.verify), reReview: options.reReview, apply: options.apply });
+  } catch (error) {
+    console.error(`MergeProof chat error: ${error instanceof Error ? error.message : "Interactive session failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("ask").description("Answer a read-only repository question using bounded local evidence").argument("<question...>", "Question to answer").option("--repo <path>", "Repository path", process.cwd()).option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--json", "Print machine-readable JSON").action(async (question, options) => {
   try {
     const result = await askRepository(question.join(" "), options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK) });
     if (options.json) console.log(JSON.stringify(result, null, 2));

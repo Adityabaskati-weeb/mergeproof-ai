@@ -24,6 +24,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof feedback <change-request-url> <label>` and `mergeproof metrics` outcome feedback and ready-decision calibration
 - `mergeproof verify <analysis-json>` to independently verify a saved analysis attestation
 - `mergeproof bundle create|verify` to create and offline-verify a portable evidence capsule
+- `mergeproof chat` for an interactive CLI session with read-only ask, plan, review, and sandboxed implement actions
 - `mergeproof report [repository]` for local dashboard-style Markdown, JSON, or CSV review reports, natural-language custom reports, and optional Slack, Discord, Teams, or SendGrid email delivery
 - `mergeproof plan-history` to inspect recorded implementation-plan versions and content digests
 - `mergeproof configuration` to inspect policy/instructions/recipes, or `--generate` to create a starter policy explicitly
@@ -190,6 +191,7 @@ npm run cli -- evaluate analysis.json
 npm run cli -- verify analysis.json
 npm run cli -- bundle create https://github.com/owner/repo/pull/123 --analysis analysis.json --output review.bundle.json
 npm run cli -- bundle verify review.bundle.json
+npm.cmd run cli -- chat --repo . --verify "npm test" --re-review
 npm run cli -- report owner/repo -- --repo . --format csv --output mergeproof-report.csv
 npm run cli -- feedback https://github.com/owner/repo/pull/123 merged -- --repo . --analysis analysis.json
 npm run cli -- metrics owner/repo -- --repo . --json
