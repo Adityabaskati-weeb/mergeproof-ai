@@ -23,15 +23,17 @@ const agentProfile = document.querySelector("#agent-profile");
 const relatedRepos = document.querySelector("#related-repos");
 
 function updateActionLabel() {
-  const labels = { analyze: "Analyze change", walkthrough: "Generate walkthrough", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
+  const labels = { analyze: "Analyze change", ask: "Ask repository", walkthrough: "Generate walkthrough", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
   const criteriaLabel = document.querySelector('label[for="criteria"]');
   button.innerHTML = `${labels[action.value]} <span>&rarr;</span>`;
-  const local = ["review", "agent", "conflicts"].includes(action.value);
-  targetLabel.textContent = local ? "Repository path" : action.value === "plan" ? "Change request or issue" : action.value === "task" ? "GitHub issue" : "GitHub pull request";
+  const local = ["review", "agent", "conflicts", "ask"].includes(action.value);
+  targetLabel.textContent = action.value === "ask" ? "Repository question" : local ? "Repository path" : action.value === "plan" ? "Change request or issue" : action.value === "task" ? "GitHub issue" : "GitHub pull request";
   if (criteriaLabel) criteriaLabel.textContent = action.value === "recipe" ? "Recipe name" : "Criteria";
-  input.placeholder = local ? "C:\\path\\to\\repository" : action.value === "task" ? "https://github.com/owner/repo/issues/123" : "https://github.com/owner/repo/pull/123";
+  input.placeholder = action.value === "ask" ? "How does authentication flow through this repository?" : local ? "C:\\path\\to\\repository" : action.value === "task" ? "https://github.com/owner/repo/issues/123" : "https://github.com/owner/repo/pull/123";
   apply.disabled = !["fix", "simplify", "conflicts", "resolve", "recipe"].includes(action.value);
   if (apply.disabled) apply.checked = false;
+  criteria.disabled = action.value === "ask";
+  if (criteria.disabled) criteria.value = "";
   remember.disabled = action.value !== "analyze";
   if (action.value !== "analyze") remember.checked = false;
   verify.disabled = !["agent", "task", "recipe", "autofix"].includes(action.value);
@@ -78,6 +80,8 @@ button.addEventListener("click", async () => {
     } else if (action.value === "walkthrough") {
       const walkthrough = output.walkthrough;
       result.innerHTML = `<h2>PR WALKTHROUGH</h2><p>Decision: ${escapeHtml(output.decision)} &middot; Effort: ${escapeHtml(walkthrough.effortScore)}/5 &middot; ${walkthrough.citations.length} cited files</p><p>${escapeHtml(walkthrough.summary)}</p><div class="evidence">${walkthrough.changeStack.map((layer, index) => `<div class="row"><span>${index + 1}. ${escapeHtml(layer.title)}<br /><small>${escapeHtml(layer.purpose)}</small></span><code>${layer.files.length} files</code><span class="badge">${layer.citations.length} CITED</span></div>`).join("")}</div><h3>Evidence-derived change flow</h3><pre class="patch">${escapeHtml(walkthrough.sequenceDiagram)}</pre>`;
+    } else if (action.value === "ask") {
+      result.innerHTML = `<h2>REPOSITORY ANSWER</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.evidenceSources}/${output.trace.indexedChunks} evidence sources &middot; read-only &middot; ${output.trace.elapsedMs}ms</p><p class="answer">${escapeHtml(output.answer).replaceAll("\n", "<br />")}</p>`;
     } else if (action.value === "analyze" || action.value === "review" || action.value === "consensus") {
       const retrieval = output.trace.retrieval?.enabled ? ` &middot; ${output.trace.retrieval.selectedChunks}/${output.trace.retrieval.indexedChunks} repository chunks` : "";
       const security = (output.securityFindings || []).map((finding) => `<div class="row security"><span>${escapeHtml(finding.title)}</span><code>${escapeHtml(finding.path)}:${escapeHtml(finding.line)}</code><span class="badge">${escapeHtml(finding.severity.toUpperCase())}</span></div>`).join("");

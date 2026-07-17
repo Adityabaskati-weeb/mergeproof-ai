@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { processGithubWebhookPayload, verifyGithubWebhookSignature } from "./webhook";
+import { parseGithubCommentCommand, processGithubWebhookPayload, verifyGithubWebhookSignature } from "./webhook";
 
 describe("GitHub webhook boundary", () => {
   it("verifies the GitHub sha256 signature", () => {
@@ -17,5 +17,12 @@ describe("GitHub webhook boundary", () => {
   it("requires an explicit natural-language request and checkout for comment editing", async () => {
     await expect(processGithubWebhookPayload({ issue: { html_url: "https://github.com/acme/widget/issues/42", pull_request: {} }, comment: { body: "/mergeproof implement" } }, { event: "issue_comment" })).resolves.toMatchObject({ accepted: false, reason: "missing_implementation_request" });
     await expect(processGithubWebhookPayload({ issue: { html_url: "https://github.com/acme/widget/issues/42", pull_request: {} }, comment: { body: "/mergeproof implement add a retry" } }, { event: "issue_comment" })).resolves.toMatchObject({ accepted: false, reason: "implementation_requires_repo_checkout" });
+  });
+
+  it("parses CodeRabbit-compatible command aliases without invoking integrations", () => {
+    expect(parseGithubCommentCommand("/mergeproof generate unit tests")).toEqual({ command: "generate unit tests", instruction: "" });
+    expect(parseGithubCommentCommand("/mergeproof autofix stacked pr")).toEqual({ command: "autofix stacked pr", instruction: "" });
+    expect(parseGithubCommentCommand("/mergeproof run api-contract")).toEqual({ command: "run", instruction: "api-contract" });
+    expect(parseGithubCommentCommand("plain comment")).toBeUndefined();
   });
 });

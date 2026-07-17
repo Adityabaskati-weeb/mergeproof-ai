@@ -18,6 +18,11 @@ import { parsePullRequestUrl } from "./github";
 import { readReviewMemory } from "./memory";
 import { recordOutcome } from "./outcomes";
 import { readMergeProofConfiguration, renderConfiguration } from "./configuration";
+import { generateMergeProofConfiguration } from "./configuration";
+import { generateTestsPullRequest } from "./tests";
+import { fetchGithubReviewThreads, resolveGithubReviewThreads } from "./github-threads";
+import { autofixPullRequest } from "./autofix";
+import { runRecipe } from "./recipes";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -48,13 +53,21 @@ export function verifyGithubWebhookSignature(body: string, signature: string | u
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
+const COMMENT_COMMANDS = "full review|review|generate sequence diagram|sequence diagram|generate unit tests|unit tests|generate docstrings|docstrings|plan|issue|summary|diagram|implement|generate configuration|configuration|resolve|autofix stacked pr|autofix|run|help|pause|resume|ignore|unignore";
+
+export function parseGithubCommentCommand(body: string | undefined): { command: string; instruction: string } | undefined {
+  const match = body?.match(new RegExp(`^\\s*\\/mergeproof\\s+(${COMMENT_COMMANDS})\\b([^\\r\\n]*)`, "im"));
+  if (!match) return undefined;
+  return { command: match[1].toLowerCase(), instruction: match[2]?.trim() ?? "" };
+}
+
 export async function processGithubWebhookPayload(payload: unknown, options: Pick<GithubWebhookOptions, "model" | "provider" | "repoPath" | "publishReview" | "log"> & { event?: string }): Promise<GithubWebhookResult> {
   if (!payload || typeof payload !== "object") return { accepted: false, reason: "invalid_payload" };
   const value = payload as { action?: string; pull_request?: { html_url?: string; merged?: boolean; commits?: number }; issue?: { html_url?: string; pull_request?: unknown }; comment?: { body?: string } };
   if (options.event === "issue_comment") {
-    const commandMatch = value.comment?.body?.match(/^\s*\/mergeproof\s+(full review|review|plan|issue|summary|diagram|docstrings|implement|configuration|help|pause|resume|ignore|unignore)\b([^\r\n]*)/im);
-    const command = commandMatch?.[1]?.toLowerCase();
-    const instruction = commandMatch?.[2]?.trim() ?? "";
+    const parsedCommand = parseGithubCommentCommand(value.comment?.body);
+    const command = parsedCommand?.command;
+    const instruction = parsedCommand?.instruction ?? "";
     const issueUrl = value.issue?.html_url?.replace("/issues/", "/pull/");
     if (!command) return { accepted: true, ignored: true, reason: "no_mergeproof_command" };
     if (!value.issue?.pull_request || !issueUrl) return { accepted: true, ignored: true, reason: "comment_not_on_pull_request" };
@@ -70,13 +83,52 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       return { accepted: true, prUrl: issueUrl };
     }
     if (command === "help") {
-      await publishPullRequestComment(issueUrl, "## MergeProof commands\n\n- `/mergeproof review` - run the evidence gate\n- `/mergeproof full review` - run a complete evidence gate\n- `/mergeproof summary` - publish the cited walkthrough and change stack\n- `/mergeproof diagram` - publish the evidence-derived Mermaid change flow\n- `/mergeproof docstrings` - publish a documentation-only patch suggestion\n- `/mergeproof plan` - publish a cited implementation plan\n- `/mergeproof implement <request>` - create a separate verified PR from an explicit natural-language request\n- `/mergeproof configuration` - report the active policy, instructions, and recipes\n- `/mergeproof issue` - create a follow-up GitHub issue\n- `/mergeproof pause` or `/mergeproof resume` - control automatic reviews\n- `/mergeproof ignore` or `/mergeproof unignore` - control this PR's automatic reviews\n\nMergeProof never edits the source branch or merges a pull request from a comment.");
+      await publishPullRequestComment(issueUrl, "## MergeProof commands\n\n- `/mergeproof review` or `/mergeproof full review` - run the evidence gate\n- `/mergeproof summary` - publish the cited walkthrough and change stack\n- `/mergeproof diagram` or `/mergeproof generate sequence diagram` - publish the evidence-derived Mermaid change flow\n- `/mergeproof docstrings` or `/mergeproof generate docstrings` - publish a documentation-only patch suggestion\n- `/mergeproof generate unit tests` - publish a test-only patch suggestion\n- `/mergeproof plan` - publish a cited implementation plan\n- `/mergeproof implement <request>` - create a separate verified PR from an explicit natural-language request\n- `/mergeproof autofix` or `/mergeproof autofix stacked pr` - verify review-thread fixes in a sandbox and optionally open a separate PR\n- `/mergeproof run <recipe>` - execute a configured finishing-touch recipe in a separate verified PR\n- `/mergeproof configuration` or `/mergeproof generate configuration` - inspect or create the repository policy\n- `/mergeproof resolve` - resolve current review threads explicitly requested by the comment\n- `/mergeproof issue` - create a follow-up GitHub issue\n- `/mergeproof pause` or `/mergeproof resume` - control automatic reviews\n- `/mergeproof ignore` or `/mergeproof unignore` - control this PR's automatic reviews\n\nMergeProof never edits the source branch or merges a pull request from a comment.");
       return { accepted: true, prUrl: issueUrl };
     }
-    if (command === "configuration") {
+    if (command === "configuration" || command === "generate configuration") {
+      if (command === "generate configuration") {
+        const generated = await generateMergeProofConfiguration(stateRoot);
+        await publishPullRequestComment(issueUrl, `MergeProof configuration ${generated.created ? "created" : "already exists"} at .mergeproof/config.json.`);
+        return { accepted: true, prUrl: issueUrl };
+      }
       const snapshot = await readMergeProofConfiguration(options.repoPath || process.cwd());
       await publishPullRequestComment(issueUrl, renderConfiguration(snapshot));
       options.log?.(`MergeProof published configuration for ${issueUrl}`);
+      return { accepted: true, prUrl: issueUrl };
+    }
+    if (command === "resolve") {
+      const ref = parsePullRequestUrl(issueUrl);
+      const report = await fetchGithubReviewThreads(ref);
+      const unresolved = report.threads.filter((thread) => !thread.isResolved && !thread.isOutdated);
+      const resolved = await resolveGithubReviewThreads(ref);
+      await publishPullRequestComment(issueUrl, `## MergeProof resolved review threads\n\nResolved ${resolved.length} of ${unresolved.length} current unresolved thread(s).`);
+      return { accepted: true, prUrl: issueUrl };
+    }
+    if (command === "generate unit tests" || command === "unit tests") {
+      const suggestion = await generateTestsPullRequest(issueUrl, options.model, { provider: options.provider, repoPath: options.repoPath });
+      await publishPullRequestComment(issueUrl, `## MergeProof unit-test suggestion\n\n${suggestion.summary}\n\nChanged paths: ${suggestion.trace.changedPaths.join(", ") || "none"}\n\nTest patch:\n${suggestion.patch || "No test patch was proposed."}`);
+      options.log?.(`MergeProof published unit-test suggestion for ${issueUrl}`);
+      return { accepted: true, prUrl: issueUrl };
+    }
+    if (command === "autofix" || command === "autofix stacked pr") {
+      if (!options.repoPath) return { accepted: false, reason: "autofix_requires_repo_checkout", prUrl: issueUrl };
+      const verifyValue = process.env.MERGEPROOF_COMMENT_AUTOFIX_VERIFY as VerificationCommand | undefined;
+      if (verifyValue && !VERIFICATION_COMMANDS.includes(verifyValue)) return { accepted: false, reason: "invalid_comment_autofix_verification_command", prUrl: issueUrl };
+      const stacked = command === "autofix stacked pr";
+      const result = await autofixPullRequest(issueUrl, options.model, { provider: options.provider, repoPath: options.repoPath, verify: verifyValue, reReview: true, ...(stacked ? { createPr: true, stackedPr: true } : {}) });
+      await publishPullRequestComment(issueUrl, `## MergeProof autofix\n\n${result.summary}\n\nChanged paths: ${result.trace.changedPaths.join(", ") || "none"}\n\nVerification: ${result.trace.verified ? "passed" : "failed"}${result.trace.pullRequestUrl ? `\\n\\nHandoff PR: ${result.trace.pullRequestUrl}` : ""}`);
+      options.log?.(`MergeProof published autofix for ${issueUrl}`);
+      return { accepted: true, prUrl: issueUrl };
+    }
+    if (command === "run") {
+      if (!instruction) return { accepted: false, reason: "missing_recipe_name", prUrl: issueUrl };
+      if (!options.repoPath) return { accepted: false, reason: "recipe_requires_repo_checkout", prUrl: issueUrl };
+      const verifyValue = process.env.MERGEPROOF_COMMENT_RECIPE_VERIFY as VerificationCommand | undefined;
+      if (verifyValue && !VERIFICATION_COMMANDS.includes(verifyValue)) return { accepted: false, reason: "invalid_comment_recipe_verification_command", prUrl: issueUrl };
+      const result = await runRecipe(issueUrl, instruction, options.model, { provider: options.provider, repoPath: options.repoPath, verify: verifyValue, apply: true, createPr: true, reReview: true });
+      await publishPullRequestComment(issueUrl, `## MergeProof recipe handoff\n\n${result.summary}\n\nRecipe: ${result.recipe.name}\n\nChanged paths: ${result.trace.changedPaths.join(", ") || "none"}\n\nVerification: ${result.trace.verified ? "passed" : "failed"}\n\nHandoff PR: ${result.trace.pullRequestUrl ?? "none"}`);
+      options.log?.(`MergeProof ran recipe ${result.recipe.name} for ${issueUrl}`);
       return { accepted: true, prUrl: issueUrl };
     }
     if (command === "implement") {
@@ -97,15 +149,16 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       return { accepted: true, prUrl: issueUrl };
     }
     const analysis = await analyzePullRequest(issueUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
-    if (command === "summary" || command === "diagram") {
+    if (command === "summary" || command === "diagram" || command === "sequence diagram" || command === "generate sequence diagram") {
       const walkthrough = analysis.walkthrough;
       if (!walkthrough) return { accepted: false, reason: "walkthrough_unavailable", prUrl: issueUrl, analysis };
-      const body = command === "diagram" ? `## MergeProof change flow\n\n\`\`\`mermaid\n${walkthrough.sequenceDiagram}\n\`\`\`\n\nEvidence citations: ${walkthrough.citations.length}` : renderWalkthroughMarkdown(walkthrough, analysis.decision);
+      const diagramCommand = command === "diagram" || command === "sequence diagram" || command === "generate sequence diagram";
+      const body = diagramCommand ? `## MergeProof change flow\n\n\`\`\`mermaid\n${walkthrough.sequenceDiagram}\n\`\`\`\n\nEvidence citations: ${walkthrough.citations.length}` : renderWalkthroughMarkdown(walkthrough, analysis.decision);
       await publishPullRequestComment(issueUrl, body);
       options.log?.(`MergeProof published ${command} for ${issueUrl}`);
       return { accepted: true, prUrl: issueUrl, analysis };
     }
-    if (command === "docstrings") {
+    if (command === "docstrings" || command === "generate docstrings") {
       const suggestion = await generateDocstringsPullRequest(issueUrl, options.model, { provider: options.provider, repoPath: options.repoPath });
       await publishPullRequestComment(issueUrl, `## MergeProof docstrings suggestion\n\n${suggestion.summary}\n\nChanged paths: ${suggestion.trace.changedPaths.join(", ") || "none"}\n\n\`\`\`diff\n${suggestion.patch || "No documentation patch was proposed."}\n\`\`\``);
       options.log?.(`MergeProof published docstring suggestion for ${issueUrl}`);

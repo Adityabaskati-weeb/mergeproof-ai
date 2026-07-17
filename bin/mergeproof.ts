@@ -37,6 +37,7 @@ import { loadRecipes, runRecipe, type RecipeRun } from "../lib/recipes";
 import { recordOutcome, readOutcomes, summarizeOutcomes, type OutcomeLabel } from "../lib/outcomes";
 import { parseChangeRequestUrl } from "../lib/change-request";
 import { generateMergeProofConfiguration, readMergeProofConfiguration, renderConfiguration } from "../lib/configuration";
+import { askRepository } from "../lib/ask";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -232,6 +233,17 @@ program.command("configuration").alias("config").description("Inspect or explici
     else console.log(renderConfiguration(snapshot));
   } catch (error) {
     console.error(`MergeProof configuration error: ${error instanceof Error ? error.message : "Configuration inspection failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("ask").alias("chat").description("Answer a read-only repository question using bounded local evidence").argument("<question...>", "Question to answer").option("--repo <path>", "Repository path", process.cwd()).option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "8").option("--json", "Print machine-readable JSON").action(async (question, options) => {
+  try {
+    const result = await askRepository(question.join(" "), options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK) });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.answer}\n\nModel: ${result.trace.model}\nEvidence sources: ${result.trace.evidenceSources}/${result.trace.indexedChunks}\nRead-only trace: ${result.trace.headSha} (${result.trace.elapsedMs}ms)`);
+  } catch (error) {
+    console.error(`MergeProof ask error: ${error instanceof Error ? error.message : "Repository question failed."}`);
     process.exitCode = 1;
   }
 });

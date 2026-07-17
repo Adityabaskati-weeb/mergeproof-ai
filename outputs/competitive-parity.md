@@ -38,6 +38,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Review-thread resolution | Read-only current-thread inventory; explicit `--apply` GraphQL resolution for selected or all current threads | Review feedback and agent actions | Resolve all review comments command |
 | Named finishing touches | `.mergeproof/recipes.json` recipes with bounded instructions, path scopes, checked patches, verification, re-review, and optional GitHub PR handoff | Custom agents, skills, and hooks | Custom finishing-touch recipes |
 | Natural-language PR editing | Explicit `/mergeproof implement <request>` comment creates a separate evidence-grounded, verified GitHub PR; source branch is never mutated | `@copilot` cloud-agent task handoff | Agent chat code editing and stacked PR handoff |
+| Repository Q&A | Read-only `mergeproof ask` / `chat` with bounded local retrieval, instructions, selected model, and trace metadata | Copilot CLI question answering and repository exploration | IDE/CLI review context and chat |
 | Outcome calibration | Local outcome ledger records merged/closed or human-labeled outcomes against decision, head SHA, and attestation; `feedback` and `metrics` expose calibration | Copilot usage metrics focus on adoption and PR lifecycle | CodeRabbit dashboards and reports focus on review activity and outcomes |
 
 ## Differentiation
