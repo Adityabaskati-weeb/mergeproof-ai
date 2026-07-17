@@ -37,3 +37,7 @@ The `fix` command only applies with an explicit `--apply`; the `agent` command a
 ## Reporting
 
 Preserve the model name, fetched/cited source counts, unsupported-claim count, security findings, MCP provenance, head SHA or working-tree digest, and attestation digest in the final report. If evidence is missing, ask for an owner decision instead of inventing a citation.
+
+## Parallel and resumable work
+
+Use `npm run cli -- fleet review <PR_URL> -- --json` when independent model agreement is required. Use `npm run cli -- fleet ask <question...> -- --repo . --model model-a model-b --json` or `fleet plan` for parallel repository work; context drift across repository heads is a hard failure. Interactive sessions are resumable with `npm run cli -- chat -- --repo . --session <id>`, and desktop/editor integrations should use `chat-turn ... --json` to preserve the session ID and provenance trace.

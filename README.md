@@ -35,6 +35,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof ask <question...>` (also `chat`) for read-only Copilot-style repository Q&A with bounded retrieval and an auditable trace
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
+- Portable agent distribution through `skills/mergeproof-review`, `.cursor-plugin`, `.claude-plugin`, `commands/mergeproof-review.md`, and `.github/agents/mergeproof-review.md`
 - Paste a public GitHub pull request URL into the CLI or native desktop client
 - Fetch real PR metadata, changed files, commits, and checks with Octokit
 - Fetch failed check summaries and annotations into the evidence context for CI/CD-aware findings and fixes
