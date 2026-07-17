@@ -165,6 +165,7 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       options.log?.(`MergeProof planned ${issueUrl}: ${plan.steps.length} steps`);
       return { accepted: true, prUrl: issueUrl };
     }
+    const publicationPolicy = await loadPolicy(stateRoot);
     const analysis = await analyzePullRequest(issueUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
     if (command === "summary" || command === "diagram" || command === "sequence diagram" || command === "generate sequence diagram" || command === "erd" || command === "generate erd" || command === "entity relationship diagram") {
       const walkthrough = analysis.walkthrough;
@@ -193,8 +194,8 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
       options.log?.(`MergeProof created ${url} from ${issueUrl}`);
       return { accepted: true, prUrl: issueUrl, analysis };
     }
-    await publishPullRequestCheck(issueUrl, analysis);
-    if (options.publishReview) await publishPullRequestReview(issueUrl, analysis);
+    await publishPullRequestCheck(issueUrl, analysis, { mode: analysis.trace.reviewMode });
+    if (options.publishReview && analysis.trace.reviewMode !== "shadow") await publishPullRequestReview(issueUrl, analysis, { requestChangesWorkflow: publicationPolicy.requestChangesWorkflow, highLevelSummary: publicationPolicy.highLevelSummary });
     options.log?.(`MergeProof reviewed ${issueUrl}: ${analysis.decision}`);
     return { accepted: true, prUrl: issueUrl, analysis };
   }
@@ -234,8 +235,8 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
   const suppression = await reviewSuppression(stateRoot, prUrl);
   if (suppression.suppressed) return { accepted: true, ignored: true, reason: `review_${suppression.reason}` };
   const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
-  await publishPullRequestCheck(prUrl, analysis);
-  if (options.publishReview) await publishPullRequestReview(prUrl, analysis);
+  await publishPullRequestCheck(prUrl, analysis, { mode: analysis.trace.reviewMode });
+  if (options.publishReview && analysis.trace.reviewMode !== "shadow") await publishPullRequestReview(prUrl, analysis, { requestChangesWorkflow: policy.requestChangesWorkflow, highLevelSummary: policy.highLevelSummary });
   await markReviewCompleted(stateRoot, prUrl, value.pull_request?.commits ?? 0);
   options.log?.(`MergeProof reviewed ${prUrl}: ${analysis.decision}`);
   return { accepted: true, prUrl, analysis };

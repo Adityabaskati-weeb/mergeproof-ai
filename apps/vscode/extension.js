@@ -5,7 +5,7 @@ function runMergeProof(command, url, cwd, extraArgs = []) {
   const configuredPath = vscode.workspace.getConfiguration("mergeproof").get("cliPath");
   const executable = configuredPath || (process.platform === "win32" ? "npm.cmd" : "npm");
   const commandParts = command === "bundle-verify" ? ["bundle", "verify"] : [command];
-  const repoArgs = command === "analyze" || command === "consensus" || command === "walkthrough" || command === "docstrings" || command === "fix" || command === "simplify" || command === "tests" || command === "autofix" || command === "task" || command === "work-plan" || command === "security" || command === "plan-history" || command === "complete" ? ["--repo", cwd] : [];
+  const repoArgs = command === "analyze" || command === "consensus" || command === "walkthrough" || command === "docstrings" || command === "fix" || command === "simplify" || command === "tests" || command === "autofix" || command === "autopilot" || command === "task" || command === "work-plan" || command === "security" || command === "plan-history" || command === "complete" ? ["--repo", cwd] : [];
   const positional = command === "security" || command === "plan-history" ? [] : [url];
   const args = configuredPath ? [...commandParts, ...positional, "--json", ...repoArgs, ...extraArgs] : ["run", "cli", "--", ...commandParts, ...positional, "--", "--json", ...repoArgs, ...extraArgs];
   return new Promise((resolve, reject) => execFile(executable, args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -90,6 +90,26 @@ async function runSandboxAgent() {
   }
 }
 
+async function runAutopilot() {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) return vscode.window.showErrorMessage("Open a repository folder before running MergeProof Autopilot.");
+  const request = await vscode.window.showInputBox({ prompt: "Natural-language change request", placeHolder: "Add rate limiting to the login endpoint" });
+  if (!request) return;
+  const verify = await vscode.window.showQuickPick(["npm test", "npm run build", "npm run typecheck", "pytest", "cargo test", "go test ./..."], { placeHolder: "Required verification command" });
+  if (!verify) return;
+  const apply = await vscode.window.showQuickPick(["Suggest only", "Apply after convergence"], { placeHolder: "Apply the verified patch to the checkout?" });
+  const channel = vscode.window.createOutputChannel("MergeProof");
+  channel.show(true);
+  try {
+    const result = await runMergeProof("autopilot", request, folder, ["--verify", verify, ...(apply === "Apply after convergence" ? ["--apply"] : [])]);
+    channel.appendLine(JSON.stringify(result, null, 2));
+    vscode.window.showInformationMessage(`MergeProof Autopilot: ${result.trace?.appliedToCheckout ? "patch applied" : result.trace?.verified ? "converged and verified" : "run completed"}`);
+  } catch (error) {
+    channel.appendLine(String(error));
+    vscode.window.showErrorMessage(`MergeProof Autopilot failed: ${error.message}`);
+  }
+}
+
 async function implementIssue() {
   const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!folder) return vscode.window.showErrorMessage("Open a clean repository folder before implementing an issue.");
@@ -163,6 +183,7 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.reviewWorkingTree", reviewWorkingTree));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.resolveConflicts", resolveConflicts));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.runSandboxAgent", runSandboxAgent));
+  context.subscriptions.push(vscode.commands.registerCommand("mergeproof.autopilot", runAutopilot));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.implementIssue", implementIssue));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generatePlan", () => analyze("plan")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generateWorkPlan", generateWorkPlan));

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publishChangeRequestCheck, publishChangeRequestComment, publishChangeRequestReview } from "./change-publish";
-import { formatPullRequestSummary, mergePullRequestSummary, MERGEPROOF_SUMMARY_END, MERGEPROOF_SUMMARY_START } from "./github-review";
+import { checkConclusionForAnalysis } from "./github-publish";
+import { formatPullRequestSummary, mergePullRequestSummary, MERGEPROOF_SUMMARY_END, MERGEPROOF_SUMMARY_START, reviewEventForDecision } from "./github-review";
 import type { Analysis } from "./types";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -13,6 +14,19 @@ const analysis: Analysis = {
 };
 
 describe("provider publication", () => {
+  it("honors the request-changes workflow policy", () => {
+    expect(reviewEventForDecision("needs-evidence")).toBe("REQUEST_CHANGES");
+    expect(reviewEventForDecision("needs-evidence", false)).toBe("COMMENT");
+    expect(reviewEventForDecision("needs-owner", true)).toBe("COMMENT");
+    expect(reviewEventForDecision("ready", false)).toBe("APPROVE");
+  });
+
+  it("keeps shadow checks neutral regardless of the model decision", () => {
+    expect(checkConclusionForAnalysis({ ...analysis, decision: "needs-evidence" }, "shadow")).toBe("neutral");
+    expect(checkConclusionForAnalysis({ ...analysis, decision: "ready" }, "shadow")).toBe("neutral");
+    expect(checkConclusionForAnalysis({ ...analysis, decision: "ready" }, "enforce")).toBe("success");
+  });
+
   it("refreshes only the marker-scoped PR summary and preserves author content", () => {
     const first = formatPullRequestSummary(analysis);
     const body = `Author context\n\n${first}`;

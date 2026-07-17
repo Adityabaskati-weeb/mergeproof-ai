@@ -4,6 +4,8 @@ This thin extension provides ten commands while reusing the repository CLI:
 
 - `MergeProof: Review Working Tree`
 - `MergeProof: Run Sandbox Agent`
+- `MergeProof: Run Autopilot Correction Loop`
+- `MergeProof: Run Autopilot Correction Loop`
 - `MergeProof: Analyze Pull Request`
 - `MergeProof: Generate Evidence Plan`
 - `MergeProof: Suggest Safe Fix`

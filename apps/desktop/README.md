@@ -7,6 +7,8 @@ The desktop client currently provides:
 - local pull-request analysis
 - staged, unstaged, and untracked working-tree review
 - ephemeral sandbox-agent fix generation with optional verification
+- bounded autopilot correction loops with optional checkout apply after verification and re-review
+- bounded autopilot correction loops with optional checkout apply after verification and re-review
 - provider and model selection per analysis
 - low, medium, or high review effort selection
 - directory-scoped local review and one-pass sandbox re-review

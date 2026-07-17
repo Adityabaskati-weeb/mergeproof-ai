@@ -1,13 +1,20 @@
 import { fetchPullRequest, parsePullRequestUrl } from "./github";
 import { createGithubClient } from "./github-auth";
-import type { Analysis } from "./types";
+import type { Analysis, ReviewMode } from "./types";
 
 type CheckAnnotation = { path: string; start_line: number; end_line: number; annotation_level: "warning" | "failure"; title: string; message: string };
+export type CheckPublicationOptions = { mode?: ReviewMode };
 
-export async function publishPullRequestCheck(prUrl: string, analysis: Analysis): Promise<string | undefined> {
+export function checkConclusionForAnalysis(analysis: Analysis, mode: ReviewMode = analysis.trace.reviewMode ?? "enforce"): "success" | "neutral" | "failure" {
+  if (mode === "shadow") return "neutral";
+  return analysis.decision === "ready" ? "success" : analysis.decision === "needs-owner" ? "neutral" : "failure";
+}
+
+export async function publishPullRequestCheck(prUrl: string, analysis: Analysis, options: CheckPublicationOptions = {}): Promise<string | undefined> {
   const ref = parsePullRequestUrl(prUrl);
   const context = await fetchPullRequest(ref);
-  const conclusion = analysis.decision === "ready" ? "success" : analysis.decision === "needs-owner" ? "neutral" : "failure";
+  const mode = options.mode ?? analysis.trace.reviewMode ?? "enforce";
+  const conclusion = checkConclusionForAnalysis(analysis, mode);
   const rowAnnotations: CheckAnnotation[] = analysis.rows.flatMap((row) => row.citations.slice(0, 1).map((citation): CheckAnnotation => {
     const line = Number(citation.url.match(/#L(\d+)/)?.[1] ?? 1);
     return { path: citation.path, start_line: line, end_line: line, annotation_level: row.state === "fail" ? "failure" : "warning", title: `MergeProof: ${row.state}`, message: `${row.criterion}: ${row.evidence}` };
@@ -19,12 +26,12 @@ export async function publishPullRequestCheck(prUrl: string, analysis: Analysis)
     const securityText = (analysis.securityFindings ?? []).map((finding) => `- **SECURITY ${finding.severity.toUpperCase()}** ${finding.path}:${finding.line}: ${finding.title}`).join("\n");
     const attestationText = analysis.trace.attestation ? `\n\nAttestation: ${analysis.trace.attestation.algorithm}:${analysis.trace.attestation.digest}` : "";
     const walkthroughText = analysis.walkthrough ? `\n\nWalkthrough: ${analysis.walkthrough.summary}\nChange stack: ${analysis.walkthrough.changeStack.map((layer) => `${layer.title} (${layer.files.length})`).join(" -> ")}\nReview effort: ${analysis.walkthrough.effortScore}/5` : "";
-    const response = await octokit.rest.checks.create({ owner: ref.owner, repo: ref.repo, name: "MergeProof evidence gate", head_sha: context.headSha, status: "completed", conclusion, details_url: ref.url, output: { title: `MergeProof: ${analysis.decision}`, summary: `${analysis.rows.length} criteria evaluated. ${analysis.trace.citedSources} citations verified. ${analysis.securityFindings?.length ?? 0} deterministic security findings.${walkthroughText}${attestationText}`, text: [securityText, ...analysis.rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}: ${row.evidence}`), walkthroughText, attestationText].filter(Boolean).join("\n"), annotations } });
+    const response = await octokit.rest.checks.create({ owner: ref.owner, repo: ref.repo, name: mode === "shadow" ? "MergeProof evidence gate (shadow)" : "MergeProof evidence gate", head_sha: context.headSha, status: "completed", conclusion, details_url: ref.url, output: { title: `MergeProof${mode === "shadow" ? " shadow" : ""}: ${analysis.decision}`, summary: `${analysis.rows.length} criteria evaluated. ${analysis.trace.citedSources} citations verified. ${analysis.securityFindings?.length ?? 0} deterministic security findings.${mode === "shadow" ? " Shadow mode: this check does not block merging." : ""}${walkthroughText}${attestationText}`, text: [securityText, ...analysis.rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}: ${row.evidence}`), walkthroughText, attestationText].filter(Boolean).join("\n"), annotations } });
     return response.data.html_url ?? undefined;
   } catch (error) {
     if (!(error instanceof Error) || !/403|forbidden|check/i.test(error.message)) throw error;
-    const status = analysis.decision === "ready" ? "success" : analysis.decision === "needs-owner" ? "failure" : "failure";
-    await octokit.rest.repos.createCommitStatus({ owner: ref.owner, repo: ref.repo, sha: context.headSha, state: status, context: "MergeProof evidence gate", description: `MergeProof: ${analysis.decision}` });
+    const status = mode === "shadow" || analysis.decision === "ready" ? "success" : "failure";
+    await octokit.rest.repos.createCommitStatus({ owner: ref.owner, repo: ref.repo, sha: context.headSha, state: status, context: mode === "shadow" ? "MergeProof evidence gate (shadow)" : "MergeProof evidence gate", description: `MergeProof${mode === "shadow" ? " shadow" : ""}: ${analysis.decision}` });
     return ref.url;
   }
 }

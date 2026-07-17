@@ -9,6 +9,7 @@ describe("analysis attestation", () => {
     const first = attestAnalysis(analysis);
     expect(attestAnalysis(analysis)).toEqual(first);
     expect(attestAnalysis({ ...analysis, decision: "needs-evidence" }).digest).not.toBe(first.digest);
+    expect(attestAnalysis({ ...analysis, trace: { ...analysis.trace, reviewMode: "shadow" } }).digest).not.toBe(first.digest);
   });
 
   it("verifies a saved analysis attestation and detects tampering", () => {

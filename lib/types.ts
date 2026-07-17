@@ -1,6 +1,7 @@
 export type EvidenceState = "pass" | "warn" | "fail";
 export type ReviewEffort = "low" | "medium" | "high";
 export type ReviewProfile = "quiet" | "chill" | "assertive";
+export type ReviewMode = "enforce" | "shadow";
 
 export type CustomCheck = {
   name: string;
@@ -126,5 +127,6 @@ export type Analysis = {
     reviewThreadsUnavailable?: string;
     hooks?: { enabled: boolean; before: string[]; after: string[]; failed: string[] };
     customChecks?: number;
+    reviewMode?: ReviewMode;
   };
 };

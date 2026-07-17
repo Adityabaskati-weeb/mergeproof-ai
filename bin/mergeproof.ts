@@ -71,6 +71,7 @@ import { completeFile } from "../lib/completion";
 import { readPrompts, renderPromptRecord } from "../lib/prompt-log";
 import { readReviewStats } from "../lib/stats";
 import { importCoderabbitConfiguration, readCoderabbitConfiguration } from "../lib/coderabbit-config";
+import { loadPolicy } from "../lib/policy";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -83,6 +84,7 @@ function printAnalysis(analysis: Analysis) {
   console.log(`\nModel: ${analysis.trace.model}`);
   console.log(`Sources fetched: ${analysis.trace.fetchedSources} | Sources cited: ${analysis.trace.citedSources}`);
   console.log(`Unsupported claims: ${analysis.trace.unsupportedClaims} | Analysis time: ${analysis.trace.elapsedMs}ms`);
+  if (analysis.trace.reviewMode === "shadow") console.log("Review mode: SHADOW (neutral publication; does not block merging)");
   if (analysis.trace.retrieval?.enabled) console.log(`Repository retrieval: ${analysis.trace.retrieval.selectedChunks}/${analysis.trace.retrieval.indexedChunks} chunks selected`);
   if (analysis.trace.linkedIssues) console.log(`Linked Jira issues: ${analysis.trace.linkedIssues}`);
   if (analysis.trace.customChecks) console.log(`Custom pre-merge checks: ${analysis.trace.customChecks}`);
@@ -1222,7 +1224,10 @@ program.command("analyze").description("Analyze a GitHub, GitLab, Bitbucket, or 
   try {
     const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repo, relatedRepos: options.relatedRepo, effort: parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, remember: options.remember, memoryRoot: options.memoryRoot, memoryLimit: Number(options.memoryLimit), knowledgeLimit: Number(options.knowledgeLimit), externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, toolSarif: options.toolSarif, lspDiagnostics: options.lspDiagnostics, mcp: options.mcp, webSearch: options.webSearch, hooks: options.hooks, savePrompts: options.savePrompts });
     if (options.publishCheck) console.error(`Change Check: ${await publishChangeRequestCheck(prUrl, analysis)}`);
-    if (options.publishReview) console.error(`Change Review: ${await publishChangeRequestReview(prUrl, analysis)}`);
+    if (options.publishReview) {
+      const policy = await loadPolicy(options.repo);
+      console.error(`Change Review: ${await publishChangeRequestReview(prUrl, analysis, { requestChangesWorkflow: policy.requestChangesWorkflow, highLevelSummary: policy.highLevelSummary })}`);
+    }
     if (options.publishSummary) console.error(`PR Summary: ${await publishPullRequestSummary(prUrl, analysis)}`);
     if (options.requestReviewers) console.error(`Reviewers requested: ${await requestPullRequestReviewers(prUrl, options.requestReviewers)}`);
     if (options.applyLabels) {

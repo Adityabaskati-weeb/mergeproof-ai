@@ -21,6 +21,7 @@ export function attestAnalysis(analysis: Analysis): AnalysisAttestation {
     knowledge: analysis.trace.knowledge ?? null,
     reviewEffort: analysis.trace.reviewEffort ?? null,
     reviewProfile: analysis.trace.reviewProfile ?? null,
+    reviewMode: analysis.trace.reviewMode ?? "enforce",
     agent: analysis.trace.agent ?? null,
     reviewPaths: analysis.trace.reviewPaths ?? null,
     retrieval: analysis.trace.retrieval ?? null,

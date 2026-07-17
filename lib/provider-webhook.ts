@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { analyzePullRequest } from "./analyze";
 import { publishChangeRequestCheck, publishChangeRequestReview } from "./change-publish";
+import { loadPolicy } from "./policy";
 import type { Analysis } from "./types";
 
 export type ProviderWebhook = "gitlab" | "bitbucket" | "azure-devops";
@@ -66,9 +67,10 @@ export async function processProviderWebhookPayload(provider: ProviderWebhook, p
   if (!shouldReview(provider, action)) return { accepted: true, ignored: true, reason: "unsupported_action" };
   const prUrl = extractProviderChangeRequestUrl(provider, payload);
   if (!prUrl) return { accepted: false, reason: "missing_change_request_url" };
+  const policy = await loadPolicy(options.repoPath);
   const analysis = await analyzePullRequest(prUrl, options.model, { provider: options.provider, repoPath: options.repoPath, remember: true, memoryRoot: options.repoPath });
-  await publishChangeRequestCheck(prUrl, analysis);
-  if (options.publishReview) await publishChangeRequestReview(prUrl, analysis);
+  await publishChangeRequestCheck(prUrl, analysis, { mode: analysis.trace.reviewMode });
+  if (options.publishReview && analysis.trace.reviewMode !== "shadow") await publishChangeRequestReview(prUrl, analysis, { requestChangesWorkflow: policy.requestChangesWorkflow, highLevelSummary: policy.highLevelSummary, mode: analysis.trace.reviewMode });
   options.log?.(`MergeProof reviewed ${prUrl}: ${analysis.decision}`);
   return { accepted: true, prUrl, analysis };
 }

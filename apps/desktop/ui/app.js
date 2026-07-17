@@ -27,6 +27,7 @@ const chatTurns = [];
 for (const [value, label] of [["security-review", "Security review active changes"], ["findings", "Review findings"], ["research", "Research topic"], ["doctor", "Diagnose environment"], ["init", "Initialize repository"], ["auth-status", "Integration auth status"], ["sessions-list", "List local sessions"], ["sessions-compact", "Compact a local session"], ["sessions-checkpoints", "Inspect session checkpoints"], ["benchmark", "Benchmark review history"], ["search", "Search local timeline"], ["plugins", "Discover plugins and extensions"], ["lsp", "Inspect LSP configuration"], ["complete", "Complete code at cursor"], ["stats", "Review statistics"], ["prompts", "Replay saved prompts"], ["tasks", "Start background task"], ["tasks-list", "List background tasks"]]) {
   if (!action.querySelector(`option[value="${value}"]`)) action.insertAdjacentHTML("beforeend", `<option value="${value}">${label}</option>`);
 }
+if (!action.querySelector('option[value="autopilot"]')) action.insertAdjacentHTML("beforeend", '<option value="autopilot">Autopilot correction loop</option>');
 
 function updateActionLabel() {
   const labels = { analyze: "Analyze change", chat: "Chat with repository", ask: "Ask repository", "fleet-ask": "Run evidence fleet", "fleet-plan": "Run planning fleet", report: "Review report", security: "Repository security scan", "bundle-verify": "Verify review capsule", "plan-history": "Inspect plan history", walkthrough: "Generate walkthrough", erd: "Generate schema impact", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", implement: "Implement local request", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", "work-plan": "Plan free-form request", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests", init: "Initialize repository", "auth-status": "Integration auth status", "sessions-list": "List local sessions", "sessions-compact": "Compact a local session", "sessions-checkpoints": "Inspect session checkpoints", benchmark: "Benchmark review history", search: "Search local timeline", plugins: "Discover plugins and extensions", lsp: "Inspect LSP configuration", tasks: "Start background task", "tasks-list": "List background tasks" };
@@ -121,6 +122,17 @@ provider.addEventListener("change", () => {
   if (provider.value !== "anthropic" && model.value.startsWith("claude")) model.value = "gpt-5.6";
 });
 
+action.addEventListener("change", () => {
+  if (action.value !== "autopilot") return;
+  button.innerHTML = "Run autopilot correction loop <span>&rarr;</span>";
+  targetLabel.textContent = "Natural-language change request";
+  input.placeholder = "Add rate limiting to the login endpoint";
+  apply.disabled = false;
+  verify.disabled = false;
+  reReview.disabled = true;
+  reReview.checked = false;
+});
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 }
@@ -200,13 +212,14 @@ button.addEventListener("click", async () => {
       const security = (output.securityFindings || []).map((finding) => `<div class="row security"><span>${escapeHtml(finding.title)}</span><code>${escapeHtml(finding.path)}:${escapeHtml(finding.line)}</code><span class="badge">${escapeHtml(finding.severity.toUpperCase())}</span></div>`).join("");
       const consensus = action.value === "consensus" ? ` &middot; ${output.trace.agents} agents &middot; ${Math.round((output.trace.agreement || 0) * 100)}% agreement` : "";
       result.innerHTML = `<h2>${escapeHtml(output.decision.replaceAll("-", " ").toUpperCase())}</h2><p>Model: ${escapeHtml(output.trace.model || output.analyses?.map((item) => item.model).join(", ") || "consensus")} &middot; Effort: ${escapeHtml(output.trace.reviewEffort || "medium")} &middot; ${output.trace.citedSources} cited sources${consensus}${retrieval} &middot; ${output.trace.elapsedMs || 0}ms</p>${security ? `<h3>Security gate</h3><div class="evidence">${security}</div>` : ""}<div class="evidence">${output.rows.map((row) => `<div class="row"><span>${escapeHtml(row.criterion)}</span><code>${escapeHtml(row.citations[0]?.path ?? "No citation")}</code><span class="badge">${escapeHtml(row.state.toUpperCase())}</span></div>`).join("")}</div>`;
+      if (output.trace.reviewMode === "shadow") result.innerHTML += "<p class=\"shadow-note\">SHADOW MODE: neutral publication; this review does not block merging.</p>";
     } else if (action.value === "conflicts") {
       const conflictCount = output.conflictCount ?? output.trace?.changedPaths?.length ?? 0;
       result.innerHTML = `<h2>MERGE CONFLICTS ${output.trace ? (output.trace.applied ? "RESOLVED" : "SUGGESTED") : "DETECTED"}</h2><p>${conflictCount} conflict hunks &middot; ${output.trace ? `Model: ${escapeHtml(output.trace.model)}` : "read-only inspection"}</p><p>${escapeHtml(output.summary || "Resolve active conflicts before merging.")}</p>${output.patch ? `<pre class="patch">${escapeHtml(output.patch)}</pre>` : ""}`;
     } else if (action.value === "docstrings") {
       result.innerHTML = `<h2>DOCSTRINGS SUGGESTED</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.changedPaths.length} documentation paths</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No documentation patch was proposed.")}</pre>`;
-  } else if (action.value === "agent" || action.value === "task" || action.value === "implement" || action.value === "recipe" || action.value === "autofix") {
-      const title = action.value === "autofix" ? "REVIEW-THREAD AUTOFIX" : `SANDBOX AGENT ${output.trace.verified && output.trace.reReviewPassed !== false ? "VERIFIED" : "SUGGESTED"}`;
+  } else if (action.value === "agent" || action.value === "autopilot" || action.value === "task" || action.value === "implement" || action.value === "recipe" || action.value === "autofix") {
+      const title = action.value === "autofix" ? "REVIEW-THREAD AUTOFIX" : action.value === "autopilot" ? "AUTOPILOT CORRECTION LOOP" : `SANDBOX AGENT ${output.trace.verified && output.trace.reReviewPassed !== false ? "VERIFIED" : "SUGGESTED"}`;
       const detail = action.value === "autofix" ? `Unresolved threads: ${output.trace.unresolvedThreads ?? 0}${output.trace.pullRequestUrl ? ` &middot; Created PR: ${escapeHtml(output.trace.pullRequestUrl)}` : ""}` : `${output.trace.changedPaths.length} changed paths &middot; ${output.trace.verificationCommand ? escapeHtml(output.trace.verificationCommand) : "no verification"}${output.trace.reReviewDecision ? ` &middot; Re-review: ${escapeHtml(output.trace.reReviewDecision)}` : ""}${output.trace.evidenceSources ? ` &middot; ${output.trace.evidenceSources} evidence sources` : ""}`;
       result.innerHTML = `<h2>${action.value === "recipe" ? "FINISHING-TOUCH RECIPE" : title}</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${detail}</p><p>${escapeHtml(output.summary)}</p><pre class="patch">${escapeHtml(output.patch || "No patch was proposed.")}</pre>`;
     } else if (action.value === "plan" || action.value === "work-plan") {
@@ -224,5 +237,13 @@ button.addEventListener("click", async () => {
   } finally {
     button.disabled = false;
     updateActionLabel();
+    if (action.value === "autopilot") {
+      button.innerHTML = "Run autopilot correction loop <span>&rarr;</span>";
+      targetLabel.textContent = "Natural-language change request";
+      input.placeholder = "Add rate limiting to the login endpoint";
+      apply.disabled = false;
+      verify.disabled = false;
+      reReview.disabled = true;
+    }
   }
 });
