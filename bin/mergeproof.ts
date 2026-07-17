@@ -51,6 +51,9 @@ import { runInteractiveChat } from "../lib/chat";
 import { runChatTurn, type ChatTurnAction } from "../lib/chat-turn";
 import { listSessions, readSession } from "../lib/sessions";
 import { runFleetAsk, runFleetPlan, runFleetReview } from "../lib/fleet";
+import { runAcpStdio, startAcpTcpServer } from "../lib/acp";
+import { assertPermission, readPermissionPolicy, renderPermissionPolicy } from "../lib/permissions";
+import { runAutopilot } from "../lib/autopilot";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -260,6 +263,17 @@ program.command("configuration").alias("config").description("Inspect or explici
   }
 });
 
+program.command("permissions").description("Inspect repository-scoped action and path permissions").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const policy = await readPermissionPolicy(options.repo);
+    if (options.json) console.log(renderPermissionPolicy(policy));
+    else console.log(renderPermissionPolicy(policy));
+  } catch (error) {
+    console.error(`MergeProof permissions error: ${error instanceof Error ? error.message : "Permission inspection failed."}`);
+    process.exitCode = 1;
+  }
+});
+
 program.command("chat").description("Run an interactive evidence-backed CLI session").option("--repo <path>", "Repository path", process.cwd()).option("--session <id>", "Resume an existing session ID; otherwise create a new session").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--verify <command>", "Sandbox verification for implement actions: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Re-review an implementation patch before reporting success").option("--apply", "Apply an implementation patch only after verification and optional re-review").action(async (options) => {
   try {
     await runInteractiveChat({ repoPath: options.repo, sessionId: options.session, model: options.model, provider: options.provider, agent: options.agent, verify: parseVerificationCommand(options.verify), reReview: options.reReview, apply: options.apply });
@@ -277,6 +291,22 @@ program.command("chat-turn").description("Run one machine-readable session-backe
     else console.log(`${result.sessionId}\n\n${JSON.stringify(result.output, null, 2)}`);
   } catch (error) {
     console.error(`MergeProof chat-turn error: ${error instanceof Error ? error.message : "Chat turn failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("acp").description("Run an Agent Client Protocol server for editor and IDE integrations").option("--stdio", "Use newline-delimited JSON over stdin/stdout").option("--host <host>", "TCP bind host", "127.0.0.1").option("--port <number>", "TCP port; omit for stdio").option("--repo <path>", "Repository path", process.cwd()).option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").action(async (options) => {
+  try {
+    if (options.stdio && options.port) throw new Error("Choose either --stdio or --port, not both.");
+    if (options.port) {
+      const server = startAcpTcpServer({ repoPath: options.repo, host: options.host, port: Number(options.port), model: options.model, provider: options.provider, agent: options.agent });
+      console.error(`MergeProof ACP listening on ${options.host}:${options.port}`);
+      await new Promise<void>((resolve, reject) => { server.on("error", reject); server.on("close", resolve); });
+    } else {
+      await runAcpStdio({ repoPath: options.repo, model: options.model, provider: options.provider, agent: options.agent });
+    }
+  } catch (error) {
+    console.error(`MergeProof ACP error: ${error instanceof Error ? error.message : "ACP server failed."}`);
     process.exitCode = 1;
   }
 });
@@ -480,6 +510,7 @@ program.command("resolve").description("Inspect or explicitly resolve current Gi
     const report = await fetchGithubReviewThreads(ref);
     const selected = report.threads.filter((thread) => !thread.isResolved && !thread.isOutdated && (!options.threadId?.length || options.threadId.includes(thread.id)));
     if (options.apply) {
+      await assertPermission(process.cwd(), "resolve");
       const resolved = await resolveGithubReviewThreads(ref, options.threadId?.length ? options.threadId : undefined);
       const output = { pullRequestUrl: ref.url, resolved, remainingUnresolved: selected.length - resolved.length };
       if (options.json) console.log(JSON.stringify(output, null, 2));
@@ -734,9 +765,10 @@ program.command("recipe").description("Run a named repository finishing-touch re
   }
 });
 
-program.command("review").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--hooks", "Run configured safe lifecycle hooks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--tool-sarif <path...>", "Ingest existing SARIF output from configured CI/security tools").option("--lsp-diagnostics <path>", "Ingest bounded LSP diagnostics JSON from the repository").action(async (repoPath, options) => {
+program.command("review").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--type <type>", "Review scope: all, committed, or uncommitted", "all").option("--base <branch>", "Base branch/ref for committed or all review scope").option("--base-commit <commit>", "Base commit for committed or all review scope").option("--hooks", "Run configured safe lifecycle hooks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--tool-sarif <path...>", "Ingest existing SARIF output from configured CI/security tools").option("--lsp-diagnostics <path>", "Ingest bounded LSP diagnostics JSON from the repository").action(async (repoPath, options) => {
   try {
-    const analysis = await reviewWorkingTree(options.model, { repoPath, provider: options.provider, effort: parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, directories: options.dir, criteria: parseCriteria(options.criteria), retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, hooks: options.hooks, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, toolSarif: options.toolSarif, lspDiagnostics: options.lspDiagnostics });
+    if (!["all", "committed", "uncommitted"].includes(options.type)) throw new Error("Review type must be all, committed, or uncommitted.");
+    const analysis = await reviewWorkingTree(options.model, { repoPath, provider: options.provider, effort: parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, directories: options.dir, criteria: parseCriteria(options.criteria), retrievalTopK: options.retrievalTopK ? Number(options.retrievalTopK) : undefined, reviewType: options.type, base: options.base, baseCommit: options.baseCommit, hooks: options.hooks, externalSecurity: options.externalSecurity, codeqlDatabase: options.codeqlDb, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, toolSarif: options.toolSarif, lspDiagnostics: options.lspDiagnostics });
     if (options.save) await writeFile(options.save, JSON.stringify(analysis, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(analysis, null, 2));
     else printAnalysis(analysis);
@@ -844,6 +876,19 @@ program.command("implement").description("Implement a natural-language request i
     process.exitCode = !gated || verificationPassed && reReviewPassed ? 0 : 2;
   } catch (error) {
     console.error(`MergeProof implement error: ${error instanceof Error ? error.message : "Implementation agent failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("autopilot").description("Iteratively generate, verify, and evidence-re-review a fix in isolated sandboxes").argument("<request...>", "Implementation request").requiredOption("--repo <path>", "Local checkout of the target repository").requiredOption("--verify <command>", "Allowlisted verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--max-iterations <number>", "Maximum correction attempts", "3").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "10").option("--apply", "Apply only the converged, verified patch after a stale-checkout and permission check").option("--json", "Print machine-readable JSON").option("--patch <path>", "Save the winning unified diff").action(async (request, options) => {
+  try {
+    const run = await runAutopilot(request.join(" "), options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK), verify: parseVerificationCommand(options.verify) as VerificationCommand, maxIterations: Number(options.maxIterations), apply: options.apply });
+    if (options.patch) await writeFile(options.patch, run.patch, "utf8");
+    if (options.json) console.log(JSON.stringify(run, null, 2));
+    else console.log(`${run.trace.converged ? "Converged" : "Did not converge"} after ${run.trace.iterations} iteration(s).\n${run.summary}\nChanged paths: ${run.trace.changedPaths.join(", ") || "none"}`);
+    process.exitCode = run.trace.converged ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof autopilot error: ${error instanceof Error ? error.message : "Autopilot failed."}`);
     process.exitCode = 1;
   }
 });

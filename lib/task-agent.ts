@@ -13,6 +13,7 @@ import { reviewWorkingTree } from "./local-review";
 import { runVerificationCommand, type VerificationCommand } from "./local-agent";
 import type { LinkedIssue } from "./types";
 import type { PullRequestContext } from "./github";
+import { assertPermission } from "./permissions";
 
 export type GithubIssueRef = { owner: string; repo: string; number: number; url: string };
 export type TaskAgentOptions = { repoPath?: string; provider?: string; agent?: string; retrievalTopK?: number; verify?: VerificationCommand; reReview?: boolean; createPr?: boolean; branch?: string };
@@ -110,6 +111,7 @@ export async function runIssueAgent(issueUrl: string, model?: string, options: T
       }
     }
     if (options.createPr) {
+      await assertPermission(repositoryRoot, "publish", { paths: changedPaths, verified });
       if (!verified || options.reReview && !reReviewPassed) throw new Error("Refusing to create a PR because verification or re-review did not pass.");
       git(sandbox, ["add", "-A"]);
       git(sandbox, ["config", "user.name", "MergeProof Task Agent"]);

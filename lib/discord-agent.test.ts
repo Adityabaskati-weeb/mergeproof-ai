@@ -11,7 +11,8 @@ describe("Discord agent boundary", () => {
     const timestamp = Math.floor(Date.now() / 1_000).toString();
     const signature = sign(null, Buffer.from(`${timestamp}${body}`), keys.privateKey).toString("hex");
     expect(verifyDiscordRequestSignature(body, timestamp, signature, publicKey)).toBe(true);
-    expect(verifyDiscordRequestSignature(body, timestamp, `${signature.slice(0, -2)}00`, publicKey)).toBe(false);
+    const invalidSignature = `${signature.slice(0, -2)}${(Number.parseInt(signature.slice(-2), 16) ^ 1).toString(16).padStart(2, "0")}`;
+    expect(verifyDiscordRequestSignature(body, timestamp, invalidSignature, publicKey)).toBe(false);
   });
 
   it("maps a Discord slash command to the governed command parser", () => {

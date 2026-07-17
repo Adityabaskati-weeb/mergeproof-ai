@@ -10,6 +10,7 @@ import { retrieveLocalEvidence } from "./retrieval";
 import { reviewWorkingTree } from "./local-review";
 import { runVerificationCommand, type VerificationCommand } from "./local-agent";
 import { validatePatchPaths } from "./fix";
+import { assertPermission } from "./permissions";
 import type { PullRequestContext } from "./github";
 import type { Analysis } from "./types";
 
@@ -135,6 +136,7 @@ export async function runImplementationAgent(request: string, model?: string, op
       }
     }
     if (options.apply) {
+      await assertPermission(repositoryRoot, "apply", { paths: changedPaths, verified });
       if (!verified) throw new Error("Refusing to apply because verification did not pass.");
       if (options.reReview && !reReviewPassed) throw new Error("Refusing to apply because the evidence re-review did not pass.");
       if (git(repositoryRoot, ["status", "--porcelain"]) || git(repositoryRoot, ["rev-parse", "HEAD"]) !== headSha) throw new Error("Checkout changed while the sandbox was running; refusing to apply a stale patch.");

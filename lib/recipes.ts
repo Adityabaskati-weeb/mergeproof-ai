@@ -13,6 +13,7 @@ import { retrieveRepositoryEvidence } from "./retrieval";
 import { validatePatchPaths } from "./fix";
 import { reviewWorkingTree } from "./local-review";
 import { runVerificationCommand, type VerificationCommand } from "./local-agent";
+import { assertPermission } from "./permissions";
 
 const RECIPE_FILE = ".mergeproof/recipes.json";
 const MAX_RECIPES = 20;
@@ -85,6 +86,7 @@ export async function runRecipe(prUrl: string, recipeName: string, model?: strin
     if (options.verify) { try { verificationOutput = runVerificationCommand(sandbox, options.verify); verified = true; } catch (error) { verificationOutput = error instanceof Error ? error.message : "Verification failed."; } } else verified = true;
     if (options.reReview) { if (!verified) { reReviewPassed = false; reReviewDecision = "needs-evidence"; } else { const review = await reviewWorkingTree(model, { repoPath: sandbox, provider: options.provider, agent: options.agent }); reReviewDecision = review.decision; reReviewPassed = review.decision === "ready"; } }
     if (options.createPr) {
+      await assertPermission(repositoryRoot, "publish", { paths: changedPaths, verified });
       if (!verified || options.reReview && !reReviewPassed) throw new Error("Refusing to create a recipe PR because verification or re-review did not pass.");
       git(sandbox, ["add", "-A"]); git(sandbox, ["config", "user.name", "MergeProof Recipe Agent"]); git(sandbox, ["config", "user.email", "mergeproof-recipe@users.noreply.github.com"]); git(sandbox, ["commit", "-m", `Run MergeProof recipe ${recipe.name}`]); git(sandbox, ["push", "--set-upstream", "origin", branch!]);
       const owner = ownerFromRemote(repositoryRoot, target.ref.owner);

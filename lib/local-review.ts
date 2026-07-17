@@ -28,7 +28,8 @@ const MAX_DIFF_BYTES = 20 * 1024 * 1024;
 const MAX_UNTRACKED_BYTES = 250_000;
 
 export type WorkingTreeFile = PullRequestContext["files"][number];
-export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; hooks?: boolean };
+export type LocalReviewType = "all" | "committed" | "uncommitted";
+export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; directories?: string[]; reviewType?: LocalReviewType; base?: string; baseCommit?: string; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; hooks?: boolean };
 
 function runGit(root: string, args: string[]): string {
   try {
@@ -94,24 +95,33 @@ function matchesScope(path: string, scopes: string[]): boolean {
   return scopes.length === 0 || scopes.some((scope) => normalized === scope || normalized.startsWith(`${scope}/`));
 }
 
-export async function collectWorkingTreeChanges(root: string, directories: string[] = []): Promise<{ files: WorkingTreeFile[]; digest: string; gitHeadSha: string }> {
+function diffPaths(root: string, args: string[]): string[] {
+  return runGit(root, ["diff", "--name-only", "-z", ...args, "--"]).split("\0").filter(Boolean).map((path) => normalizePath(root, path));
+}
+
+export async function collectWorkingTreeChanges(root: string, directories: string[] = [], options: { reviewType?: LocalReviewType; base?: string; baseCommit?: string } = {}): Promise<{ files: WorkingTreeFile[]; digest: string; gitHeadSha: string }> {
   const repositoryRoot = resolve(root);
   const gitHeadSha = runGit(repositoryRoot, ["rev-parse", "HEAD"]).trim();
+  const reviewType = options.reviewType ?? "all";
+  const baseRef = options.baseCommit?.trim() || options.base?.trim() || (reviewType === "committed" ? "HEAD~1" : undefined);
+  if (baseRef && (!/^[A-Za-z0-9._/~^:-]+$/.test(baseRef) || baseRef.startsWith("-"))) throw new Error("Unsafe review base ref.");
   const statuses = parseStatus(repositoryRoot);
-  const trackedPaths = runGit(repositoryRoot, ["diff", "--name-only", "-z", "HEAD", "--"]).split("\0").filter(Boolean).map((path) => normalizePath(repositoryRoot, path));
+  const uncommittedPaths = reviewType === "committed" ? [] : [...new Set([...diffPaths(repositoryRoot, ["HEAD"]), ...statuses.keys()])];
+  const committedPaths = reviewType === "uncommitted" || !baseRef ? [] : diffPaths(repositoryRoot, [baseRef, "HEAD"]);
   const scopes = directories.map((directory) => normalizeScopePath(repositoryRoot, directory)).filter(Boolean);
-  const paths = [...new Set([...trackedPaths, ...statuses.keys()])].filter((path) => matchesScope(path, scopes)).sort();
+  const paths = [...new Set([...uncommittedPaths, ...committedPaths])].filter((path) => matchesScope(path, scopes)).sort();
   const files: WorkingTreeFile[] = [];
   for (const path of paths) {
-    const status = statuses.get(path) ?? "modified";
+    const status = reviewType === "committed" ? "committed" : statuses.get(path) ?? (baseRef ? "committed" : "modified");
     const content = status === "untracked" ? await readUntracked(repositoryRoot, path) : undefined;
-    const patch = status === "untracked" ? newFilePatch(path, content ?? "") : runGit(repositoryRoot, ["diff", "--no-ext-diff", "--unified=20", "HEAD", "--", path]).trim();
+    const diffArgs = baseRef && status !== "untracked" ? (reviewType === "committed" ? [baseRef, "HEAD"] : [baseRef]) : ["HEAD"];
+    const patch = status === "untracked" ? newFilePatch(path, content ?? "") : runGit(repositoryRoot, ["diff", "--no-ext-diff", "--unified=20", ...diffArgs, "--", path]).trim();
     if (!patch || (status === "untracked" && content === undefined)) continue;
     const fileStats = stats(patch);
     files.push({ path, patch, status, additions: fileStats.additions, deletions: fileStats.deletions, url: pathToFileURL(join(repositoryRoot, path)).toString() });
   }
   if (!files.length) throw new Error("No staged, unstaged, or untracked changes were found.");
-  const digest = createHash("sha256").update(JSON.stringify({ gitHeadSha, files: files.map(({ path, status, patch }) => ({ path, status, patch })) })).digest("hex");
+  const digest = createHash("sha256").update(JSON.stringify({ gitHeadSha, reviewType, baseRef, files: files.map(({ path, status, patch }) => ({ path, status, patch })) })).digest("hex");
   return { files, digest, gitHeadSha };
 }
 
@@ -141,7 +151,7 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const agentProfile = await loadAgentProfile(repositoryRoot, options.agent);
   const effort = normalizeReviewEffort(options.effort || policy.effort || process.env.MERGEPROOF_REVIEW_EFFORT);
   const profile = normalizeReviewProfile(options.profile || policy.profile || process.env.MERGEPROOF_REVIEW_PROFILE);
-  const changes = await collectWorkingTreeChanges(repositoryRoot, options.directories);
+  const changes = await collectWorkingTreeChanges(repositoryRoot, options.directories, { reviewType: options.reviewType, base: options.base, baseCommit: options.baseCommit });
   const reviewSha = `working-tree:${changes.digest}`;
   const ref = { owner: "local", repo: basename(repositoryRoot), number: 0, url: pathToFileURL(repositoryRoot).toString() };
   const retrieval = await retrieveLocalEvidence(repositoryRoot, reviewSha, `${basename(repositoryRoot)} ${changes.files.map((file) => file.path).join(" ")}`, options.retrievalTopK ?? policy.retrievalTopK ?? retrievalTopKForEffort(effort));
@@ -176,7 +186,7 @@ export async function reviewWorkingTree(model?: string, options: LocalReviewOpti
   const hooksAfter = await runHooks(workingTree.repositoryRoot, "afterReview", options.hooks);
   const hooks = { enabled: hooksBefore.enabled || hooksAfter.enabled, before: hooksBefore.before, after: hooksAfter.after, failed: [...hooksBefore.failed, ...hooksAfter.failed] };
   const gated = hooks.failed.length ? { ...analysis, decision: analysis.decision === "ready" ? "needs-evidence" as const : analysis.decision } : analysis;
-  const withScope = { ...gated, suggestedReviewers: context.suggestedReviewers, trace: { ...gated.trace, scope: "working-tree" as const, workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: context.reviewEffort, reviewProfile: context.reviewProfile, suggestedReviewers: context.suggestedReviewers?.length, reviewPaths: scopePaths, agent: options.agent, hooks } };
+  const withScope = { ...gated, suggestedReviewers: context.suggestedReviewers, trace: { ...gated.trace, scope: "working-tree" as const, reviewType: options.reviewType ?? "all", ...(options.base || options.baseCommit ? { reviewBase: options.baseCommit || options.base } : {}), workingTreeDigest: changes.digest, externalSecurity: { tools: externalSecurity.tools, unavailable: externalSecurity.unavailable }, knowledge: { enabled: true, matchedFacts: knowledge.length }, reviewEffort: context.reviewEffort, reviewProfile: context.reviewProfile, suggestedReviewers: context.suggestedReviewers?.length, reviewPaths: scopePaths, agent: options.agent, hooks } };
   const completed = { ...withScope, trace: { ...withScope.trace, attestation: attestAnalysis(withScope) } };
   try {
     await recordAuditEvent(workingTree.repositoryRoot, { action: "review", target: context.ref.url, decision: completed.decision, model: completed.trace.model, headSha: completed.trace.headSha, attestation: completed.trace.attestation?.digest });

@@ -56,4 +56,32 @@ describe("working-tree review context", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("separates committed and uncommitted review scopes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mergeproof-local-review-types-"));
+    try {
+      git(root, ["init", "-q"]);
+      git(root, ["config", "user.email", "mergeproof@example.com"]);
+      git(root, ["config", "user.name", "MergeProof Test"]);
+      await writeFile(join(root, "tracked.ts"), "export const value = 1;\n", "utf8");
+      git(root, ["add", "tracked.ts"]);
+      git(root, ["commit", "-qm", "initial"]);
+      await writeFile(join(root, "tracked.ts"), "export const value = 2;\n", "utf8");
+      git(root, ["add", "tracked.ts"]);
+      git(root, ["commit", "-qm", "committed change"]);
+      await writeFile(join(root, "tracked.ts"), "export const value = 3;\n", "utf8");
+
+      const committed = await collectWorkingTreeChanges(root, [], { reviewType: "committed" });
+      expect(committed.files.map((file) => file.path)).toEqual(["tracked.ts"]);
+      expect(committed.files[0]?.status).toBe("committed");
+      expect(committed.files[0]?.patch).toContain("export const value = 2");
+
+      const uncommitted = await collectWorkingTreeChanges(root, [], { reviewType: "uncommitted" });
+      expect(uncommitted.files.map((file) => file.path)).toEqual(["tracked.ts"]);
+      expect(uncommitted.files[0]?.status).toBe("M");
+      expect(uncommitted.files[0]?.patch).toContain("export const value = 3");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -25,6 +25,7 @@ import { autofixPullRequest } from "./autofix";
 import { runRecipe } from "./recipes";
 import { processDiscordInteraction, verifyDiscordRequestSignature } from "./discord-agent";
 import { runChatTurn, type ChatTurnAction } from "./chat-turn";
+import { assertPermission } from "./permissions";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -255,6 +256,7 @@ export function startGithubWebhookServer(options: GithubWebhookOptions): Server 
           respond(response, 400, { error: "A repository checkout is required for remote session turns." });
           return;
         }
+        await assertPermission(options.repoPath, "remote");
         const payload = JSON.parse(body) as { action?: unknown; request?: unknown; sessionId?: unknown; model?: unknown; provider?: unknown; agent?: unknown };
         const action = payload.action;
         if (action !== "ask" && action !== "plan" && action !== "review") {

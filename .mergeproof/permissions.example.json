@@ -1,0 +1,18 @@
+{
+  "default": "allow",
+  "actions": {
+    "apply": "allow",
+    "publish": "deny",
+    "resolve": "deny"
+  },
+  "allowedPaths": [
+    "src/**",
+    "test/**"
+  ],
+  "deniedPaths": [
+    ".env*",
+    "secrets/**",
+    "**/*.pem"
+  ],
+  "requireVerification": true
+}

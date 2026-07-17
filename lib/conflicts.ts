@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { createModelProvider, type ModelFix } from "./models";
 import { validatePatchPaths } from "./fix";
 import type { PullRequestContext } from "./github";
+import { assertPermission } from "./permissions";
 
 export type ConflictHunk = { startLine: number; current: string; incoming: string };
 export type ConflictFile = { path: string; url: string; content: string; hunks: ConflictHunk[] };
@@ -66,6 +67,7 @@ export async function resolveConflicts(root: string, model?: string, options: { 
   let applied = false;
   if (options.apply) {
     if (!patch) throw new Error("The model did not produce a resolution patch.");
+    await assertPermission(resolve(root), "apply", { paths: changedPaths, verified: true });
     execFileSync("git", ["apply", "--3way", "--whitespace=error"], { cwd: resolve(root), input: patch, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
     execFileSync("git", ["add", "--", ...changedPaths], { cwd: resolve(root), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     const remaining = await inspectConflicts(root);

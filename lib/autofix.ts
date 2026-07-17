@@ -7,6 +7,7 @@ import { createGithubClient } from "./github-auth";
 import { fixPullRequest, type FixOptions } from "./fix";
 import { reviewWorkingTree } from "./local-review";
 import { runVerificationCommand, type VerificationCommand } from "./local-agent";
+import { assertPermission } from "./permissions";
 
 export type AutofixOptions = FixOptions & { verify?: VerificationCommand; reReview?: boolean; createPr?: boolean; stackedPr?: boolean; branch?: string; threadIds?: string[] };
 export type AutofixResult = {
@@ -105,6 +106,7 @@ export async function autofixPullRequest(prUrl: string, model?: string, options:
       }
     }
     if (options.createPr) {
+      await assertPermission(options.repoPath, "publish", { paths: fix.trace.changedPaths, verified });
       if (!verified || options.reReview && !reReviewPassed) throw new Error("Refusing to create a PR because verification or re-review did not pass.");
       git(sandbox, ["add", "-A"]);
       git(sandbox, ["config", "user.name", "MergeProof Autofix"]);
