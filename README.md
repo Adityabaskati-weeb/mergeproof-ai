@@ -226,7 +226,7 @@ Replace the example PR URL with a real pull request. `https://github.com/owner/r
 
 Exit codes are `0` for a ready decision, `2` when human evidence or ownership is required, and `1` for an invalid request or runtime failure. This keeps the CLI useful in CI without treating uncertainty as a successful merge gate.
 
-The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, read-only repository ask, consensus, local review, repository security scan, offline review-capsule verification, plan history, sandbox agent, GitHub issue tasks, named recipes, URL-based plan, free-form work plan, safe-fix, simplify, and test workflows through the same bundled CLI.
+The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes evidence chat, analyze, read-only repository ask, consensus, local review, repository security scan, offline review-capsule verification, plan history, sandbox agent, GitHub issue tasks, named recipes, URL-based plan, free-form work plan, safe-fix, simplify, and test workflows through the same bundled CLI.
 
 Named finishing-touch recipes live in `.mergeproof/recipes.json`; start from `.mergeproof/recipes.example.json`. Each recipe has bounded instructions and optional path scopes. Recipe patches are suggestions by default, can be checked and applied explicitly, and can be delivered as a separate verified GitHub PR.
 

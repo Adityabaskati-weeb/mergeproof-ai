@@ -29,7 +29,7 @@ fn cli_args(
     remember: bool,
     re_review: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "bundle-verify" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "bundle-verify" | "chat" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -124,6 +124,15 @@ fn cli_args(
     if command == "ask" {
         let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Ask requires an explicit repository path."))?;
         let mut args = vec![command.to_string(), pr_url, "--repo".to_string(), repo];
+        if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
+        if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
+        if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }
+        args.push(String::from("--json"));
+        return Ok(args);
+    }
+    if command == "chat" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Desktop chat requires an explicit repository path."))?;
+        let mut args = vec!["ask".to_string(), pr_url, "--repo".to_string(), repo];
         if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
         if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
         if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }
