@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 export type AuditEvent = {
   id: string;
   recordedAt: string;
-  action: "analyze" | "review" | "consensus" | "plan" | "fix" | "simplify" | "tests" | "autofix";
+  action: "analyze" | "review" | "consensus" | "plan" | "fix" | "simplify" | "tests" | "autofix" | "override";
   target: string;
   decision?: string;
   model?: string;

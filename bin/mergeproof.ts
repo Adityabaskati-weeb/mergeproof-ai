@@ -18,7 +18,7 @@ import { planWorkItem } from "../lib/work-plan";
 import { parseIssueUrl, planIssue } from "../lib/issue-plan";
 import { publishSlackSummary } from "../lib/slack";
 import { readRepositoryMemory } from "../lib/memory";
-import { readAuditEvents } from "../lib/audit";
+import { readAuditEvents, recordAuditEvent } from "../lib/audit";
 import { readReviewState, updateReviewState } from "../lib/review-state";
 import { inspectConflicts, resolveConflicts, type ConflictReport, type ConflictResolution } from "../lib/conflicts";
 import { addKnowledge, approveKnowledge, proposeKnowledge, readKnowledge, readKnowledgeProposals, rejectKnowledge } from "../lib/knowledge";
@@ -33,7 +33,7 @@ import { runLocalAgent, VERIFICATION_COMMANDS, type LocalAgentRun, type Verifica
 import type { Analysis } from "../lib/types";
 import type { ReviewPlan } from "../lib/models";
 import type { FixSuggestion, SimplifySuggestion } from "../lib/fix";
-import { parsePullRequestUrl, type PullRequestRef } from "../lib/github";
+import { fetchPullRequest, parsePullRequestUrl, type PullRequestRef } from "../lib/github";
 import type { ReviewEffort } from "../lib/types";
 import { renderWalkthroughMarkdown } from "../lib/walkthrough";
 import { runIssueAgent, type TaskAgentRun } from "../lib/task-agent";
@@ -43,7 +43,7 @@ import { recordOutcome, readOutcomes, summarizeOutcomes, type OutcomeLabel } fro
 import { parseChangeRequestUrl } from "../lib/change-request";
 import { generateMergeProofConfiguration, readMergeProofConfiguration, renderConfiguration } from "../lib/configuration";
 import { askRepository } from "../lib/ask";
-import { buildReviewReport, filterReviewRecords, renderReviewReportCsv, renderReviewReportMarkdown } from "../lib/report";
+import { buildReviewReport, filterReviewRecords, renderReviewReportCsv, renderReviewReportHtml, renderReviewReportMarkdown } from "../lib/report";
 import { generateCustomReport } from "../lib/report-ai";
 import { publishReviewReport, publishReviewReportEmail, type ReportDestination } from "../lib/report-delivery";
 import { readPlanHistory, recordPlanVersion } from "../lib/plan-history";
@@ -79,6 +79,7 @@ import { runPostMergeActions } from "../lib/post-merge";
 import { createSkill, discoverSkills, readSkill } from "../lib/skills";
 import { removeMcpServer, upsertMcpServer, validateMcpConfig } from "../lib/mcp";
 import { loadHooks, readHooksConfig, runHooks } from "../lib/hooks";
+import { recordPreMergeOverride } from "../lib/overrides";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -115,6 +116,7 @@ function printAnalysis(analysis: Analysis) {
   if (analysis.trace.reviewPaths?.length) console.log(`Review scope: ${analysis.trace.reviewPaths.join(", ")}`);
   if (analysis.trace.unresolvedReviewThreads !== undefined) console.log(`Unresolved review threads: ${analysis.trace.unresolvedReviewThreads}`);
   if (analysis.trace.reviewThreadsUnavailable) console.log(`Review-thread context: ${analysis.trace.reviewThreadsUnavailable}`);
+  if (analysis.trace.overrides?.length) console.log(`Pre-merge overrides: ${analysis.trace.overrides.join(", ")}`);
   if (analysis.trace.hooks?.enabled) console.log(`Hooks: before ${analysis.trace.hooks.before.join(", ") || "none"}; after ${analysis.trace.hooks.after.join(", ") || "none"}${analysis.trace.hooks.failed.length ? `; failed ${analysis.trace.hooks.failed.join(", ")}` : ""}`);
   console.log();
 }
@@ -1022,7 +1024,7 @@ program.command("benchmark").description("Score saved analyses and review bundle
   }
 });
 
-program.command("report").description("Generate local review activity, outcome, and calibration reports").argument("[repository]", "Repository owner/repo filter").option("--repo <path>", "Repository path", process.cwd()).option("--days <number>", "Only include the last N days").option("--format <format>", "json, markdown, or csv", "markdown").option("--output <path>", "Write the report to a file").option("--prompt <request>", "Generate a custom natural-language report from the measured report data").option("--model <model>", "Model name for --prompt").option("--provider <provider>", "Provider for --prompt").option("--agent <profile>", "Custom agent profile for --prompt").option("--slack-webhook <url>", "Deliver the Markdown report to a Slack incoming webhook").option("--discord-webhook <url>", "Deliver the Markdown report to a Discord webhook").option("--teams-webhook <url>", "Deliver the Markdown report to a Microsoft Teams webhook").option("--email-to <address>", "Deliver the Markdown report to an email address", process.env.MERGEPROOF_REPORT_EMAIL_TO).option("--email-from <address>", "Verified sender address for email delivery", process.env.MERGEPROOF_REPORT_EMAIL_FROM).option("--email-subject <subject>", "Subject for email delivery", "MergeProof review report").action(async (repository, options) => {
+program.command("report").description("Generate local review activity, outcome, and calibration reports").argument("[repository]", "Repository owner/repo filter").option("--repo <path>", "Repository path", process.cwd()).option("--days <number>", "Only include the last N days").option("--format <format>", "json, markdown, html, or csv", "markdown").option("--output <path>", "Write the report to a file").option("--prompt <request>", "Generate a custom natural-language report from the measured report data").option("--model <model>", "Model name for --prompt").option("--provider <provider>", "Provider for --prompt").option("--agent <profile>", "Custom agent profile for --prompt").option("--slack-webhook <url>", "Deliver the Markdown report to a Slack incoming webhook").option("--discord-webhook <url>", "Deliver the Markdown report to a Discord webhook").option("--teams-webhook <url>", "Deliver the Markdown report to a Microsoft Teams webhook").option("--email-to <address>", "Deliver the Markdown report to an email address", process.env.MERGEPROOF_REPORT_EMAIL_TO).option("--email-from <address>", "Verified sender address for email delivery", process.env.MERGEPROOF_REPORT_EMAIL_FROM).option("--email-subject <subject>", "Subject for email delivery", "MergeProof review report").action(async (repository, options) => {
   try {
     const events = await readAuditEvents(options.repo, 500);
     const outcomes = await readOutcomes(options.repo, undefined, 2_000);
@@ -1033,7 +1035,7 @@ program.command("report").description("Generate local review activity, outcome, 
     if (options.prompt && format !== "markdown") throw new Error("Custom report prompts require --format markdown.");
     const content = options.prompt
       ? (await generateCustomReport(options.prompt, report, { repoPath: options.repo, model: options.model, provider: options.provider, agent: options.agent })).report
-      : format === "json" ? JSON.stringify(report, null, 2) : format === "csv" ? renderReviewReportCsv(filtered.events, filtered.outcomes) : renderReviewReportMarkdown(report);
+      : format === "json" ? JSON.stringify(report, null, 2) : format === "csv" ? renderReviewReportCsv(filtered.events, filtered.outcomes) : format === "html" ? renderReviewReportHtml(report) : renderReviewReportMarkdown(report);
     if (options.output) await writeFile(options.output, `${content}${content.endsWith("\n") ? "" : "\n"}`, "utf8");
     else console.log(content);
     const destinations: Array<[ReportDestination, string | undefined]> = [["slack", options.slackWebhook], ["discord", options.discordWebhook], ["teams", options.teamsWebhook]];
@@ -1063,6 +1065,23 @@ program.command("state").description("Inspect or control automatic review pause,
     else console.log(`Automatic reviews: ${state.paused ? "paused" : "enabled"}\nIgnored pull requests: ${state.ignoredPullRequests.length}\nAuto-paused pull requests: ${state.autoPausedPullRequests.length}\nAuto-pause after commits: ${state.autoPauseAfterReviewedCommits ?? "disabled"}${state.reason ? `\nReason: ${state.reason}` : ""}`);
   } catch (error) {
     console.error(`MergeProof state error: ${error instanceof Error ? error.message : "Review state operation failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("override").description("Record an explicit, head-bound override for a configured custom pre-merge check").argument("<github-pull-request-url>", "GitHub pull request URL").requiredOption("--check <name>", "Configured custom pre-merge check name").requiredOption("--reason <text>", "Human-readable override reason").option("--by <identity>", "Human or approved automation identity", process.env.GITHUB_ACTOR || "operator").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (prUrl, options) => {
+  try {
+    const ref = parsePullRequestUrl(prUrl);
+    const policy = await loadPolicy(options.repo);
+    const check = String(options.check).trim();
+    if (!(policy.customChecks ?? []).some((candidate) => candidate.name.toLowerCase() === check.toLowerCase())) throw new Error(`Unknown custom pre-merge check: ${check}`);
+    const context = await fetchPullRequest(ref);
+    const override = await recordPreMergeOverride(options.repo, { target: ref.url, headSha: context.headSha, check, by: options.by, reason: options.reason });
+    await recordAuditEvent(options.repo, { action: "override", target: ref.url, decision: "override", headSha: context.headSha });
+    if (options.json) console.log(JSON.stringify(override, null, 2));
+    else console.log(`Recorded override ${override.id} for ${override.check} at ${override.headSha}.\nReason: ${override.reason}\nBy: ${override.by}`);
+  } catch (error) {
+    console.error(`MergeProof override error: ${error instanceof Error ? error.message : "Pre-merge override failed."}`);
     process.exitCode = 1;
   }
 });

@@ -15,6 +15,7 @@ dist
 .mergeproof/delegations
 .mergeproof/tasks
 .mergeproof/findings.jsonl
+.mergeproof/overrides.jsonl
 apps/desktop/src-tauri/binaries
 .env*
 !.env.example

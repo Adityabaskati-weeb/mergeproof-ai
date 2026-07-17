@@ -26,6 +26,16 @@ export function attestAnalysis(analysis: Analysis): AnalysisAttestation {
     reviewPaths: analysis.trace.reviewPaths ?? null,
     retrieval: analysis.trace.retrieval ?? null,
     relatedRepositories: analysis.trace.relatedRepositories ?? null,
+    traceGate: {
+      fetchedSources: analysis.trace.fetchedSources,
+      citedSources: analysis.trace.citedSources,
+      unsupportedClaims: analysis.trace.unsupportedClaims,
+      customCheckWarnings: analysis.trace.customCheckWarnings ?? 0,
+      blockingFailures: analysis.trace.blockingFailures ?? 0,
+      unresolvedReviewThreads: analysis.trace.unresolvedReviewThreads ?? 0,
+      reviewThreadsUnavailable: analysis.trace.reviewThreadsUnavailable ?? null,
+      overrides: analysis.trace.overrides ?? [],
+    },
   });
   return { algorithm: "sha256", digest: createHash("sha256").update(payload).digest("hex") };
 }

@@ -17,7 +17,10 @@ export function evaluateApprovalGate(analysis: Analysis, currentHeadSha: string)
   if (analysis.trace.unsupportedClaims !== 0) reasons.push(`${analysis.trace.unsupportedClaims} unsupported claim(s)`);
   if ((analysis.trace.blockingFailures ?? 0) !== 0) reasons.push(`${analysis.trace.blockingFailures} blocking failure(s)`);
   if ((analysis.trace.customCheckWarnings ?? 0) !== 0) reasons.push(`${analysis.trace.customCheckWarnings} warning-mode pre-merge exception(s)`);
-  if (analysis.rows.some((row) => row.state !== "pass" || row.citations.length === 0)) reasons.push("one or more criteria lack passing, cited evidence");
+  if ((analysis.trace.unresolvedReviewThreads ?? 0) !== 0) reasons.push(`${analysis.trace.unresolvedReviewThreads} unresolved review thread(s)`);
+  if (analysis.trace.reviewThreadsUnavailable) reasons.push("review-thread state is unavailable");
+  const overrides = new Set((analysis.trace.overrides ?? []).map((check) => check.toLowerCase()));
+  if (analysis.rows.some((row) => (row.state !== "pass" || row.citations.length === 0) && !overrides.has(row.criterion.toLowerCase()))) reasons.push("one or more criteria lack passing, cited evidence");
   if ((analysis.securityFindings ?? []).some((finding) => finding.severity === "high" || finding.severity === "medium")) reasons.push("medium/high security findings remain");
   if ((analysis.qualitySignals ?? []).some((finding) => finding.severity === "high" || finding.severity === "medium")) reasons.push("medium/high quality findings remain");
   return { eligible: reasons.length === 0, reasons };
@@ -96,8 +99,9 @@ export async function publishPullRequestReview(prUrl: string, analysis: Analysis
   const quality = (analysis.qualitySignals ?? []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.path}:${finding.line} ${finding.title}`).join("\n");
   const walkthrough = analysis.walkthrough ? `\n\n### Walkthrough\n${analysis.walkthrough.summary}\n\nChange stack: ${analysis.walkthrough.changeStack.map((layer) => `${layer.title} (${layer.files.length})`).join(" -> ")}\nReview effort: ${analysis.walkthrough.effortScore}/5${analysis.walkthrough.suggestedLabels.length ? `\nSuggested labels: ${analysis.walkthrough.suggestedLabels.join(", ")}` : ""}` : "";
   const gateText = approvalGate.eligible ? "Evidence-gated approval: eligible" : `Evidence-gated approval: withheld (${approvalGate.reasons.join("; ")})`;
+  const overrideText = analysis.trace.overrides?.length ? `\nExplicit pre-merge overrides: ${analysis.trace.overrides.join(", ")}` : "";
   const attestationText = analysis.trace.attestation ? `\nAttestation: ${analysis.trace.attestation.algorithm}:${analysis.trace.attestation.digest}` : "\nAttestation: unavailable";
-  const body = `MergeProof decision: **${analysis.decision}**\n\n${options.highLevelSummary === false ? "High-level summary disabled by repository policy.\n\n" : ""}${options.highLevelSummary === false ? "" : security ? `Security/privacy findings:\n${security}\n\n` : ""}${options.highLevelSummary === false ? "" : quality ? `Quality signals:\n${quality}\n\n` : ""}${rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}`).join("\n")}\n\nProfile: ${profile} | Verified citations: ${analysis.trace.citedSources}\nHead SHA: \`${context.headSha}\`\n${gateText}${attestationText}${options.highLevelSummary === false ? "" : walkthrough}`;
+  const body = `MergeProof decision: **${analysis.decision}**\n\n${options.highLevelSummary === false ? "High-level summary disabled by repository policy.\n\n" : ""}${options.highLevelSummary === false ? "" : security ? `Security/privacy findings:\n${security}\n\n` : ""}${options.highLevelSummary === false ? "" : quality ? `Quality signals:\n${quality}\n\n` : ""}${rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}`).join("\n")}\n\nProfile: ${profile} | Verified citations: ${analysis.trace.citedSources}\nHead SHA: \`${context.headSha}\`\n${gateText}${overrideText}${attestationText}${options.highLevelSummary === false ? "" : walkthrough}`;
   const octokit = await createGithubClient(true);
   try {
     const response = await octokit.rest.pulls.createReview({ owner: ref.owner, repo: ref.repo, pull_number: ref.number, commit_id: context.headSha, body, event, comments: comments.slice(0, 50) });

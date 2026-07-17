@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReviewReport, renderReviewReportCsv, renderReviewReportMarkdown } from "./report";
+import { buildReviewReport, renderReviewReportCsv, renderReviewReportHtml, renderReviewReportMarkdown } from "./report";
 
 describe("review reports", () => {
   it("aggregates activity, calibration, and export rows", () => {
@@ -10,5 +10,14 @@ describe("review reports", () => {
     expect(report).toMatchObject({ repository: "acme/app", reviews: { total: 2, attested: 1, targets: 1 }, outcomes: { total: 1 } });
     expect(renderReviewReportMarkdown(report)).toContain("Ready calibration");
     expect(renderReviewReportCsv([], [{ id: "o", recordedAt: "2026-07-16T00:00:00.000Z", repository: "acme/app", target: "t", label: "merged" }])).toContain("outcome");
+  });
+
+  it("renders a self-contained offline HTML dashboard", () => {
+    const report = buildReviewReport([], [], { repository: "acme/app" });
+    const html = renderReviewReportHtml(report);
+    expect(html).toContain("<!doctype html>");
+    expect(html).toContain("MergeProof review dashboard");
+    expect(html).toContain("acme/app");
+    expect(html).not.toContain("https://");
   });
 });

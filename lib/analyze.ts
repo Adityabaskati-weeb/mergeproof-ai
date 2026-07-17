@@ -25,6 +25,7 @@ import { recordAuditEvent } from "./audit";
 import { buildWalkthrough } from "./walkthrough";
 import { renderAnalysisPrompts } from "./models";
 import { recordPrompt } from "./prompt-log";
+import { applyPreMergeOverrides, readPreMergeOverrides } from "./overrides";
 import type { Analysis, ReviewMode } from "./types";
 
 export type AnalyzeOptions = { provider?: string; repoPath?: string; relatedRepos?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; remember?: boolean; memoryRoot?: string; memoryLimit?: number; knowledgeLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; lspDiagnostics?: string; mcp?: boolean; webSearch?: boolean; hooks?: boolean; savePrompts?: boolean; reviewMode?: ReviewMode };
@@ -67,6 +68,7 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const bodyCriteria = extractAcceptanceCriteria(context.body).criteria;
   const issueCriteria = issues.flatMap((issue) => issue.acceptanceCriteria);
   const criteria = [...bodyCriteria, ...issueCriteria, ...(policy.customChecks ?? []).map((check) => check.name)].filter((criterion, index, values) => values.findIndex((candidate) => candidate.toLowerCase() === criterion.toLowerCase()) === index);
+  const preMergeOverrides = await readPreMergeOverrides(policyRoot, ref.url, fetchedContext.headSha);
   const mcp = await fetchMcpContext(options.repoPath || process.cwd(), context, criteria, options.mcp);
   context.discussion = [...(context.discussion ?? []), ...mcp.discussion];
   mcp.sources.forEach((source) => context.sources.add(source));
@@ -108,7 +110,8 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
     await recordPrompt(policyRoot, { action: "analyze", model: modelProvider.name, ...renderAnalysisPrompts(context, criteria) });
   }
   const result = await modelProvider.analyze(context, criteria, AbortSignal.timeout(45_000));
-  const analysis = validateAnalysis(result, context, criteria, modelProvider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings, qualitySignals);
+  const validatedAnalysis = validateAnalysis(result, context, criteria, modelProvider.name, Date.now() - started, retrievalTrace, policy.minCitationsPerCriterion ?? 1, securityFindings, qualitySignals);
+  const analysis = applyPreMergeOverrides(validatedAnalysis, preMergeOverrides, (policy.customChecks ?? []).map((check) => check.name));
   const walkthrough = buildWalkthrough(context, analysis);
   const hooksAfter = await runHooks(policyRoot, "afterReview", options.hooks);
   const hooks: HookReport = { enabled: hooksBefore.enabled || hooksAfter.enabled, before: hooksBefore.before, after: hooksAfter.after, failed: [...hooksBefore.failed, ...hooksAfter.failed] };

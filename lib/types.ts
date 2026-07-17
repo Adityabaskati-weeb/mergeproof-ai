@@ -137,6 +137,7 @@ export type Analysis = {
     customChecks?: number;
     customCheckWarnings?: number;
     blockingFailures?: number;
+    overrides?: string[];
     reviewMode?: ReviewMode;
   };
 };

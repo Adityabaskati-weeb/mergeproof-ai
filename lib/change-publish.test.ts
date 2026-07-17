@@ -48,6 +48,11 @@ describe("provider publication", () => {
     const signed = { ...ready, trace: { ...ready.trace, attestation: attestAnalysis(ready) } };
     expect(evaluateApprovalGate(signed, "git-sha")).toEqual({ eligible: true, reasons: [] });
     expect(evaluateApprovalGate(signed, "new-head").reasons).toContain("analysis head SHA does not match the current pull request head");
+    const unresolved = { ...signed, trace: { ...signed.trace, unresolvedReviewThreads: 1, attestation: undefined } };
+    const unresolvedSigned = { ...unresolved, trace: { ...unresolved.trace, attestation: attestAnalysis(unresolved) } };
+    expect(evaluateApprovalGate(unresolvedSigned, "git-sha").reasons).toContain("1 unresolved review thread(s)");
+    const unavailable = { ...signed, trace: { ...signed.trace, reviewThreadsUnavailable: "forbidden" } };
+    expect(evaluateApprovalGate(unavailable, "git-sha").reasons).toContain("review-thread state is unavailable");
   });
 
   it("refreshes only the marker-scoped PR summary and preserves author content", () => {
