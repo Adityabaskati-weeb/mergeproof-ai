@@ -39,4 +39,12 @@ describe("loadPolicy", () => {
     await expect(loadPolicy(root, ["src/auth.ts"])).resolves.toMatchObject({ instructions: expect.stringContaining("Use strict TypeScript.") });
     await expect(loadPolicy(root, ["src/auth.ts"])).resolves.toMatchObject({ instructions: expect.not.stringContaining("Use typed Python.") });
   });
+
+  it("loads bounded natural-language pre-merge checks", async () => {
+    const root = await fs.mkdtemp(join(process.env.TEMP ?? ".", "mergeproof-policy-checks-"));
+    temporaryDirectories.push(root);
+    await fs.mkdir(join(root, ".mergeproof"), { recursive: true });
+    await fs.writeFile(join(root, ".mergeproof", "checks.json"), JSON.stringify([{ name: "API compatibility", instructions: "Require compatibility evidence." }, { name: "", instructions: "ignored" }]), "utf8");
+    await expect(loadPolicy(root)).resolves.toMatchObject({ customChecks: [{ name: "API compatibility", instructions: "Require compatibility evidence." }] });
+  });
 });

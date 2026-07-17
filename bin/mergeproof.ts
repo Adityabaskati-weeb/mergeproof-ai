@@ -45,6 +45,7 @@ import { askRepository } from "../lib/ask";
 import { buildReviewReport, filterReviewRecords, renderReviewReportCsv, renderReviewReportMarkdown } from "../lib/report";
 import { generateCustomReport } from "../lib/report-ai";
 import { publishReviewReport, publishReviewReportEmail, type ReportDestination } from "../lib/report-delivery";
+import { readPlanHistory, recordPlanVersion } from "../lib/plan-history";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -59,6 +60,7 @@ function printAnalysis(analysis: Analysis) {
   console.log(`Unsupported claims: ${analysis.trace.unsupportedClaims} | Analysis time: ${analysis.trace.elapsedMs}ms`);
   if (analysis.trace.retrieval?.enabled) console.log(`Repository retrieval: ${analysis.trace.retrieval.selectedChunks}/${analysis.trace.retrieval.indexedChunks} chunks selected`);
   if (analysis.trace.linkedIssues) console.log(`Linked Jira issues: ${analysis.trace.linkedIssues}`);
+  if (analysis.trace.customChecks) console.log(`Custom pre-merge checks: ${analysis.trace.customChecks}`);
   if (analysis.securityFindings?.length) {
     console.log(`Security findings: ${analysis.securityFindings.length}`);
     for (const finding of analysis.securityFindings) console.log(`    [${finding.severity}] ${finding.path}:${finding.line} ${finding.title}`);
@@ -292,6 +294,17 @@ program.command("memory").description("Inspect repository-scoped review memory")
   }
 });
 
+program.command("plan-history").description("Inspect locally recorded implementation-plan versions").option("--repo <path>", "Repository path", process.cwd()).option("--id <plan-id>", "Filter to one stable plan identity").option("--limit <number>", "Maximum versions", "20").option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const entries = await readPlanHistory(options.repo, { id: options.id, limit: Number(options.limit) });
+    if (options.json) console.log(JSON.stringify(entries, null, 2));
+    else for (const entry of entries) console.log(`${entry.id} v${entry.version} ${entry.recordedAt} ${entry.kind} ${entry.target} ${entry.digest}`);
+  } catch (error) {
+    console.error(`MergeProof plan-history error: ${error instanceof Error ? error.message : "Plan history lookup failed."}`);
+    process.exitCode = 1;
+  }
+});
+
 program.command("audit").description("Inspect the local bounded review metadata trail").option("--repo <path>", "Repository path", process.cwd()).option("--limit <number>", "Maximum events", "50").option("--json", "Print machine-readable JSON").action(async (options) => {
   const events = await readAuditEvents(options.repo, Number(options.limit));
   if (options.json) console.log(JSON.stringify(events, null, 2));
@@ -436,9 +449,13 @@ program.command("serve").description("Run GitHub, provider, Slack, and custom au
   }
 });
 
-program.command("plan").description("Generate a citation-aware implementation plan for a change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--repo <path>", "Local repository containing the profile").action(async (prUrl, options) => {
+program.command("plan").description("Generate a citation-aware implementation plan for a change request").argument("<change-request-url>", "Public change-request URL").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--record", "Record a version in .mergeproof/plan-history.jsonl").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--repo <path>", "Local repository containing the profile").action(async (prUrl, options) => {
   try {
-    const plan = await (isIssuePlanningUrl(prUrl) ? planIssue(prUrl, options.model, options.provider, { repoPath: options.repo, agent: options.agent }) : planPullRequest(prUrl, options.model, options.provider, { repoPath: options.repo, agent: options.agent }));
+    let plan = await (isIssuePlanningUrl(prUrl) ? planIssue(prUrl, options.model, options.provider, { repoPath: options.repo, agent: options.agent }) : planPullRequest(prUrl, options.model, options.provider, { repoPath: options.repo, agent: options.agent }));
+    if (options.record) {
+      const entry = await recordPlanVersion(options.repo, plan, { kind: "change-request", target: prUrl });
+      plan = { ...entry.plan, trace: { ...entry.plan.trace, historyPath: ".mergeproof/plan-history.jsonl" } };
+    }
     if (options.save) await writeFile(options.save, JSON.stringify(plan, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(plan, null, 2));
     else printPlan(plan);
@@ -448,9 +465,13 @@ program.command("plan").description("Generate a citation-aware implementation pl
   }
 });
 
-program.command("work-plan").description("Create a citation-aware implementation plan from a PRD, design, issue text, or free-form request").argument("<request...>", "Work item or product request").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--repo <path>", "Local repository to inspect", process.cwd()).option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "12").action(async (request, options) => {
+program.command("work-plan").description("Create a citation-aware implementation plan from a PRD, design, issue text, or free-form request").argument("<request...>", "Work item or product request").option("--json", "Print machine-readable JSON").option("--save <path>", "Save the plan JSON to a file").option("--record", "Record a version in .mergeproof/plan-history.jsonl").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--repo <path>", "Local repository to inspect", process.cwd()).option("--retrieval-top-k <number>", "Maximum repository evidence chunks", "12").action(async (request, options) => {
   try {
-    const plan = await planWorkItem(request.join(" "), options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK) });
+    let plan = await planWorkItem(request.join(" "), options.model, { repoPath: options.repo, provider: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK) });
+    if (options.record) {
+      const entry = await recordPlanVersion(options.repo, plan, { kind: "work-item", target: options.repo, request: request.join(" ") });
+      plan = { ...entry.plan, trace: { ...entry.plan.trace, historyPath: ".mergeproof/plan-history.jsonl" } };
+    }
     if (options.save) await writeFile(options.save, JSON.stringify(plan, null, 2), "utf8");
     if (options.json) console.log(JSON.stringify(plan, null, 2));
     else printPlan(plan);

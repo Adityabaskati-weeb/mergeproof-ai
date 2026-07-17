@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { join, resolve } from "node:path";
-import type { MergeProofPolicy } from "./policy";
+import { loadPolicy, type MergeProofPolicy } from "./policy";
 import { loadRecipes } from "./recipes";
 
 const CONFIG_PATH = ".mergeproof/config.json";
@@ -19,6 +19,7 @@ export type ConfigurationSnapshot = {
   policy: MergeProofPolicy;
   instructionFiles: string[];
   recipes: string[];
+  customChecks: string[];
 };
 
 async function exists(path: string): Promise<boolean> {
@@ -29,7 +30,7 @@ export async function readMergeProofConfiguration(root: string): Promise<Configu
   const repositoryRoot = resolve(root);
   const path = join(repositoryRoot, CONFIG_PATH);
   let policy: MergeProofPolicy = {};
-  try { policy = JSON.parse(await fs.readFile(path, "utf8")) as MergeProofPolicy; } catch { /* Optional policy uses analyzer defaults. */ }
+  try { policy = await loadPolicy(repositoryRoot); } catch { /* Optional policy uses analyzer defaults. */ }
   const instructionCandidates = [
     ".mergeproof/instructions.md",
     ".github/copilot-instructions.md",
@@ -40,7 +41,7 @@ export async function readMergeProofConfiguration(root: string): Promise<Configu
   const instructionFiles: string[] = [];
   for (const relativePath of instructionCandidates) if (await exists(join(repositoryRoot, relativePath))) instructionFiles.push(relativePath);
   const recipes = await loadRecipes(repositoryRoot);
-  return { path: CONFIG_PATH, exists: await exists(path), policy, instructionFiles, recipes: recipes.map((recipe) => recipe.name) };
+  return { path: CONFIG_PATH, exists: await exists(path), policy, instructionFiles, recipes: recipes.map((recipe) => recipe.name), customChecks: (policy.customChecks ?? []).map((check) => check.name) };
 }
 
 export async function generateMergeProofConfiguration(root: string, force = false): Promise<{ created: boolean; path: string; policy: MergeProofPolicy }> {
@@ -64,5 +65,6 @@ export function renderConfiguration(snapshot: ConfigurationSnapshot): string {
     "Minimum citations per criterion: " + (snapshot.policy.minCitationsPerCriterion ?? DEFAULT_CONFIGURATION.minCitationsPerCriterion),
     "Instruction files: " + (snapshot.instructionFiles.length ? snapshot.instructionFiles.join(", ") : "none"),
     "Recipes: " + (snapshot.recipes.length ? snapshot.recipes.join(", ") : "none"),
+    "Custom checks: " + (snapshot.customChecks.length ? snapshot.customChecks.join(", ") : "none"),
   ].join("\n");
 }

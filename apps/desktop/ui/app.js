@@ -23,10 +23,10 @@ const agentProfile = document.querySelector("#agent-profile");
 const relatedRepos = document.querySelector("#related-repos");
 
 function updateActionLabel() {
-  const labels = { analyze: "Analyze change", ask: "Ask repository", report: "Review report", walkthrough: "Generate walkthrough", erd: "Generate schema impact", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", implement: "Implement local request", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", "work-plan": "Plan free-form request", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
+  const labels = { analyze: "Analyze change", ask: "Ask repository", report: "Review report", security: "Repository security scan", "plan-history": "Inspect plan history", walkthrough: "Generate walkthrough", erd: "Generate schema impact", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", implement: "Implement local request", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", "work-plan": "Plan free-form request", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
   const criteriaLabel = document.querySelector('label[for="criteria"]');
   button.innerHTML = `${labels[action.value]} <span>&rarr;</span>`;
-  const local = ["review", "agent", "conflicts", "ask", "report", "implement", "work-plan"].includes(action.value);
+  const local = ["review", "agent", "conflicts", "ask", "report", "security", "plan-history", "implement", "work-plan"].includes(action.value);
   targetLabel.textContent = action.value === "ask" ? "Repository question" : action.value === "work-plan" ? "PRD, design, or work request" : local ? "Repository path" : action.value === "plan" ? "Change request or issue" : action.value === "task" ? "GitHub issue" : "GitHub pull request";
   if (criteriaLabel) criteriaLabel.textContent = action.value === "recipe" ? "Recipe name" : "Criteria";
   input.placeholder = action.value === "ask" ? "How does authentication flow through this repository?" : action.value === "implement" ? "Add rate limiting to the login endpoint" : action.value === "work-plan" ? "Add rate limiting to the public API" : local ? "C:\\path\\to\\repository" : action.value === "task" ? "https://github.com/owner/repo/issues/123" : "https://github.com/owner/repo/pull/123";
@@ -67,13 +67,13 @@ function escapeHtml(value) {
 }
 
 button.addEventListener("click", async () => {
-    const target = ["review", "agent", "conflicts"].includes(action.value) ? (input.value.trim() || repo.value.trim()) : input.value.trim();
+    const target = ["review", "agent", "conflicts", "security", "plan-history"].includes(action.value) ? (input.value.trim() || repo.value.trim()) : input.value.trim();
   if (!target) return;
   button.disabled = true;
   button.textContent = "Working...";
   result.classList.add("hidden");
   try {
-    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: target, model: model.value || null, provider: provider.value || null, effort: effort.value || null, profile: profile.value || null, agent: agentProfile.value || null, directories: directories.value || null, relatedRepos: relatedRepos.value || null, repoPath: ["review", "agent", "conflicts", "report"].includes(action.value) ? (repo.value || target) : (repo.value || null), criteria: criteria.value || null, verify: verify.value || null, externalSecurity: externalSecurity.checked, codeqlDatabase: codeqlDatabase.value || null, mcp: mcp.checked, webSearch: webSearch.checked, apply: apply.checked, remember: remember.checked, reReview: reReview.checked });
+    const output = await window.__TAURI__.core.invoke("run_cli", { commandName: action.value, prUrl: target, model: model.value || null, provider: provider.value || null, effort: effort.value || null, profile: profile.value || null, agent: agentProfile.value || null, directories: directories.value || null, relatedRepos: relatedRepos.value || null, repoPath: ["review", "agent", "conflicts", "report", "security", "plan-history"].includes(action.value) ? (repo.value || target) : (repo.value || null), criteria: criteria.value || null, verify: verify.value || null, externalSecurity: externalSecurity.checked, codeqlDatabase: codeqlDatabase.value || null, mcp: mcp.checked, webSearch: webSearch.checked, apply: apply.checked, remember: remember.checked, reReview: reReview.checked });
     empty.classList.add("hidden");
     if (action.value === "resolve") {
       result.innerHTML = `<h2>REVIEW THREADS ${apply.checked ? "RESOLVED" : "INSPECTED"}</h2><p>${output.resolved?.length ?? output.unresolved?.length ?? 0} thread(s) &middot; ${apply.checked ? "GitHub mutation applied" : "read-only inspection"}</p><div class="evidence">${(output.unresolved || output.resolved || []).map((thread) => `<div class="row"><span>${escapeHtml(thread.id || thread)}</span><code>${escapeHtml(thread.path || "resolved")}</code><span class="badge">${apply.checked ? "RESOLVED" : "OPEN"}</span></div>`).join("")}</div>`;
@@ -85,6 +85,10 @@ button.addEventListener("click", async () => {
     } else if (action.value === "report") {
       const decisions = Object.entries(output.reviews.decisions || {}).map(([key, value]) => `${escapeHtml(key)}=${value}`).join(", ") || "none";
       result.innerHTML = `<h2>REVIEW REPORT</h2><p>${output.reviews.total} reviews &middot; ${output.reviews.targets} targets &middot; ${output.reviews.attested} attested</p><p>Decisions: ${decisions}</p><p>Outcomes: ${output.outcomes.total} &middot; ${output.outcomes.readyCalibration ? `${Math.round(output.outcomes.readyCalibration.rate * 100)}% ready calibration` : "not enough judged outcomes"}</p>`;
+    } else if (action.value === "security") {
+      result.innerHTML = `<h2>REPOSITORY SECURITY SCAN</h2><p>${output.findings.length} deterministic finding(s) &middot; sensitive files excluded</p><div class="evidence">${output.findings.map((finding) => `<div class="row security"><span>${escapeHtml(finding.title)}</span><code>${escapeHtml(finding.path)}:${escapeHtml(finding.line)}</code><span class="badge">${escapeHtml(finding.severity.toUpperCase())}</span></div>`).join("") || "No deterministic findings."}</div>`;
+    } else if (action.value === "plan-history") {
+      result.innerHTML = `<h2>PLAN HISTORY</h2><p>${output.length} recorded version(s)</p><div class="evidence">${output.map((entry) => `<div class="row"><span>${escapeHtml(entry.id)} v${entry.version}<br /><small>${escapeHtml(entry.request)}</small></span><code>${escapeHtml(entry.digest.slice(0, 12))}</code><span class="badge">${escapeHtml(entry.model)}</span></div>`).join("") || "No recorded plans."}</div>`;
     } else if (action.value === "ask") {
       result.innerHTML = `<h2>REPOSITORY ANSWER</h2><p>Model: ${escapeHtml(output.trace.model)} &middot; ${output.trace.evidenceSources}/${output.trace.indexedChunks} evidence sources &middot; read-only &middot; ${output.trace.elapsedMs}ms</p><p class="answer">${escapeHtml(output.answer).replaceAll("\n", "<br />")}</p>`;
     } else if (action.value === "analyze" || action.value === "review" || action.value === "consensus") {

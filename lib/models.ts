@@ -16,7 +16,7 @@ const modelPlanSchema = z.object({
   steps: z.array(z.object({ title: z.string(), detail: z.string(), citations: z.array(z.object({ path: z.string(), commitSha: z.string(), url: z.string().url() })) })),
 });
 export type ModelPlan = z.infer<typeof modelPlanSchema>;
-export type ReviewPlan = ModelPlan & { trace: { model: string; headSha: string; fetchedSources: number; citedSources: number; evidenceCoverage?: number; local?: boolean; elapsedMs?: number } };
+export type ReviewPlan = ModelPlan & { trace: { model: string; headSha: string; fetchedSources: number; citedSources: number; evidenceCoverage?: number; local?: boolean; elapsedMs?: number; planId?: string; version?: number; historyPath?: string } };
 const modelFixSchema = z.object({ summary: z.string(), patch: z.string() });
 export type ModelFix = z.infer<typeof modelFixSchema>;
 export type ModelQuestionContext = { prompt: string; repository: string; headSha: string; status: string; repositoryEvidence: EvidenceChunk[]; customInstructions?: string };
@@ -44,11 +44,11 @@ function openAiClient(compatible: boolean): OpenAI {
 function analysisPrompt(context: PullRequestContext, criteria: string[]): string {
   const effort = context.reviewEffort ?? "medium";
   const profile = context.reviewProfile ?? "chill";
-  return JSON.stringify({ title: context.title, criteria, reviewEffort: effort, reviewGuidance: reviewEffortGuidance(effort), reviewProfile: profile, reviewProfileGuidance: reviewProfileGuidance(profile), suggestedReviewers: context.suggestedReviewers ?? [], files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], reviewThreads: context.reviewThreads ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], qualitySignals: context.qualitySignals ?? [], reviewMemory: context.reviewMemory ?? [], knowledge: context.knowledge ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
+  return JSON.stringify({ title: context.title, criteria, criterionContract: "Return exactly one row for each criterion using the exact criterion string supplied. Custom checks are policy requirements, not suggestions; return warn or fail when their evidence is insufficient.", customChecks: context.customChecks ?? [], reviewEffort: effort, reviewGuidance: reviewEffortGuidance(effort), reviewProfile: profile, reviewProfileGuidance: reviewProfileGuidance(profile), suggestedReviewers: context.suggestedReviewers ?? [], files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], reviewThreads: context.reviewThreads ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], qualitySignals: context.qualitySignals ?? [], reviewMemory: context.reviewMemory ?? [], knowledge: context.knowledge ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
 }
 
 function planPrompt(context: PullRequestContext, criteria: string[]): string {
-  return JSON.stringify({ task: "Create an implementation plan for this pull request and its requirements.", title: context.title, criteria, files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], reviewThreads: context.reviewThreads ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], qualitySignals: context.qualitySignals ?? [], reviewMemory: context.reviewMemory ?? [], knowledge: context.knowledge ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
+  return JSON.stringify({ task: "Create an implementation plan for this pull request and its requirements.", title: context.title, criteria, customChecks: context.customChecks ?? [], files: context.files, checks: context.checks, commits: context.commits ?? [], discussion: context.discussion ?? [], reviewThreads: context.reviewThreads ?? [], issues: context.issues ?? [], repositoryEvidence: context.repositoryEvidence ?? [], securityFindings: context.securityFindings ?? [], qualitySignals: context.qualitySignals ?? [], reviewMemory: context.reviewMemory ?? [], knowledge: context.knowledge ?? [], customInstructions: context.customInstructions ?? "", headSha: context.headSha });
 }
 
 function fixPrompt(context: PullRequestContext, criteria: string[]): string {

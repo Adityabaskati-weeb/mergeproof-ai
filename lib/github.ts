@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createGithubClient } from "./github-auth";
-import type { EvidenceChunk, LinkedIssue, ReviewMemoryEntry, SecurityFinding, ReviewThread } from "./types";
+import type { CustomCheck, EvidenceChunk, LinkedIssue, ReviewMemoryEntry, SecurityFinding, ReviewThread } from "./types";
 import type { KnowledgeFact } from "./knowledge";
 import type { ReviewEffort, ReviewProfile } from "./types";
 import { fetchGithubReviewThreads } from "./github-threads";
@@ -15,7 +15,7 @@ export type PullRequestContext = {
   headSha: string;
   baseSha: string;
   files: Array<{ path: string; patch: string; status: string; additions: number; deletions: number; url: string }>;
-  checks: Array<{ name: string; status: string; conclusion: string | null; url: string }>;
+  checks: Array<{ name: string; status: string; conclusion: string | null; url: string; details?: string }>;
   commits?: Array<{ sha: string; message: string; url: string }>;
   discussion?: Array<{ author: string; body: string; url: string }>;
   reviewThreads?: ReviewThread[];
@@ -28,6 +28,7 @@ export type PullRequestContext = {
   repositoryEvidence?: EvidenceChunk[];
   issues?: LinkedIssue[];
   customInstructions?: string;
+  customChecks?: CustomCheck[];
   securityFindings?: SecurityFinding[];
   qualitySignals?: SecurityFinding[];
   suggestedReviewers?: string[];
@@ -62,7 +63,19 @@ export async function fetchPullRequest(ref: PullRequestRef): Promise<PullRequest
     sources.add(url);
     return { path: file.filename, patch: file.patch ?? "(binary or patch unavailable)", status: file.status, additions: file.additions, deletions: file.deletions, url };
   });
-  const checkData = checks.data.check_runs.map((check) => ({ name: check.name, status: check.status, conclusion: check.conclusion, url: check.html_url ?? ref.url }));
+  const checkData = await Promise.all(checks.data.check_runs.slice(0, 100).map(async (check) => {
+    const details = [check.output?.title, check.output?.summary, check.output?.text].filter(Boolean).join("\n");
+    let annotations = "";
+    if (check.conclusion && !["success", "neutral", "skipped"].includes(check.conclusion.toLowerCase())) {
+      try {
+        const values = await octokit.paginate(octokit.rest.checks.listAnnotations, { owner: ref.owner, repo: ref.repo, check_run_id: check.id, per_page: 100 });
+        annotations = values.slice(0, 100).map((annotation) => `${annotation.path ?? "unknown"}:${annotation.start_line ?? "?"} ${annotation.annotation_level ?? "warning"}: ${annotation.message ?? ""}`).join("\n");
+      } catch {
+        // Check annotations are optional and may not be available to the token.
+      }
+    }
+    return { name: check.name, status: check.status, conclusion: check.conclusion, url: check.html_url ?? ref.url, details: [details, annotations].filter(Boolean).join("\n").slice(0, 12_000) || undefined };
+  }));
   checkData.forEach((check) => sources.add(check.url));
   const commitData = commits.slice(0, 100).map((commit) => ({ sha: commit.sha, message: commit.commit.message.slice(0, 2000), url: commit.html_url ?? `${ref.url}/commits/${commit.sha}` }));
   commitData.forEach((commit) => sources.add(commit.url));

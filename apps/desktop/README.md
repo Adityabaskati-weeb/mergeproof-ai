@@ -14,6 +14,7 @@ The desktop client currently provides:
 - repository retrieval provenance when the exact PR checkout is available
 - related local repository context through the CLI-compatible analysis engine
 - deterministic security findings with line-linked evidence
+- repository-wide security scan and local plan-history inspection
 - optional repository-scoped review memory
 - explicit repository knowledge facts with path scoping
 - named repository custom-agent profiles

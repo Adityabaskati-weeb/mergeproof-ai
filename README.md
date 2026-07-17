@@ -7,6 +7,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof analyze <change-request-url>` CLI workflow for GitHub, GitLab, Bitbucket, and Azure DevOps
 - `mergeproof review [repo-path]` pre-commit workflow for staged, unstaged, and untracked changes
 - `mergeproof security --repo <checkout>` full-repository deterministic security scan with sensitive-file exclusions
+- `.mergeproof/checks.json` natural-language pre-merge checks evaluated as cited criteria on every review
 - `mergeproof agent [repo-path]` sandboxed fix generation with optional verification
 - `mergeproof task <github-issue-url> --repo <checkout>` evidence-retrieved issue implementation with sandbox verification and optional handoff PR
 - `mergeproof implement <request...> --repo <checkout>` Copilot-style local implementation agent with bounded retrieval, sandbox verification, optional re-review, and explicit apply
@@ -22,12 +23,14 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof feedback <change-request-url> <label>` and `mergeproof metrics` outcome feedback and ready-decision calibration
 - `mergeproof verify <analysis-json>` to independently verify a saved analysis attestation
 - `mergeproof report [repository]` for local dashboard-style Markdown, JSON, or CSV review reports, natural-language custom reports, and optional Slack, Discord, Teams, or SendGrid email delivery
+- `mergeproof plan-history` to inspect recorded implementation-plan versions and content digests
 - `mergeproof configuration` to inspect policy/instructions/recipes, or `--generate` to create a starter policy explicitly
 - `mergeproof ask <question...>` (also `chat`) for read-only Copilot-style repository Q&A with bounded retrieval and an auditable trace
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
 - Paste a public GitHub pull request URL into the CLI or native desktop client
 - Fetch real PR metadata, changed files, commits, and checks with Octokit
+- Fetch failed check summaries and annotations into the evidence context for CI/CD-aware findings and fixes
 - Fetch unresolved GitHub review threads through GraphQL and treat their comment URLs as evidence sources
 - Extract acceptance criteria from the PR description
 - Analyze the change with a configurable OpenAI model (GPT-5.6 by default)
@@ -40,6 +43,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - Optionally notify a Slack incoming webhook
 - Generate citation-aware implementation plans from GitHub Issues, GitLab Issues, Jira, Linear, and PRs
 - Generate evidence-grounded plans from arbitrary work items without requiring a hosted issue or pull request
+- Record plan versions with `--record` so plan refinement remains inspectable and tied to a repository head
 - Suggest minimal unified-diff fixes from the same evidence context
 - Generate test-only unified-diff suggestions without editing production code
 - Select low, medium, or high review effort with bounded retrieval budgets
@@ -182,6 +186,9 @@ npm run cli -- report owner/repo -- --repo . --format csv --output mergeproof-re
 npm run cli -- feedback https://github.com/owner/repo/pull/123 merged -- --repo . --analysis analysis.json
 npm run cli -- metrics owner/repo -- --repo . --json
 npm run cli -- plan https://github.com/owner/repo/pull/123 -- --save plan.json
+npm run cli -- plan https://github.com/owner/repo/pull/123 -- --record --repo . --save plan.json
+npm run cli -- work-plan "Add rate limiting to the public API" -- --repo . --record --json
+npm run cli -- plan-history -- --repo . --json
 npm run cli -- walkthrough https://github.com/owner/repo/pull/123 -- --publish
 npm run cli -- plan https://acme.atlassian.net/browse/PLAT-42 -- --save plan.json
 npm run cli -- simplify https://github.com/owner/repo/pull/123 -- --repo . --patch simplify.patch
@@ -201,6 +208,7 @@ npm run cli -- resolve https://github.com/owner/repo/pull/123 -- --json
 npm run cli -- resolve https://github.com/owner/repo/pull/123 -- --apply --thread-id PRRT_kwDO123
 npm run cli -- knowledge owner/repo --repo . --add "Generated API clients must be changed through the schema" --path src/api
 npm run cli -- knowledge owner/repo --repo . --query schema
+npm run cli -- security -- --repo . --json
 npm run cli -- serve -- --secret your-webhook-secret --repo . --publish-review
 ```
 
@@ -208,7 +216,7 @@ Replace the example PR URL with a real pull request. `https://github.com/owner/r
 
 Exit codes are `0` for a ready decision, `2` when human evidence or ownership is required, and `1` for an invalid request or runtime failure. This keeps the CLI useful in CI without treating uncertainty as a successful merge gate.
 
-The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, read-only repository ask, consensus, local review, sandbox agent, GitHub issue tasks, named recipes, URL-based plan, free-form work plan, safe-fix, simplify, and test workflows through the same bundled CLI.
+The native desktop client lives in `apps/desktop`. Install Rust through `rustup` and the Tauri prerequisites before running `npm run desktop:dev` from the repository root. Use `npm run desktop:build` to create the Windows installers. The desktop action picker exposes analyze, read-only repository ask, consensus, local review, repository security scan, plan history, sandbox agent, GitHub issue tasks, named recipes, URL-based plan, free-form work plan, safe-fix, simplify, and test workflows through the same bundled CLI.
 
 Named finishing-touch recipes live in `.mergeproof/recipes.json`; start from `.mergeproof/recipes.example.json`. Each recipe has bounded instructions and optional path scopes. Recipe patches are suggestions by default, can be checked and applied explicitly, and can be delivered as a separate verified GitHub PR.
 
@@ -228,7 +236,9 @@ The manual `.github/workflows/mergeproof-task.yml` workflow implements a GitHub 
 
 The `.github/workflows/mergeproof-scheduled.yml` workflow reviews up to five open pull requests hourly when the repository variable `MERGEPROOF_SCHEDULE_ENABLED=true` is set, or immediately through `workflow_dispatch`. It publishes evidence checks, optionally publishes reviews when selected at dispatch time, generates a seven-day Markdown and CSV activity report, uploads machine-readable results, and never applies code or merges a pull request. Scheduled model usage is opt-in because it can incur API cost.
 
-Repository policy lives in `.mergeproof/config.json`; use `mergeproof configuration` to inspect it or `mergeproof configuration --generate` to create the starter policy explicitly. Team review guidance can be added to `.mergeproof/instructions.md`. Supported policy keys are `provider`, `model`, `effort`, `retrievalTopK`, and `minCitationsPerCriterion`. Review effort defaults to `medium`; `low` uses four repository chunks, `medium` eight, and `high` sixteen unless `--retrieval-top-k` is explicitly set.
+Repository policy lives in `.mergeproof/config.json`; use `mergeproof configuration` to inspect it or `mergeproof configuration --generate` to create the starter policy explicitly. Team review guidance can be added to `.mergeproof/instructions.md`. Copy `.mergeproof/checks.example.json` to `.mergeproof/checks.json` to add bounded natural-language pre-merge checks; each check becomes a normal evidence criterion and cannot produce a ready decision without valid citations. Supported policy keys are `provider`, `model`, `effort`, `retrievalTopK`, `minCitationsPerCriterion`, and optional inline `customChecks`. Review effort defaults to `medium`; `low` uses four repository chunks, `medium` eight, and `high` sixteen unless `--retrieval-top-k` is explicitly set.
+
+Use `--record` on `plan` or `work-plan` to append a local, bounded version to `.mergeproof/plan-history.jsonl`; each entry stores the plan digest, model, repository head, stable plan identity, and version. This history is local metadata and is ignored from source control by default.
 
 Save a machine-readable run with `-- --json` and use `evaluate` to report criterion coverage, citation coverage, abstention, unsupported claims, and retrieval usage. This makes MergeProof quality measurable instead of relying on an attractive demo transcript.
 

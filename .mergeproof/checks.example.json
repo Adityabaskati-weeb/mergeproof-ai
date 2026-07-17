@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Rollback path is documented",
+    "instructions": "Require evidence of a rollback or migration-reversal path when this change modifies persistence, deployment, or external state. Mark it warn when the change is not safely classified from the supplied evidence."
+  },
+  {
+    "name": "Public API changes have compatibility coverage",
+    "instructions": "Check whether exported API or schema changes include backward-compatibility evidence and focused tests. Do not infer compatibility from the PR description alone."
+  }
+]

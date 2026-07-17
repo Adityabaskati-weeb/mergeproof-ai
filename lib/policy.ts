@@ -1,8 +1,22 @@
 import { promises as fs } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import type { ReviewEffort, ReviewProfile } from "./types";
+import type { CustomCheck, ReviewEffort, ReviewProfile } from "./types";
 
-export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; profile?: ReviewProfile; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string };
+export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; profile?: ReviewProfile; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string; customChecks?: CustomCheck[] };
+
+async function loadCustomChecks(repositoryRoot: string): Promise<CustomCheck[]> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(join(repositoryRoot, ".mergeproof", "checks.json"), "utf8")) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((value): value is { name?: unknown; instructions?: unknown } => Boolean(value) && typeof value === "object")
+      .map((value) => ({ name: typeof value.name === "string" ? value.name.trim() : "", instructions: typeof value.instructions === "string" ? value.instructions.trim() : "" }))
+      .filter((value) => value.name.length > 0 && value.instructions.length > 0 && value.name.length <= 200 && value.instructions.length <= 4_000)
+      .slice(0, 20);
+  } catch {
+    return [];
+  }
+}
 
 async function collectInstructionFiles(root: string, directory: string, suffix: string, output: Array<[string, string]> = [], depth = 0): Promise<Array<[string, string]>> {
   if (depth > 4 || output.length >= 20) return output;
@@ -52,6 +66,15 @@ export async function loadPolicy(root?: string, changedPaths: string[] = []): Pr
   } catch {
     // Policy is optional; defaults keep the analyzer usable in any checkout.
   }
+  const configuredChecks = await loadCustomChecks(repositoryRoot);
+  const inlineChecks = Array.isArray(policy.customChecks) ? policy.customChecks : [];
+  const customChecks = [...configuredChecks, ...inlineChecks]
+    .filter((check): check is CustomCheck => Boolean(check) && typeof check.name === "string" && typeof check.instructions === "string")
+    .map((check) => ({ name: check.name.trim(), instructions: check.instructions.trim() }))
+    .filter((check) => check.name && check.instructions && check.name.length <= 200 && check.instructions.length <= 4_000)
+    .filter((check, index, values) => values.findIndex((candidate) => candidate.name.toLowerCase() === check.name.toLowerCase()) === index)
+    .slice(0, 20);
+  if (customChecks.length) policy.customChecks = customChecks;
   const instructionFiles = [
     [join(repositoryRoot, ".mergeproof", "instructions.md"), ".mergeproof/instructions.md"],
     [join(repositoryRoot, ".github", "copilot-instructions.md"), ".github/copilot-instructions.md"],

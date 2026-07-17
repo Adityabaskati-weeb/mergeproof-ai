@@ -17,6 +17,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Free-form product planning | `work-plan` accepts PRDs, designs, issue text, or plain requests; retrieves current checkout evidence and removes unsupported citations | Cloud-agent research and planning | Plans from PRDs, designs, issues, and free-form descriptions |
 | Suggested reviewers | Path-aware suggestions from CODEOWNERS and `.mergeproof/reviewers.json` | Suggested reviewers and team rules | Suggested reviewer rules |
 | Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files, and named custom-agent profiles | Custom instructions, custom agents, skills, MCP | Repository and path-based instructions |
+| Natural-language pre-merge checks | `.mergeproof/checks.json` checks become evidence-backed criteria and cannot silently approve without citations | Repository instructions and checks | Built-in and custom pre-merge checks |
 | Citation-backed decision | Exact head-SHA citations and source validation | Actionable suggestions | Review findings and summaries |
 | Durable memory | Local bounded review JSONL, explicit approved knowledge JSONL, plus bounded Slack thread reference state | Copilot Memory | Knowledge Base and learnings |
 | Local audit history | Bounded JSONL metadata trail with decision, model, head SHA, and attestation lookup | Enterprise audit logs | Workspace audit logs |
@@ -43,6 +44,8 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Outcome calibration | Local outcome ledger records merged/closed or human-labeled outcomes against decision, head SHA, and attestation; `feedback` and `metrics` expose calibration | Copilot usage metrics focus on adoption and PR lifecycle | CodeRabbit dashboards and reports focus on review activity and outcomes |
 | Post-merge actions | Optional GitHub Actions workflow records merged lifecycle outcomes and uploads a machine-readable artifact without invoking a model | Cloud-agent and workflow automations | Post-merge actions for changelogs, tickets, and notifications |
 | Reports / export | Local `report` command aggregates activity, decisions, models, attestation coverage, outcomes, calibration, CSV export, natural-language custom reports, and opt-in Slack/Discord/Teams/SendGrid email delivery; scheduled review workflow uploads weekly Markdown/CSV artifacts | GitHub and IDE usage surfaces | Dashboard filters, scheduled/on-demand custom reports, email/Slack/Discord/Teams delivery, and CSV export |
+| Plan history | Optional local JSONL version history with stable plan identity, version, content digest, model, and repository head; inspectable through `plan-history` | Cloud-agent task history | Coding Plan refinement and version history |
+| CI/CD failure context | Failed GitHub check summaries and annotations are fetched as cited evidence for analysis and safe fixes | Actions-backed agent context | CI/CD pipeline analysis with inline fix suggestions |
 
 ## Differentiation
 
@@ -62,6 +65,8 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 12. Saved analyses can be independently attestation-verified after transport or publication, making tampering observable instead of trusting the displayed decision.
 13. A local natural-language implementation request is treated as a reproducible, evidence-bounded patch job: clean HEAD, bounded retrieval, ephemeral worktree, verification, optional re-review, and stale-checkout refusal before apply.
 14. Free-form planning uses the same ledger boundary as review: a plan is not allowed to retain citations from a different checkout or commit, so planning and implementation start from the same verifiable evidence surface.
+15. Natural-language pre-merge checks are evaluated as normal evidence rows, so teams get a measurable abstention when a custom rule cannot be proven rather than an opaque pass/fail toggle.
+16. Follow-up issues are duplicate-safe and enriched with related issue links, available smart labels, and optional configured assignees without inventing labels that do not exist in the repository.
 
 ## Remaining Deliberate Gaps
 

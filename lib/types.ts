@@ -2,6 +2,11 @@ export type EvidenceState = "pass" | "warn" | "fail";
 export type ReviewEffort = "low" | "medium" | "high";
 export type ReviewProfile = "quiet" | "chill" | "assertive";
 
+export type CustomCheck = {
+  name: string;
+  instructions: string;
+};
+
 export type EvidenceChunk = {
   path: string;
   startLine: number;
@@ -120,5 +125,6 @@ export type Analysis = {
     unresolvedReviewThreads?: number;
     reviewThreadsUnavailable?: string;
     hooks?: { enabled: boolean; before: string[]; after: string[]; failed: string[] };
+    customChecks?: number;
   };
 };

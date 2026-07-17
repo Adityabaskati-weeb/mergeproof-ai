@@ -4,8 +4,9 @@ const { execFile } = require("node:child_process");
 function runMergeProof(command, url, cwd) {
   const configuredPath = vscode.workspace.getConfiguration("mergeproof").get("cliPath");
   const executable = configuredPath || (process.platform === "win32" ? "npm.cmd" : "npm");
-  const repoArgs = command === "analyze" || command === "consensus" || command === "walkthrough" || command === "docstrings" || command === "fix" || command === "simplify" || command === "tests" || command === "autofix" || command === "task" || command === "work-plan" ? ["--repo", cwd] : [];
-  const args = configuredPath ? [command, url, "--json", ...repoArgs] : ["run", "cli", "--", command, url, "--", "--json", ...repoArgs];
+  const repoArgs = command === "analyze" || command === "consensus" || command === "walkthrough" || command === "docstrings" || command === "fix" || command === "simplify" || command === "tests" || command === "autofix" || command === "task" || command === "work-plan" || command === "security" || command === "plan-history" ? ["--repo", cwd] : [];
+  const positional = command === "security" || command === "plan-history" ? [] : [url];
+  const args = configuredPath ? [command, ...positional, "--json", ...repoArgs] : ["run", "cli", "--", command, ...positional, "--", "--json", ...repoArgs];
   return new Promise((resolve, reject) => execFile(executable, args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
     const jsonStart = stdout.indexOf("{");
     const json = jsonStart >= 0 ? stdout.slice(jsonStart).trim() : "";
@@ -110,6 +111,21 @@ async function generateWorkPlan() {
   }
 }
 
+async function inspectLocal(command) {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) return vscode.window.showErrorMessage("Open a repository folder before running MergeProof.");
+  const channel = vscode.window.createOutputChannel("MergeProof");
+  channel.show(true);
+  try {
+    const result = await runMergeProof(command, "", folder);
+    channel.appendLine(JSON.stringify(result, null, 2));
+    vscode.window.showInformationMessage(`MergeProof ${command}: ${command === "security" ? `${result.findings?.length ?? 0} finding(s)` : `${result.length ?? 0} version(s)`}`);
+  } catch (error) {
+    channel.appendLine(String(error));
+    vscode.window.showErrorMessage(`MergeProof ${command} failed: ${error.message}`);
+  }
+}
+
 function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.analyzePullRequest", () => analyze("analyze")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.consensus", () => analyze("consensus")));
@@ -119,6 +135,8 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.implementIssue", implementIssue));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generatePlan", () => analyze("plan")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generateWorkPlan", generateWorkPlan));
+  context.subscriptions.push(vscode.commands.registerCommand("mergeproof.securityScan", () => inspectLocal("security")));
+  context.subscriptions.push(vscode.commands.registerCommand("mergeproof.planHistory", () => inspectLocal("plan-history")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generateWalkthrough", () => analyze("walkthrough")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.resolveReviewThreads", () => analyze("resolve")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generateDocstrings", () => analyze("docstrings")));
