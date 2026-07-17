@@ -308,6 +308,18 @@ The VS Code extension exposes `review`, `analyze`, URL-based `plan`, free-form `
 
 Fix suggestions are not silently committed, pushed, or posted to GitHub. Without `--apply`, MergeProof only emits a patch. With `--apply`, it rejects absolute or traversal paths and requires Git to accept the patch with whitespace errors treated as failures. The `agent` command is safer by default: it applies the patch only in an ephemeral Git worktree and can run only the explicitly supported verification commands.
 
+## Verified Delegation
+
+MergeProof can hand off a natural-language implementation request without turning it into an unbounded background agent:
+
+```powershell
+npx tsx bin/mergeproof.ts delegate start "Add rate limiting to the login endpoint" --repo . --verify "npm test"
+npx tsx bin/mergeproof.ts delegate list --repo .
+npx tsx bin/mergeproof.ts delegate show <delegation-id> --repo . --json
+```
+
+Delegation captures the initial repository SHA, model/provider, request, verification command, bounded correction attempts, changed paths, and a SHA-256 proof artifact under `.mergeproof/delegations/`. It runs the same isolated autopilot plus evidence re-review gate used by local mutation; `--apply` is optional and still refuses stale or unverified checkout changes. Use `--foreground` to wait in the terminal, or omit it for a durable local handoff that can be inspected and cancelled.
+
 ## Product boundaries
 
 MergeProof is intentionally local-first and evidence-gated. The repository includes a root `plugin.json` plus Claude, Cursor, GitHub agent, command, skill, and ACP packaging so the same review contract can travel across supported agent clients. It still does not claim to replace GitHub's inline autocomplete, hosted cloud-agent fleet, enterprise policy plane, or CodeRabbit's hosted knowledge administration, billing/tenant controls, and dashboard service. Those hosted surfaces require their own provider infrastructure; MergeProof's differentiator is an inspectable evidence ledger that makes every decision, external diagnostic, model output, permission decision, and mutation boundary auditable.

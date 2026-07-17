@@ -67,6 +67,7 @@ import { requestRemoteTurn, type RemoteAction } from "../lib/remote";
 import { renderSearchResults, searchWorkspace } from "../lib/search";
 import { discoverWorkspacePlugins, renderWorkspacePlugins } from "../lib/plugins";
 import { cancelTask, isTaskAction, listTasks, readTask, runTaskWorker, startTask, pruneTasks } from "../lib/tasks";
+import { cancelDelegation, listDelegations, readDelegation, readDelegationResult, runDelegationWorker, startDelegation } from "../lib/delegation";
 import { readLspConfig, renderLspConfig, testLspServers } from "../lib/lsp";
 import { completeFile } from "../lib/completion";
 import { readPrompts, renderPromptRecord } from "../lib/prompt-log";
@@ -1553,6 +1554,53 @@ program.command("research").description("Run opt-in web research and return a so
     console.error(`MergeProof research error: ${error instanceof Error ? error.message : "Research failed."}`);
     process.exitCode = 1;
   }
+});
+
+const delegateCommand = program.command("delegate").description("Hand off a bounded implementation request with durable proof and lifecycle controls");
+delegateCommand.command("start").description("Start a verification-gated delegated implementation session").argument("<request...>", "Implementation request").requiredOption("--repo <path>", "Local checkout of the target repository").requiredOption("--verify <command>", "Allowlisted verification: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--foreground", "Run in this process and wait for completion").option("--max-iterations <number>", "Maximum correction attempts", "3").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--apply", "Apply only the converged, verified patch after a stale-checkout and permission check").option("--json", "Print machine-readable JSON").action(async (request, options) => {
+  try {
+    const verify = parseVerificationCommand(options.verify);
+    if (!verify) throw new Error("Delegation requires an allowlisted verification command.");
+    const result = await startDelegation({ repoPath: options.repo, request: request.join(" "), verify, model: options.model, provider: options.provider, agent: options.agent, maxIterations: Number(options.maxIterations), apply: options.apply }, !options.foreground);
+    const artifact = options.foreground ? await readDelegationResult(result.repository, result.id) : undefined;
+    if (options.json) console.log(JSON.stringify({ ...result, ...(artifact ? { result: artifact } : {}) }, null, 2));
+    else console.log(`${result.id}\t${result.status}\t${result.repository}\nProof: ${result.proofPath}\nUse 'mergeproof delegate show ${result.id} --repo "${result.repository}"' for the result.`);
+  } catch (error) {
+    console.error(`MergeProof delegate start error: ${error instanceof Error ? error.message : "Delegation failed to start."}`);
+    process.exitCode = 1;
+  }
+});
+delegateCommand.command("list").description("List delegated implementation sessions").option("--repo <path>", "Repository path", process.cwd()).option("--limit <number>", "Maximum delegations", "20").option("--json", "Print machine-readable JSON").action(async (options) => {
+  const records = await listDelegations(options.repo, Number(options.limit));
+  if (options.json) console.log(JSON.stringify(records, null, 2));
+  else console.log(records.map((record) => `${record.id}\t${record.status}\t${record.createdAt}\t${record.request}`).join("\n") || "No delegated sessions.");
+});
+delegateCommand.command("show").description("Show a delegated session and its proof artifact").argument("<delegation-id>", "Delegation ID").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (id, options) => {
+  try {
+    const record = await readDelegation(options.repo, id);
+    if (!record) throw new Error(`Delegation not found: ${id}`);
+    const result = await readDelegationResult(options.repo, id);
+    if (options.json) console.log(JSON.stringify({ ...record, result }, null, 2));
+    else console.log(`${record.id}\nStatus: ${record.status}\nRequest: ${record.request}\nProof: ${record.proofPath}\n${result?.proof ? `Digest: ${result.proof.digest}` : result?.error ? `Error: ${result.error}` : "Result is still pending."}`);
+  } catch (error) {
+    console.error(`MergeProof delegate show error: ${error instanceof Error ? error.message : "Delegation lookup failed."}`);
+    process.exitCode = 1;
+  }
+});
+delegateCommand.command("cancel").description("Cancel a queued or running delegated session").argument("<delegation-id>", "Delegation ID").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (id, options) => {
+  try {
+    const result = await cancelDelegation(options.repo, id);
+    if (!result) throw new Error(`Delegation not found: ${id}`);
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`Delegation ${result.id}: ${result.status}.`);
+  } catch (error) {
+    console.error(`MergeProof delegate cancel error: ${error instanceof Error ? error.message : "Delegation cancellation failed."}`);
+    process.exitCode = 1;
+  }
+});
+program.command("__delegate-worker").description("Internal worker for durable delegated sessions").argument("<delegation-id>", "Delegation ID").action(async (id) => {
+  const result = await runDelegationWorker(process.cwd(), id);
+  if (!result) process.exitCode = 1;
 });
 
 program.parseAsync().catch(() => { process.exitCode = 1; });

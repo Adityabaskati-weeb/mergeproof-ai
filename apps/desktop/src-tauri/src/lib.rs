@@ -30,7 +30,7 @@ fn cli_args(
     re_review: bool,
     session_id: Option<String>,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "sessions-compact" | "sessions-checkpoints" | "benchmark" | "search" | "plugins" | "skills" | "mcp" | "hooks" | "lsp" | "complete" | "stats" | "prompts" | "tasks" | "tasks-list" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "autopilot" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report" | "pr-view") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "sessions-compact" | "sessions-checkpoints" | "benchmark" | "search" | "plugins" | "skills" | "mcp" | "hooks" | "lsp" | "complete" | "stats" | "prompts" | "tasks" | "tasks-list" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "autopilot" | "delegate" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report" | "pr-view") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "pr-view" {
@@ -110,6 +110,18 @@ fn cli_args(
         let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Autopilot requires an explicit repository path."))?;
         let verify = verify.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Autopilot requires an explicit verification command."))?;
         let mut args = vec![command.to_string(), pr_url, "--repo".to_string(), repo, "--verify".to_string(), verify];
+        if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
+        if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
+        if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }
+        if apply { args.push("--apply".to_string()); }
+        args.push("--json".to_string());
+        return Ok(args);
+    }
+    if command == "delegate" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Delegation requires an explicit repository path."))?;
+        let verify = verify.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Delegation requires an explicit verification command."))?;
+        if pr_url.trim().is_empty() { return Err(String::from("Delegation requires a natural-language request.")); }
+        let mut args = vec![command.to_string(), "start".to_string(), pr_url, "--repo".to_string(), repo, "--verify".to_string(), verify, "--foreground".to_string()];
         if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
         if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
         if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }

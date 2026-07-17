@@ -11,6 +11,7 @@ The desktop client currently provides:
 - staged, unstaged, and untracked working-tree review
 - ephemeral sandbox-agent fix generation with optional verification
 - bounded autopilot correction loops with optional checkout apply after verification and re-review
+- foreground verified delegation with durable base-SHA and proof-artifact output
 - bounded autopilot correction loops with optional checkout apply after verification and re-review
 - provider and model selection per analysis
 - low, medium, or high review effort selection
