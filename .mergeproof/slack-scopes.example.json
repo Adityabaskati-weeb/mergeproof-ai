@@ -1,0 +1,17 @@
+{
+  "default": "deny",
+  "scopes": [
+    {
+      "name": "engineering-reviewers",
+      "channelIds": ["C0123456789"],
+      "userIds": ["U0123456789"],
+      "actions": ["review", "investigate", "walkthrough", "plan", "issue"]
+    },
+    {
+      "name": "trusted-autofix",
+      "channelIds": ["C0123456789"],
+      "userIds": ["U0123456789"],
+      "actions": ["autofix"]
+    }
+  ]
+}

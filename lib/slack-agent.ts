@@ -17,6 +17,7 @@ import { parseIssueUrl, planIssue } from "./issue-plan";
 import { runConsensus } from "./consensus";
 import { updateReviewState } from "./review-state";
 import { generateDocstringsPullRequest } from "./docstrings";
+import { assertSlackScope } from "./slack-scopes";
 
 export type SlackAgentOptions = { signingSecret: string; botToken?: string; repoPath?: string; model?: string; provider?: string; log?: (message: string) => void };
 export type SlackCommand = { action: "review" | "investigate" | "walkthrough" | "erd" | "docstrings" | "plan" | "fix" | "simplify" | "tests" | "consensus" | "issue" | "learn" | "rate" | "autofix" | "pause" | "resume"; prUrl?: string; request?: string; fact?: string; stackedPr?: boolean };
@@ -153,6 +154,7 @@ export async function processSlackCommand(body: string, options: SlackAgentOptio
   if (!command) return { text: "Usage: `review|investigate|walkthrough|erd|docstrings|plan|fix|simplify|tests|consensus|autofix <change-request URL>`, `learn <fact> <change-request URL>`, `pause`, `resume`, `rate`, or `issue <GitHub or GitLab change-request URL>`." };
   const responseUrl = params.get("response_url") ?? undefined;
   try {
+    await assertSlackScope(options.repoPath || process.cwd(), command, { channelId: params.get("channel_id") ?? undefined, userId: params.get("user_id") ?? undefined });
     const text = await runSlackCommand(command, options);
     if (responseUrl) await fetch(responseUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ response_type: "in_channel", replace_original: true, text }) });
     return { text, responseUrl };
@@ -166,7 +168,7 @@ export async function processSlackCommand(body: string, options: SlackAgentOptio
 
 export async function processSlackEvent(payload: unknown, options: SlackAgentOptions): Promise<{ accepted: boolean; ignored?: boolean; text?: string }> {
   if (!payload || typeof payload !== "object") return { accepted: false, text: "Invalid Slack event." };
-  const value = payload as { event?: { type?: string; bot_id?: string; text?: string; channel?: string; thread_ts?: string; ts?: string } };
+  const value = payload as { event?: { type?: string; bot_id?: string; text?: string; channel?: string; user?: string; thread_ts?: string; ts?: string } };
   const event = value.event;
   if (!event || !["app_mention", "message"].includes(event.type ?? "") || event.bot_id) return { accepted: true, ignored: true };
   const threadKey = event.channel ? `${event.channel}:${event.thread_ts ?? event.ts ?? "root"}` : undefined;
@@ -174,6 +176,14 @@ export async function processSlackEvent(payload: unknown, options: SlackAgentOpt
   const automation = matchSlackAutomation(await loadSlackAutomations(options.repoPath || process.cwd()), event);
   const command = parseSlackCommand(event.text ?? "", previous?.prUrl) ?? (automation ? parseSlackCommand(`${automation.action} ${event.text ?? ""}`, previous?.prUrl) : undefined);
   if (!command) return { accepted: true, ignored: true, text: "Mention MergeProof with `review`, `investigate`, `walkthrough`, `erd`, `docstrings`, `plan`, `fix`, `simplify`, `tests`, `consensus`, `autofix`, `learn`, `pause`, `resume`, or `rate`." };
+  try {
+    await assertSlackScope(options.repoPath || process.cwd(), command, { channelId: event.channel, userId: event.user });
+  } catch (error) {
+    const text = `MergeProof failed: ${error instanceof Error ? error.message : "unknown error"}`;
+    options.log?.(text);
+    if (options.botToken && event.channel) await fetch("https://slack.com/api/chat.postMessage", { method: "POST", headers: { authorization: `Bearer ${options.botToken}`, "content-type": "application/json" }, body: JSON.stringify({ channel: event.channel, thread_ts: event.thread_ts ?? event.ts, text }) });
+    return { accepted: true, text };
+  }
   const text = await runSlackCommand(command, options);
   if (threadKey && command.prUrl) await recordSlackThread(options.repoPath || process.cwd(), threadKey, command.prUrl);
   if (options.botToken && event.channel) {
