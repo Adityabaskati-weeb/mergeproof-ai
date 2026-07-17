@@ -36,3 +36,13 @@ export function renderAuthStatus(report: AuthReport): string {
 export function runGithubAuth(action: "login" | "logout"): void {
   execFileSync(process.platform === "win32" ? "gh.exe" : "gh", ["auth", action, "--hostname", "github.com"], { stdio: "inherit" });
 }
+
+export function readGithubOrganizations(): string[] {
+  try {
+    const raw = execFileSync(process.platform === "win32" ? "gh.exe" : "gh", ["api", "user/orgs", "--paginate", "--slurp"], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] });
+    const pages = JSON.parse(raw) as unknown;
+    return (Array.isArray(pages) ? pages.flat() : []).flatMap((entry) => entry && typeof entry === "object" && typeof (entry as { login?: unknown }).login === "string" ? [(entry as { login: string }).login] : []).slice(0, 100);
+  } catch (error) {
+    throw new Error(`Unable to read GitHub organizations through gh: ${error instanceof Error ? error.message : "authentication unavailable"}`);
+  }
+}

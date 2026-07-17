@@ -45,7 +45,7 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof search <query...>` bounded local timeline search across sessions, findings, audit events, and outcomes
 - `mergeproof plugins` / `mergeproof extensions` discovers local agent plugins, skills, commands, and client surfaces
 - `mergeproof init --repo <checkout>` idempotently scaffolds a local policy, safe mutation defaults, evidence checks, and instructions
-- `mergeproof auth status` reports model and integration authentication state without printing credential values; `auth login|logout --github` delegates GitHub authentication to `gh`
+- `mergeproof auth status|org` reports model/integration authentication and GitHub organization access without printing credential values; `auth login|logout --github` delegates GitHub authentication to `gh`
 - Desktop shell boundary in `apps/desktop`
 - VS Code commands in `apps/vscode`
 - Portable agent distribution through `skills/mergeproof-review`, `.cursor-plugin`, `.claude-plugin`, `commands/mergeproof-review.md`, and `.github/agents/mergeproof-review.md`

@@ -59,7 +59,7 @@ import { renderDoctor, runDoctor } from "../lib/doctor";
 import { researchTopic } from "../lib/research";
 import { clearFindings, readFindings, recordAgentFindings, setFindingDisposition } from "../lib/findings";
 import { initializeRepository, renderInitialization } from "../lib/init";
-import { readAuthStatus, renderAuthStatus, runGithubAuth } from "../lib/auth";
+import { readAuthStatus, readGithubOrganizations, renderAuthStatus, runGithubAuth } from "../lib/auth";
 import { runInteractiveReview } from "../lib/review-interactive";
 import { benchmarkReviews, renderBenchmarkMarkdown } from "../lib/benchmark";
 import { requestRemoteTurn, type RemoteAction } from "../lib/remote";
@@ -291,6 +291,16 @@ authCommand.command("status").description("Show configured model and integration
   const report = readAuthStatus();
   if (options.json) console.log(JSON.stringify(report, null, 2));
   else console.log(renderAuthStatus(report));
+});
+authCommand.command("org").description("List GitHub organizations available to the authenticated gh account").option("--json", "Print machine-readable JSON").action((options) => {
+  try {
+    const organizations = readGithubOrganizations();
+    if (options.json) console.log(JSON.stringify(organizations, null, 2));
+    else console.log(organizations.join("\n") || "No GitHub organizations returned.");
+  } catch (error) {
+    console.error(`MergeProof auth org error: ${error instanceof Error ? error.message : "Organization lookup failed."}`);
+    process.exitCode = 1;
+  }
 });
 authCommand.command("login").description("Start an interactive GitHub CLI login").option("--github", "Authenticate GitHub through gh").action((options) => {
   try {
@@ -954,7 +964,7 @@ program.command("recipe").description("Run a named repository finishing-touch re
   }
 });
 
-program.command("review").alias("cr").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--agent-output", "Print CodeRabbit-style newline-delimited agent events").option("--interactive", "Browse findings and ignore or restore them interactively").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--light", "Use a faster low-effort local review").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent [profile]", "Emit agent events when omitted, or load a named repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--type <type>", "Review scope: all, committed, or uncommitted", "all").option("--base <branch>", "Base branch/ref for committed or all review scope").option("--base-commit <commit>", "Base commit for committed or all review scope").option("--hooks", "Run configured safe lifecycle hooks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--tool-sarif <path...>", "Ingest existing SARIF output from configured CI/security tools").option("--lsp-diagnostics <path>", "Ingest bounded LSP diagnostics JSON from the repository").action(async (repoPath, options) => {
+program.command("review").alias("cr").description("Review staged, unstaged, and untracked working-tree changes").argument("[repo-path]", "Git repository path", process.cwd()).option("--json", "Print machine-readable JSON").option("--plain", "Print detailed plain review output (default)").option("--no-color", "Disable terminal color output").option("--agent-output", "Print CodeRabbit-style newline-delimited agent events").option("--interactive", "Browse findings and ignore or restore them interactively").option("--save <path>", "Save the review JSON to a file").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--effort <level>", "Review effort: low, medium, or high").option("--light", "Use a faster low-effort local review").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent [profile]", "Emit agent events when omitted, or load a named repository custom-agent profile").option("--dir <path...>", "Limit review to one or more repository paths").option("--criteria <criteria>", "Pipe-separated review criteria; defaults to a safe general review").option("--retrieval-top-k <number>", "Maximum repository evidence chunks").option("--type <type>", "Review scope: all, committed, or uncommitted", "all").option("--base <branch>", "Base branch/ref for committed or all review scope").option("--base-commit <commit>", "Base commit for committed or all review scope").option("--hooks", "Run configured safe lifecycle hooks").option("--external-security", "Run npm audit and Semgrep when available").option("--codeql-db <path>", "Run CodeQL against an existing database").option("--codeql-create", "Create a missing CodeQL database before analysis").option("--codeql-languages <languages>", "Comma-separated CodeQL languages").option("--codeql-query <query>", "CodeQL query suite or pack").option("--tool-sarif <path...>", "Ingest existing SARIF output from configured CI/security tools").option("--lsp-diagnostics <path>", "Ingest bounded LSP diagnostics JSON from the repository").action(async (repoPath, options) => {
   try {
     if (!["all", "committed", "uncommitted"].includes(options.type)) throw new Error("Review type must be all, committed, or uncommitted.");
     if (options.light && options.effort) throw new Error("Choose either --light or --effort.");
