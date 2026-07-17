@@ -40,6 +40,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Natural-language PR editing | Explicit `/mergeproof implement <request>` comment creates a separate evidence-grounded, verified GitHub PR; source branch is never mutated | `@copilot` cloud-agent task handoff | Agent chat code editing and stacked PR handoff |
 | Repository Q&A | Read-only `mergeproof ask` / `chat` with bounded local retrieval, instructions, selected model, and trace metadata | Copilot CLI question answering and repository exploration | IDE/CLI review context and chat |
 | Outcome calibration | Local outcome ledger records merged/closed or human-labeled outcomes against decision, head SHA, and attestation; `feedback` and `metrics` expose calibration | Copilot usage metrics focus on adoption and PR lifecycle | CodeRabbit dashboards and reports focus on review activity and outcomes |
+| Reports / export | Local `report` command aggregates activity, decisions, models, attestation coverage, outcomes, calibration, and CSV export | GitHub and IDE usage surfaces | Dashboard filters, reports, and CSV export |
 
 ## Differentiation
 

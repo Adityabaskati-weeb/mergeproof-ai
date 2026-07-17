@@ -39,6 +39,7 @@ import { recordOutcome, readOutcomes, summarizeOutcomes, type OutcomeLabel } fro
 import { parseChangeRequestUrl } from "../lib/change-request";
 import { generateMergeProofConfiguration, readMergeProofConfiguration, renderConfiguration } from "../lib/configuration";
 import { askRepository } from "../lib/ask";
+import { buildReviewReport, filterReviewRecords, renderReviewReportCsv, renderReviewReportMarkdown } from "../lib/report";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -303,6 +304,23 @@ program.command("metrics").description("Summarize evidence-review outcomes and r
     else console.log(`Outcomes: ${summary.total}\nLabels: ${Object.entries(summary.labels).map(([key, value]) => `${key}=${value}`).join(", ") || "none"}\nDecisions: ${Object.entries(summary.decisions).map(([key, value]) => `${key}=${value}`).join(", ") || "none"}${summary.readyCalibration ? `\nReady calibration: ${Math.round(summary.readyCalibration.rate * 100)}% (${summary.readyCalibration.merged}/${summary.readyCalibration.total} merged or accepted)` : ""}`);
   } catch (error) {
     console.error(`MergeProof metrics error: ${error instanceof Error ? error.message : "Metrics failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("report").description("Generate local review activity, outcome, and calibration reports").argument("[repository]", "Repository owner/repo filter").option("--repo <path>", "Repository path", process.cwd()).option("--days <number>", "Only include the last N days").option("--format <format>", "json, markdown, or csv", "markdown").option("--output <path>", "Write the report to a file").action(async (repository, options) => {
+  try {
+    const events = await readAuditEvents(options.repo, 500);
+    const outcomes = await readOutcomes(options.repo, undefined, 2_000);
+    const filters = { repository, ...(options.days ? { periodDays: Number(options.days) } : {}) };
+    const filtered = filterReviewRecords(events, outcomes, filters);
+    const report = buildReviewReport(events, outcomes, filters);
+    const format = String(options.format).toLowerCase();
+    const content = format === "json" ? JSON.stringify(report, null, 2) : format === "csv" ? renderReviewReportCsv(filtered.events, filtered.outcomes) : renderReviewReportMarkdown(report);
+    if (options.output) await writeFile(options.output, `${content}${content.endsWith("\n") ? "" : "\n"}`, "utf8");
+    else console.log(content);
+  } catch (error) {
+    console.error(`MergeProof report error: ${error instanceof Error ? error.message : "Report generation failed."}`);
     process.exitCode = 1;
   }
 });
