@@ -69,6 +69,12 @@ jobs:
           done < pr_urls.txt
           exit 0
 
+      - name: Generate review activity report
+        shell: bash
+        run: |
+          npm run cli -- report "${GITHUB_REPOSITORY}" -- --repo . --days 7 --format markdown --output results/weekly-report.md
+          npm run cli -- report "${GITHUB_REPOSITORY}" -- --repo . --days 7 --format csv --output results/weekly-report.csv
+
       - name: Upload scheduled review results
         uses: actions/upload-artifact@v4
         with:
