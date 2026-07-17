@@ -47,6 +47,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Reports / export | Local `report` command aggregates activity, decisions, models, attestation coverage, outcomes, calibration, CSV export, natural-language custom reports, and opt-in Slack/Discord/Teams/SendGrid email delivery; scheduled review workflow uploads weekly Markdown/CSV artifacts | GitHub and IDE usage surfaces | Dashboard filters, scheduled/on-demand custom reports, email/Slack/Discord/Teams delivery, and CSV export |
 | Plan history | Optional local JSONL version history with stable plan identity, version, content digest, model, and repository head; inspectable through `plan-history` | Cloud-agent task history | Coding Plan refinement and version history |
 | CI/CD failure context | Failed GitHub check summaries and annotations are fetched as cited evidence for analysis and safe fixes | Actions-backed agent context | CI/CD pipeline analysis with inline fix suggestions |
+| Maintained PR summary | `--publish-summary` updates only a marker-scoped GitHub PR body block, preserving author content and refreshing criteria, decision, citations, model, and unsupported-claim counts | Review summaries and PR descriptions | Review summaries and walkthroughs |
 
 ## Differentiation
 
@@ -71,6 +72,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 17. Review capsules make a completed decision independently auditable after the provider or model is gone: the context, citations, exact head SHA, analysis attestation, and bundle digest travel together and can be checked offline.
 18. Existing CI security and quality tools can join the evidence ledger through bounded SARIF artifacts; MergeProof does not need shell access to reproduce or trust a tool result.
 19. Central policy inheritance keeps organization defaults reviewable as code while preserving repository-local overrides and the same bounded custom-check contract.
+20. The maintained PR summary is deliberately marker-scoped: it gives teams a refreshable review narrative without allowing an automation run to overwrite the human-authored PR description.
 
 ## Remaining Deliberate Gaps
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publishChangeRequestCheck, publishChangeRequestComment, publishChangeRequestReview } from "./change-publish";
+import { formatPullRequestSummary, mergePullRequestSummary, MERGEPROOF_SUMMARY_END, MERGEPROOF_SUMMARY_START } from "./github-review";
 import type { Analysis } from "./types";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -12,6 +13,21 @@ const analysis: Analysis = {
 };
 
 describe("provider publication", () => {
+  it("refreshes only the marker-scoped PR summary and preserves author content", () => {
+    const first = formatPullRequestSummary(analysis);
+    const body = `Author context\n\n${first}`;
+    const refreshed = mergePullRequestSummary(body, formatPullRequestSummary({ ...analysis, decision: "ready" }));
+    expect(refreshed).toContain("Author context");
+    expect(refreshed).toContain("**Decision:** `ready`");
+    expect(refreshed.match(new RegExp(MERGEPROOF_SUMMARY_START, "g"))).toHaveLength(1);
+    expect(refreshed.match(new RegExp(MERGEPROOF_SUMMARY_END, "g"))).toHaveLength(1);
+  });
+
+  it("appends a generated summary when the PR body has no MergeProof block", () => {
+    const summary = formatPullRequestSummary(analysis);
+    expect(mergePullRequestSummary("Author context", summary)).toBe(`Author context\n\n${summary}`);
+  });
+
   it("publishes GitLab status and review note through the normalized dispatcher", async () => {
     const calls: Array<{ url: string; method: string }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
