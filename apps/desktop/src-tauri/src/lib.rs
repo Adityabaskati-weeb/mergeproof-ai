@@ -28,8 +28,9 @@ fn cli_args(
     apply: bool,
     remember: bool,
     re_review: bool,
+    session_id: Option<String>,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "bundle-verify" | "chat" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -132,11 +133,28 @@ fn cli_args(
     }
     if command == "chat" {
         let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Desktop chat requires an explicit repository path."))?;
-        let mut args = vec!["ask".to_string(), pr_url, "--repo".to_string(), repo];
+        let mut args = vec!["chat-turn".to_string(), "ask".to_string(), pr_url, "--repo".to_string(), repo];
         if let Some(model) = model.filter(|value| !value.trim().is_empty()) { args.extend(["--model".to_string(), model]); }
         if let Some(provider) = provider.filter(|value| !value.trim().is_empty()) { args.extend(["--provider".to_string(), provider]); }
         if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }
+        if let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) { args.extend(["--session".to_string(), session_id]); }
         args.push(String::from("--json"));
+        return Ok(args);
+    }
+    if command == "fleet-ask" || command == "fleet-plan" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Desktop fleet actions require an explicit repository path."))?;
+        let subcommand = if command == "fleet-ask" { "ask" } else { "plan" };
+        let mut args = vec!["fleet".to_string(), subcommand.to_string(), pr_url, "--repo".to_string(), repo];
+        if let Some(model) = model.as_deref().filter(|value| !value.trim().is_empty()) {
+            args.push("--model".to_string());
+            args.extend(model.split(',').map(|value| value.trim().to_string()).filter(|value| !value.is_empty()));
+        }
+        if let Some(provider) = provider.as_deref().filter(|value| !value.trim().is_empty()) {
+            args.push("--provider".to_string());
+            args.extend(provider.split(',').map(|value| value.trim().to_string()).filter(|value| !value.is_empty()));
+        }
+        if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }
+        args.push("--json".to_string());
         return Ok(args);
     }
     if command == "work-plan" {
@@ -278,6 +296,7 @@ async fn run_cli(
     apply: bool,
     remember: bool,
     re_review: bool,
+    session_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let args = cli_args(
         &command_name,
@@ -299,6 +318,7 @@ async fn run_cli(
         apply,
         remember,
         re_review,
+        session_id,
     )?;
 
     if let Ok(sidecar) = app.shell().sidecar("mergeproof-cli") {

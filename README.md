@@ -25,6 +25,9 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof verify <analysis-json>` to independently verify a saved analysis attestation
 - `mergeproof bundle create|verify` to create and offline-verify a portable evidence capsule
 - `mergeproof chat` for an interactive CLI session with read-only ask, plan, review, and sandboxed implement actions
+- `mergeproof sessions list|show` and `mergeproof chat --session <id>` for resumable, inspectable local sessions
+- `mergeproof chat-turn <ask|plan|review|implement> ... --json` for editor and desktop session-backed turns
+- `mergeproof fleet ask|plan|review` for parallel model/sub-agent work with repository-head consistency and disagreement reporting
 - `mergeproof analyze <url> --publish-summary` to refresh a marker-scoped GitHub PR summary without overwriting author content
 - `mergeproof report [repository]` for local dashboard-style Markdown, JSON, or CSV review reports, natural-language custom reports, and optional Slack, Discord, Teams, or SendGrid email delivery
 - `mergeproof plan-history` to inspect recorded implementation-plan versions and content digests
@@ -254,6 +257,8 @@ Use `--record` on `plan` or `work-plan` to append a local, bounded version to `.
 Save a machine-readable run with `-- --json` and use `evaluate` to report criterion coverage, citation coverage, abstention, unsupported claims, and retrieval usage. This makes MergeProof quality measurable instead of relying on an attractive demo transcript.
 
 Review capsules make the decision portable: `bundle create` snapshots the fetched change-request context alongside the saved analysis, exact head SHA, citation manifest, and SHA-256 digests. `bundle verify` performs an offline integrity and citation check without a model, network request, or MergeProof service. Capsules can contain source patches and discussion text, so treat them as sensitive artifacts and store them only where the repository policy allows.
+
+Interactive sessions are append-only JSONL under `.mergeproof/sessions/`. A session stores bounded prompts, outcomes, and provenance traces rather than API keys or source snapshots. `fleet ask` and `fleet plan` run up to five configured models in parallel, refuse to combine results observed from different repository heads, and report answer or plan disagreement instead of hiding it. `fleet review` is the same unanimous evidence gate exposed through a Copilot-style parallel workflow.
 
 For Jira context, configure `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` in `.env`; for Linear context, configure `LINEAR_API_KEY` and optionally `LINEAR_TEAM_KEY`; link an issue in the change request body using a Jira or Linear URL. For Slack notifications, pass `--slack-webhook` explicitly; webhook URLs are never persisted by MergeProof.
 

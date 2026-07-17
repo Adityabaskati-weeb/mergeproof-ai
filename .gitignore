@@ -11,6 +11,7 @@ dist
 .mergeproof/slack-threads.jsonl
 .mergeproof/outcomes.jsonl
 .mergeproof/plan-history.jsonl
+.mergeproof/sessions
 apps/desktop/src-tauri/binaries
 .env*
 !.env.example

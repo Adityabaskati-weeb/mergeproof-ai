@@ -48,6 +48,9 @@ import { publishReviewReport, publishReviewReportEmail, type ReportDestination }
 import { readPlanHistory, recordPlanVersion } from "../lib/plan-history";
 import { createReviewBundle, verifyReviewBundle } from "../lib/review-bundle";
 import { runInteractiveChat } from "../lib/chat";
+import { runChatTurn, type ChatTurnAction } from "../lib/chat-turn";
+import { listSessions, readSession } from "../lib/sessions";
+import { runFleetAsk, runFleetPlan, runFleetReview } from "../lib/fleet";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -257,11 +260,46 @@ program.command("configuration").alias("config").description("Inspect or explici
   }
 });
 
-program.command("chat").description("Run an interactive evidence-backed CLI session").option("--repo <path>", "Repository path", process.cwd()).option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--verify <command>", "Sandbox verification for implement actions: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Re-review an implementation patch before reporting success").option("--apply", "Apply an implementation patch only after verification and optional re-review").action(async (options) => {
+program.command("chat").description("Run an interactive evidence-backed CLI session").option("--repo <path>", "Repository path", process.cwd()).option("--session <id>", "Resume an existing session ID; otherwise create a new session").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--verify <command>", "Sandbox verification for implement actions: npm test, npm run build, npm run typecheck, pytest, cargo test, or go test ./...").option("--re-review", "Re-review an implementation patch before reporting success").option("--apply", "Apply an implementation patch only after verification and optional re-review").action(async (options) => {
   try {
-    await runInteractiveChat({ repoPath: options.repo, model: options.model, provider: options.provider, agent: options.agent, verify: parseVerificationCommand(options.verify), reReview: options.reReview, apply: options.apply });
+    await runInteractiveChat({ repoPath: options.repo, sessionId: options.session, model: options.model, provider: options.provider, agent: options.agent, verify: parseVerificationCommand(options.verify), reReview: options.reReview, apply: options.apply });
   } catch (error) {
     console.error(`MergeProof chat error: ${error instanceof Error ? error.message : "Interactive session failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("chat-turn").description("Run one machine-readable session-backed chat turn").argument("<action>", "ask, plan, review, or implement").argument("<request...>", "Question, request, or change-request URL").option("--repo <path>", "Repository path", process.cwd()).option("--session <id>", "Resume an existing session ID").option("--model <model>", "Model name").option("--provider <provider>", "openai, openai-compatible, or anthropic").option("--agent <profile>", "Repository custom-agent profile").option("--verify <command>", "Sandbox verification for implement actions").option("--re-review", "Re-review an implementation patch").option("--apply", "Apply an implementation patch after verification").option("--json", "Print machine-readable JSON").action(async (action, request, options) => {
+  try {
+    if (!( ["ask", "plan", "review", "implement"] as string[]).includes(action)) throw new Error("Chat action must be ask, plan, review, or implement.");
+    const result = await runChatTurn(action as ChatTurnAction, request.join(" "), { repoPath: options.repo, sessionId: options.session, model: options.model, provider: options.provider, agent: options.agent, verify: parseVerificationCommand(options.verify), reReview: options.reReview, apply: options.apply });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.sessionId}\n\n${JSON.stringify(result.output, null, 2)}`);
+  } catch (error) {
+    console.error(`MergeProof chat-turn error: ${error instanceof Error ? error.message : "Chat turn failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+const sessionsCommand = program.command("sessions").description("Inspect resumable local MergeProof chat sessions");
+sessionsCommand.command("list").description("List recent sessions").option("--repo <path>", "Repository path", process.cwd()).option("--limit <number>", "Maximum sessions", "20").option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const sessions = await listSessions(options.repo, Number(options.limit));
+    if (options.json) console.log(JSON.stringify(sessions, null, 2));
+    else console.log(sessions.map((session) => `${session.id}\t${session.turns.length} turn(s)\t${session.updatedAt}`).join("\n") || "No saved sessions.");
+  } catch (error) {
+    console.error(`MergeProof sessions error: ${error instanceof Error ? error.message : "Session listing failed."}`);
+    process.exitCode = 1;
+  }
+});
+sessionsCommand.command("show").description("Show one complete session transcript").argument("<session-id>", "Session ID").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (sessionId, options) => {
+  try {
+    const session = await readSession(options.repo, sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    if (options.json) console.log(JSON.stringify(session, null, 2));
+    else console.log(`${session.id} (${session.turns.length} turn(s))\n\n${session.turns.map((turn) => `[${turn.createdAt}] ${turn.action} ${turn.request}\n${turn.outcome}: ${turn.summary}`).join("\n\n")}`);
+  } catch (error) {
+    console.error(`MergeProof session error: ${error instanceof Error ? error.message : "Session read failed."}`);
     process.exitCode = 1;
   }
 });
@@ -560,6 +598,47 @@ program.command("consensus").description("Run independent model reviews and requ
     process.exitCode = consensus.decision === "ready" ? 0 : 2;
   } catch (error) {
     console.error(`MergeProof consensus error: ${error instanceof Error ? error.message : "Consensus failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+const fleetCommand = program.command("fleet").description("Run parallel evidence-bound agents and expose their disagreement");
+fleetCommand.command("ask").description("Ask the same read-only repository question to multiple models").argument("<question...>", "Question to answer").option("--repo <path>", "Repository path", process.cwd()).option("--model <model...>", "At least two model names").option("--provider <provider...>", "Provider for each model").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum evidence chunks", "8").option("--json", "Print machine-readable JSON").action(async (question, options) => {
+  try {
+    const result = await runFleetAsk(question.join(" "), { repoPath: options.repo, models: options.model, providers: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK) });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`\nMERGEPROOF FLEET ASK (${Math.round(result.agreement * 100)}% answer agreement)\n`);
+      result.agents.forEach((agent) => console.log(`--- ${agent.model} [${agent.trace.evidenceSources} evidence sources] ---\n${agent.answer}\n`));
+      console.log(`Context: ${result.trace.headSha} | ${result.trace.agents} agents | ${result.disagreements ? "disagreement surfaced" : "unanimous answer fingerprint"}`);
+    }
+  } catch (error) {
+    console.error(`MergeProof fleet ask error: ${error instanceof Error ? error.message : "Fleet ask failed."}`);
+    process.exitCode = 1;
+  }
+});
+fleetCommand.command("plan").description("Generate parallel evidence-bound implementation plans").argument("<request...>", "Work request").option("--repo <path>", "Repository path", process.cwd()).option("--model <model...>", "At least two model names").option("--provider <provider...>", "Provider for each model").option("--agent <profile>", "Repository custom-agent profile").option("--retrieval-top-k <number>", "Maximum evidence chunks", "12").option("--json", "Print machine-readable JSON").action(async (request, options) => {
+  try {
+    const result = await runFleetPlan(request.join(" "), { repoPath: options.repo, models: options.model, providers: options.provider, agent: options.agent, retrievalTopK: Number(options.retrievalTopK) });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`\nMERGEPROOF FLEET PLAN (${result.trace.agents} agents)\nShared step titles: ${result.sharedSteps.join(", ") || "none"}\n`);
+      result.agents.forEach((agent) => console.log(`--- ${agent.model} ---\n${agent.summary}\n${agent.steps.map((step, index) => `${index + 1}. ${step.title}: ${step.detail}`).join("\n")}\n`));
+      console.log(`Context: ${result.trace.headSha}`);
+    }
+  } catch (error) {
+    console.error(`MergeProof fleet plan error: ${error instanceof Error ? error.message : "Fleet plan failed."}`);
+    process.exitCode = 1;
+  }
+});
+fleetCommand.command("review").description("Run the existing unanimous evidence consensus gate in fleet form").argument("<change-request-url>", "Public change-request URL").option("--repo <path>", "Local checkout to use for repository retrieval").option("--model <model...>", "At least two model names").option("--provider <provider...>", "Provider for each model").option("--related-repo <path...>", "Additional local repositories for read-only context").option("--effort <level>", "Review effort: low, medium, or high").option("--profile <profile>", "Review profile: quiet, chill, or assertive").option("--agent <profile>", "Repository custom-agent profile").option("--mcp", "Use explicitly configured read-only MCP context tools").option("--web-search", "Use opt-in web-search snippets as external context").option("--json", "Print machine-readable JSON").action(async (prUrl, options) => {
+  try {
+    const result = await runFleetReview(prUrl, { repoPath: options.repo, models: options.model, providers: options.provider, relatedRepos: options.relatedRepo, effort: parseReviewEffort(options.effort), profile: options.profile, agent: options.agent, mcp: options.mcp, webSearch: options.webSearch });
+    if (options.json) console.log(JSON.stringify(result.consensus, null, 2));
+    else printConsensus(result.consensus);
+    process.exitCode = result.consensus.decision === "ready" ? 0 : 2;
+  } catch (error) {
+    console.error(`MergeProof fleet review error: ${error instanceof Error ? error.message : "Fleet review failed."}`);
     process.exitCode = 1;
   }
 });
