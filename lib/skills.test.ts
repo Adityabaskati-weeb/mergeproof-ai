@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { discoverSkills, readSkill } from "./skills";
+import { createSkill, discoverSkills, readSkill } from "./skills";
 
 describe("repository skills", () => {
   it("discovers and validates checked-in skill files", async () => {
@@ -28,6 +28,18 @@ describe("repository skills", () => {
       const skills = await discoverSkills(root);
       expect(skills[0].valid).toBe(false);
       expect(skills[0].issues.join(" ")).toContain("name field");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("creates a safe checked-in skill template and refuses accidental overwrite", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mergeproof-skills-create-"));
+    try {
+      const created = await createSkill(root, "release", "Release workflow", "Use only cited changes and ask before publishing.");
+      expect(created.valid).toBe(true);
+      await expect(createSkill(root, "release", "Other", "Overwrite")).rejects.toThrow("already exists");
+      expect((await readSkill(root, "release")).content).toContain("ask before publishing");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

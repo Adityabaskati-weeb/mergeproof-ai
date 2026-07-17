@@ -30,16 +30,16 @@ fn cli_args(
     re_review: bool,
     session_id: Option<String>,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "sessions-compact" | "sessions-checkpoints" | "benchmark" | "search" | "plugins" | "skills" | "mcp" | "lsp" | "complete" | "stats" | "prompts" | "tasks" | "tasks-list" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "autopilot" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report" | "pr-view") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "security-review" | "findings" | "research" | "doctor" | "init" | "auth-status" | "sessions-list" | "sessions-compact" | "sessions-checkpoints" | "benchmark" | "search" | "plugins" | "skills" | "mcp" | "hooks" | "lsp" | "complete" | "stats" | "prompts" | "tasks" | "tasks-list" | "bundle-verify" | "chat" | "fleet-ask" | "fleet-plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "autopilot" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report" | "pr-view") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "pr-view" {
         if pr_url.trim().is_empty() { return Err(String::from("Pull-request view requires a GitHub pull-request URL.")); }
         return Ok(vec!["pr".to_string(), "view".to_string(), pr_url, "--json".to_string()]);
     }
-    if command == "skills" || command == "mcp" {
+    if command == "skills" || command == "mcp" || command == "hooks" {
         let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("This desktop inspection requires an explicit repository path."))?;
-        let subcommand = if command == "skills" { "list" } else { "list" };
+        let subcommand = if command == "hooks" { "show" } else { "list" };
         return Ok(vec![command.to_string(), subcommand.to_string(), "--repo".to_string(), repo, "--json".to_string()]);
     }
     if command == "review" || command == "agent" {

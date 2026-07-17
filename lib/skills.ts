@@ -64,3 +64,19 @@ export async function readSkill(root: string, name: string): Promise<{ skill: Sk
   const content = await fs.readFile(skill.path, "utf8");
   return { skill, content };
 }
+
+export async function createSkill(root: string, name: string, description: string, instructions: string, force = false): Promise<SkillSurface> {
+  const cleanName = name.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(cleanName)) throw new Error("Skill names must contain only letters, numbers, '.', '_', or '-'.");
+  const cleanDescription = description.trim().replace(/[\r\n]/g, " ").slice(0, 500);
+  const cleanInstructions = instructions.trim();
+  if (!cleanDescription) throw new Error("Skill description cannot be empty.");
+  if (!cleanInstructions) throw new Error("Skill instructions cannot be empty.");
+  const path = join(resolve(root), "skills", cleanName, "SKILL.md");
+  if (!force) {
+    try { await fs.access(path); throw new Error(`Skill already exists: ${cleanName}`); } catch (error) { if (error instanceof Error && error.message.startsWith("Skill already exists")) throw error; }
+  }
+  await fs.mkdir(join(resolve(root), "skills", cleanName), { recursive: true });
+  await fs.writeFile(path, `---\nname: ${cleanName}\ndescription: ${cleanDescription}\n---\n\n${cleanInstructions}\n`, "utf8");
+  return (await discoverSkills(root)).find((skill) => skill.name === `skills/${cleanName}`) ?? { name: `skills/${cleanName}`, path, description: cleanDescription, bytes: Buffer.byteLength(cleanInstructions, "utf8"), valid: true, issues: [] };
+}

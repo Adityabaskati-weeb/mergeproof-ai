@@ -16,12 +16,15 @@ const commands = {
 export type HookPhase = "beforeReview" | "afterReview";
 export type HookReport = { enabled: boolean; before: string[]; after: string[]; failed: string[] };
 
+export async function readHooksConfig(root: string): Promise<z.infer<typeof hookSchema>> {
+  const value = hookSchema.parse(JSON.parse(await readFile(join(root, ".mergeproof", "hooks.json"), "utf8")));
+  for (const hook of [...value.beforeReview, ...value.afterReview]) if (!(hook in commands)) throw new Error(`Unsupported MergeProof hook: ${hook}. Allowed hooks: ${Object.keys(commands).join(", ")}.`);
+  return value;
+}
+
 export async function loadHooks(root: string): Promise<z.infer<typeof hookSchema>> {
-  try {
-    const value = hookSchema.parse(JSON.parse(await readFile(join(root, ".mergeproof", "hooks.json"), "utf8")));
-    for (const hook of [...value.beforeReview, ...value.afterReview]) if (!(hook in commands)) throw new Error(`Unsupported MergeProof hook: ${hook}. Allowed hooks: ${Object.keys(commands).join(", ")}.`);
-    return value;
-  } catch (error) {
+  try { return await readHooksConfig(root); }
+  catch (error) {
     if (error instanceof Error && error.message.includes("Unsupported MergeProof hook")) throw error;
     return { enabled: false, beforeReview: [], afterReview: [] };
   }

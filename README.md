@@ -50,8 +50,9 @@ MergeProof is an evidence-backed merge decision agent for engineering teams. It 
 - `mergeproof complete <file>` non-mutating Copilot-style code completion at a line/column, with OpenAI-compatible/local-model support and a source digest
 - `mergeproof stats` aggregates bounded review/finding/outcome history; `review --save-prompts` and `review --show-prompts` provide explicit local prompt replay without silent prompt retention
 - `mergeproof search <query...>` bounded local timeline search across sessions, findings, audit events, and outcomes
-- `mergeproof plugins` / `mergeproof extensions` discovers local agent plugins, skills, commands, and client surfaces; `mergeproof skills list|show|validate` audits checked-in skills without executing them
+- `mergeproof plugins` / `mergeproof extensions` discovers local agent plugins, skills, commands, and client surfaces; `mergeproof skills list|show|validate|init` audits or safely authors checked-in skills without executing them
 - `mergeproof mcp list|validate|add|update|remove` manages bounded repository-scoped MCP configuration without printing header values; analysis only calls tools that advertise `readOnlyHint`
+- `mergeproof hooks show|validate|run` exposes the safe lifecycle-hook allowlist and requires an explicit phase to execute it
 - `mergeproof init --repo <checkout>` idempotently scaffolds a local policy, safe mutation defaults, evidence checks, and instructions
 - `mergeproof auth status|org` reports model/integration authentication and GitHub organization access without printing credential values; `auth login|logout --github` delegates GitHub authentication to `gh`
 - Desktop shell boundary in `apps/desktop`

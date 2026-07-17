@@ -75,8 +75,9 @@ import { importCoderabbitConfiguration, readCoderabbitConfiguration } from "../l
 import { loadPolicy } from "../lib/policy";
 import { createPullRequest, viewPullRequest } from "../lib/pr";
 import { runPostMergeActions } from "../lib/post-merge";
-import { discoverSkills, readSkill } from "../lib/skills";
+import { createSkill, discoverSkills, readSkill } from "../lib/skills";
 import { removeMcpServer, upsertMcpServer, validateMcpConfig } from "../lib/mcp";
+import { loadHooks, readHooksConfig, runHooks } from "../lib/hooks";
 
 function printAnalysis(analysis: Analysis) {
   console.log(`\nMERGEPROOF: ${analysis.decision.toUpperCase()}\n`);
@@ -480,6 +481,16 @@ skillsCommand.command("show").description("Show one checked-in skill").argument(
     process.exitCode = 1;
   }
 });
+skillsCommand.command("init").description("Create a safe checked-in SKILL.md template").argument("<name>", "Skill name").requiredOption("--description <text>", "Short skill description").requiredOption("--instructions <text>", "Skill instructions").option("--force", "Replace an existing skill").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (name, options) => {
+  try {
+    const skill = await createSkill(options.repo, name, options.description, options.instructions, options.force);
+    if (options.json) console.log(JSON.stringify(skill, null, 2));
+    else console.log(`Created ${skill.name} at ${skill.path}.`);
+  } catch (error) {
+    console.error(`MergeProof skills error: ${error instanceof Error ? error.message : "Skill initialization failed."}`);
+    process.exitCode = 1;
+  }
+});
 skillsCommand.command("validate").description("Validate checked-in skill front matter and size limits").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
   try {
     const skills = await discoverSkills(options.repo);
@@ -533,7 +544,8 @@ for (const action of ["add", "update"] as const) {
       };
       const headers = parseObject(options.headersJson, "Headers") as Record<string, string> | undefined;
       if (headers && Object.values(headers).some((value) => typeof value !== "string")) throw new Error("Headers JSON values must be strings.");
-      const result = await upsertMcpServer(options.repo, { name, url: options.url, tool: options.tool, ...(headers ? { headers } : {}), ...(parseObject(options.argumentsJson, "Arguments") ? { arguments: parseObject(options.argumentsJson, "Arguments") } : {}) });
+      const argumentsTemplate = parseObject(options.argumentsJson, "Arguments");
+      const result = await upsertMcpServer(options.repo, { name, url: options.url, tool: options.tool, ...(headers ? { headers } : {}), ...(argumentsTemplate ? { arguments: argumentsTemplate } : {}) });
       const output = { path: result.path, valid: result.valid, servers: safeMcpSummary(result), errors: result.errors };
       if (options.json) console.log(JSON.stringify(output, null, 2));
       else console.log(`${action === "add" ? "Added" : "Updated"} MCP server ${name}.`);
@@ -550,6 +562,45 @@ mcpCommand.command("remove").description("Remove a configured MCP server").argum
     else console.log(`Removed MCP server ${name}.`);
   } catch (error) {
     console.error(`MergeProof MCP error: ${error instanceof Error ? error.message : "MCP server removal failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+const hooksCommand = program.command("hooks").description("Inspect and explicitly run the safe repository review hooks");
+hooksCommand.command("show").description("Show configured lifecycle hooks").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const hooks = await loadHooks(options.repo);
+    if (options.json) console.log(JSON.stringify(hooks, null, 2));
+    else console.log(`Hooks: ${hooks.enabled ? "enabled" : "disabled"}\nBefore: ${hooks.beforeReview.join(", ") || "none"}\nAfter: ${hooks.afterReview.join(", ") || "none"}`);
+  } catch (error) {
+    console.error(`MergeProof hooks error: ${error instanceof Error ? error.message : "Hook configuration read failed."}`);
+    process.exitCode = 1;
+  }
+});
+hooksCommand.command("validate").description("Validate configured hook names against the safe allowlist").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    const hooks = await loadHooks(options.repo);
+    try { await readHooksConfig(options.repo); }
+    catch (error) { if (!(error instanceof Error && error.message.includes("ENOENT"))) throw error; }
+    const result = { valid: true, hooks };
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`Validated ${hooks.beforeReview.length + hooks.afterReview.length} configured hook(s).`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Hook configuration validation failed.";
+    if (options.json) console.log(JSON.stringify({ valid: false, error: message }, null, 2));
+    else console.error(message);
+    process.exitCode = 2;
+  }
+});
+hooksCommand.command("run").description("Run an explicitly selected safe hook phase").requiredOption("--phase <phase>", "beforeReview or afterReview").option("--repo <path>", "Repository path", process.cwd()).option("--json", "Print machine-readable JSON").action(async (options) => {
+  try {
+    if (options.phase !== "beforeReview" && options.phase !== "afterReview") throw new Error("Hook phase must be beforeReview or afterReview.");
+    const result = await runHooks(options.repo, options.phase, true);
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${options.phase}: ${result[options.phase === "beforeReview" ? "before" : "after"].join(", ") || "none"}${result.failed.length ? `\nFailed: ${result.failed.join(", ")}` : ""}`);
+    process.exitCode = result.failed.length ? 2 : 0;
+  } catch (error) {
+    console.error(`MergeProof hooks error: ${error instanceof Error ? error.message : "Hook execution failed."}`);
     process.exitCode = 1;
   }
 });
