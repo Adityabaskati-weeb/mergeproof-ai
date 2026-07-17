@@ -128,3 +128,15 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 ## Remaining Deliberate Gaps
 
 MergeProof is not a literal replacement for proprietary hosted surfaces. It does not reproduce Copilot's hosted cloud-agent runtime or GitHub-managed enterprise policy plane, and its local completion path is not GitHub's hosted autocomplete model fleet; it also does not reproduce CodeRabbit's hosted knowledge administration, managed billing/tenant controls, backend reachability, or hosted dashboard service. Its local equivalents are explicit and inspectable: bounded evidence, agent event streams, ACP interoperability, signed read-only session steering, resumable/exportable sessions, durable allowlisted background tasks, bounded autopilot correction, permission policy, opt-in research, parallel fleet/quorum runs, verified ephemeral worktrees, language-server/SARIF diagnostics, local outcomes, non-mutating completion, and conservative mutation boundaries.
+
+## Public Audit Sources
+
+This comparison was checked against public documentation and the public Copilot CLI repository on 2026-07-17. CodeRabbit's private implementation was not treated as inspectable source code.
+
+- [GitHub Copilot CLI repository](https://github.com/github/copilot-cli)
+- [GitHub Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference)
+- [Using GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/overview)
+- [CodeRabbit finishing touches](https://docs.coderabbit.ai/finishing-touches)
+- [CodeRabbit configuration reference](https://docs.coderabbit.ai/reference/configuration)
+- [CodeRabbit knowledge base](https://docs.coderabbit.ai/knowledge-base)
+- [CodeRabbit pre-merge checks](https://docs.coderabbit.ai/pr-reviews/pre-merge-checks)
