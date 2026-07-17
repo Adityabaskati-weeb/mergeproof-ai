@@ -29,7 +29,7 @@ fn cli_args(
     remember: bool,
     re_review: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "plan" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -117,6 +117,10 @@ fn cli_args(
         if let Some(agent) = agent.filter(|value| !value.trim().is_empty()) { args.extend(["--agent".to_string(), agent]); }
         args.push(String::from("--json"));
         return Ok(args);
+    }
+    if command == "report" {
+        let repo = repo_path.filter(|value| !value.trim().is_empty()).ok_or_else(|| String::from("Report requires an explicit repository path."))?;
+        return Ok(vec![command.to_string(), "--repo".to_string(), repo, "--format".to_string(), "json".to_string()]);
     }
     if command == "conflicts" {
         let repo = if !pr_url.trim().is_empty() { pr_url } else { repo_path.unwrap_or_default() };
