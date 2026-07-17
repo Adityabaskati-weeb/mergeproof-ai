@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publishChangeRequestCheck, publishChangeRequestComment, publishChangeRequestReview } from "./change-publish";
 import { checkConclusionForAnalysis } from "./github-publish";
-import { formatPullRequestSummary, mergePullRequestSummary, MERGEPROOF_SUMMARY_END, MERGEPROOF_SUMMARY_START, reviewEventForAnalysis, reviewEventForDecision } from "./github-review";
+import { formatPullRequestSummary, mergePullRequestSummary, MERGEPROOF_SUMMARY_END, MERGEPROOF_SUMMARY_START, evaluateApprovalGate, reviewEventForAnalysis, reviewEventForDecision } from "./github-review";
+import { attestAnalysis } from "./attestation";
 import type { Analysis } from "./types";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -31,6 +32,22 @@ describe("provider publication", () => {
     const warningOnly = { ...analysis, trace: { ...analysis.trace, customCheckWarnings: 1, blockingFailures: 0 } };
     expect(reviewEventForAnalysis(warningOnly, true)).toBe("COMMENT");
     expect(checkConclusionForAnalysis(warningOnly, "enforce")).toBe("neutral");
+  });
+
+  it("requires proof completeness before an approval can be published", () => {
+    const ready: Analysis = {
+      ...analysis,
+      decision: "ready",
+      rows: [{ criterion: "keep behavior", evidence: "changed file", state: "pass", citations: [{ path: "src/index.ts", commitSha: "git-sha", url: "https://github.com/acme/payments/blob/git-sha/src/index.ts#L1" }] }],
+      trace: { ...analysis.trace, citedSources: 1, blockingFailures: 0, attestation: undefined },
+    };
+    const unsigned = evaluateApprovalGate(ready, "git-sha");
+    expect(unsigned.eligible).toBe(false);
+    expect(unsigned.reasons).toContain("analysis attestation is missing or invalid");
+
+    const signed = { ...ready, trace: { ...ready.trace, attestation: attestAnalysis(ready) } };
+    expect(evaluateApprovalGate(signed, "git-sha")).toEqual({ eligible: true, reasons: [] });
+    expect(evaluateApprovalGate(signed, "new-head").reasons).toContain("analysis head SHA does not match the current pull request head");
   });
 
   it("refreshes only the marker-scoped PR summary and preserves author content", () => {

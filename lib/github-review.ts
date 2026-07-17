@@ -2,10 +2,26 @@ import { fetchPullRequest, parsePullRequestUrl } from "./github";
 import { createGithubClient } from "./github-auth";
 import type { Analysis } from "./types";
 import { shouldPublishFinding } from "./profile";
+import { verifyAnalysisAttestation } from "./attestation";
 
 export const MERGEPROOF_SUMMARY_START = "<!-- mergeproof-summary:start -->";
 export const MERGEPROOF_SUMMARY_END = "<!-- mergeproof-summary:end -->";
 export type ReviewPublicationOptions = { requestChangesWorkflow?: boolean; highLevelSummary?: boolean };
+export type ApprovalGateResult = { eligible: boolean; reasons: string[] };
+
+export function evaluateApprovalGate(analysis: Analysis, currentHeadSha: string): ApprovalGateResult {
+  const reasons: string[] = [];
+  if (analysis.decision !== "ready") reasons.push(`decision is ${analysis.decision}`);
+  if (!analysis.trace.headSha || analysis.trace.headSha !== currentHeadSha) reasons.push("analysis head SHA does not match the current pull request head");
+  if (!verifyAnalysisAttestation(analysis).valid) reasons.push("analysis attestation is missing or invalid");
+  if (analysis.trace.unsupportedClaims !== 0) reasons.push(`${analysis.trace.unsupportedClaims} unsupported claim(s)`);
+  if ((analysis.trace.blockingFailures ?? 0) !== 0) reasons.push(`${analysis.trace.blockingFailures} blocking failure(s)`);
+  if ((analysis.trace.customCheckWarnings ?? 0) !== 0) reasons.push(`${analysis.trace.customCheckWarnings} warning-mode pre-merge exception(s)`);
+  if (analysis.rows.some((row) => row.state !== "pass" || row.citations.length === 0)) reasons.push("one or more criteria lack passing, cited evidence");
+  if ((analysis.securityFindings ?? []).some((finding) => finding.severity === "high" || finding.severity === "medium")) reasons.push("medium/high security findings remain");
+  if ((analysis.qualitySignals ?? []).some((finding) => finding.severity === "high" || finding.severity === "medium")) reasons.push("medium/high quality findings remain");
+  return { eligible: reasons.length === 0, reasons };
+}
 
 function lineFromCitation(url: string): number {
   return Number(url.match(/#L(\d+)/)?.[1] ?? 1);
@@ -22,6 +38,7 @@ export function formatPullRequestSummary(analysis: Analysis): string {
     "## MergeProof review",
     `**Decision:** \`${analysis.decision}\`  `,
     `**Model:** \`${analysis.trace.model}\` | **Mode:** \`${analysis.trace.reviewMode ?? "enforce"}\` | **Verified citations:** ${analysis.trace.citedSources}/${analysis.trace.fetchedSources} | **Unsupported claims:** ${analysis.trace.unsupportedClaims}`,
+    ...(analysis.trace.attestation ? [`**Attestation:** \`${analysis.trace.attestation.algorithm}:${analysis.trace.attestation.digest}\``] : []),
     "",
     "### Criteria",
     rows,
@@ -72,11 +89,15 @@ export async function publishPullRequestReview(prUrl: string, analysis: Analysis
   const comments = rows.flatMap((row) => row.citations.slice(0, 1).filter((citation) => changedPaths.has(citation.path)).map((citation) => ({ path: citation.path, line: lineFromCitation(citation.url), side: "RIGHT" as const, body: `**${row.state.toUpperCase()}**: ${row.evidence}\n\nEvidence: ${citation.url}` })));
   comments.push(...(analysis.securityFindings ?? []).filter((finding) => changedPaths.has(finding.path) && shouldPublishFinding(profile, finding.severity, finding.category)).map((finding) => ({ path: finding.path, line: finding.line, side: "RIGHT" as const, body: `**${(finding.category === "privacy" ? "PRIVACY" : "SECURITY")} ${finding.severity.toUpperCase()}**: ${finding.title}\n\n${finding.detail}\n\nEvidence: ${finding.citation.url}` })));
   comments.push(...(analysis.qualitySignals ?? []).filter((finding) => changedPaths.has(finding.path) && shouldPublishFinding(profile, finding.severity, finding.category)).map((finding) => ({ path: finding.path, line: finding.line, side: "RIGHT" as const, body: `**QUALITY ${finding.severity.toUpperCase()}**: ${finding.title}\n\n${finding.detail}\n\nEvidence: ${finding.citation.url}` })));
-  const event = reviewEventForAnalysis(analysis, options.requestChangesWorkflow !== false);
+  const approvalGate = evaluateApprovalGate(analysis, context.headSha);
+  const requestedEvent = reviewEventForAnalysis(analysis, options.requestChangesWorkflow !== false);
+  const event = requestedEvent === "APPROVE" && !approvalGate.eligible ? "COMMENT" : requestedEvent;
   const security = (analysis.securityFindings ?? []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.path}:${finding.line} ${finding.title}`).join("\n");
   const quality = (analysis.qualitySignals ?? []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.path}:${finding.line} ${finding.title}`).join("\n");
   const walkthrough = analysis.walkthrough ? `\n\n### Walkthrough\n${analysis.walkthrough.summary}\n\nChange stack: ${analysis.walkthrough.changeStack.map((layer) => `${layer.title} (${layer.files.length})`).join(" -> ")}\nReview effort: ${analysis.walkthrough.effortScore}/5${analysis.walkthrough.suggestedLabels.length ? `\nSuggested labels: ${analysis.walkthrough.suggestedLabels.join(", ")}` : ""}` : "";
-  const body = `MergeProof decision: **${analysis.decision}**\n\n${options.highLevelSummary === false ? "High-level summary disabled by repository policy.\n\n" : ""}${options.highLevelSummary === false ? "" : security ? `Security/privacy findings:\n${security}\n\n` : ""}${options.highLevelSummary === false ? "" : quality ? `Quality signals:\n${quality}\n\n` : ""}${rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}`).join("\n")}\n\nProfile: ${profile} | Verified citations: ${analysis.trace.citedSources}${options.highLevelSummary === false ? "" : walkthrough}`;
+  const gateText = approvalGate.eligible ? "Evidence-gated approval: eligible" : `Evidence-gated approval: withheld (${approvalGate.reasons.join("; ")})`;
+  const attestationText = analysis.trace.attestation ? `\nAttestation: ${analysis.trace.attestation.algorithm}:${analysis.trace.attestation.digest}` : "\nAttestation: unavailable";
+  const body = `MergeProof decision: **${analysis.decision}**\n\n${options.highLevelSummary === false ? "High-level summary disabled by repository policy.\n\n" : ""}${options.highLevelSummary === false ? "" : security ? `Security/privacy findings:\n${security}\n\n` : ""}${options.highLevelSummary === false ? "" : quality ? `Quality signals:\n${quality}\n\n` : ""}${rows.map((row) => `- **${row.state.toUpperCase()}** ${row.criterion}`).join("\n")}\n\nProfile: ${profile} | Verified citations: ${analysis.trace.citedSources}\nHead SHA: \`${context.headSha}\`\n${gateText}${attestationText}${options.highLevelSummary === false ? "" : walkthrough}`;
   const octokit = await createGithubClient(true);
   try {
     const response = await octokit.rest.pulls.createReview({ owner: ref.owner, repo: ref.repo, pull_number: ref.number, commit_id: context.headSha, body, event, comments: comments.slice(0, 50) });
