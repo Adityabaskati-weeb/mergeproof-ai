@@ -1,0 +1,140 @@
+name: MergeProof delegated implementation
+
+on:
+  workflow_dispatch:
+    inputs:
+      request:
+        description: Natural-language implementation request
+        required: true
+        type: string
+      verify:
+        description: Allowlisted verification command
+        required: true
+        default: npm test
+        type: choice
+        options:
+          - npm test
+          - npm run build
+          - npm run typecheck
+          - pytest
+          - cargo test
+          - go test ./...
+      create_pr:
+        description: Open a separate pull request when the proof gate passes
+        required: true
+        default: true
+        type: boolean
+      base_branch:
+        description: Base branch to check out; blank uses the repository default
+        required: false
+        default: ""
+        type: string
+      provider:
+        description: Model provider
+        required: true
+        default: openai
+        type: choice
+        options:
+          - openai
+          - openai-compatible
+          - anthropic
+      model:
+        description: Provider model name
+        required: true
+        default: gpt-5.6
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  delegate:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GITHUB_TOKEN: ${{ github.token }}
+      REQUEST: ${{ inputs.request }}
+      VERIFY_COMMAND: ${{ inputs.verify }}
+      MODEL: ${{ inputs.model }}
+      PROVIDER: ${{ inputs.provider }}
+      CREATE_PR: ${{ inputs.create_pr }}
+      BASE_BRANCH_INPUT: ${{ inputs.base_branch }}
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_branch || github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run proof-carrying delegation
+        id: delegate
+        shell: bash
+        run: |
+          set +e
+          npm run cli -- delegate start "$REQUEST" --repo . --verify "$VERIFY_COMMAND" --foreground --apply --model "$MODEL" --provider "$PROVIDER" --json > mergeproof-delegation.json
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload delegation proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: mergeproof-delegation-${{ github.run_id }}
+          path: |
+            mergeproof-delegation.json
+            .mergeproof/delegations/*.proof.json
+            .mergeproof/delegations/*.result.json
+          if-no-files-found: warn
+
+      - name: Open verified handoff pull request
+        if: ${{ inputs.create_pr && steps.delegate.outputs.exit_code == '0' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          const value = JSON.parse(fs.readFileSync("mergeproof-delegation.json", "utf8"));
+          if (value.status !== "succeeded" || !value.result?.proof?.digest) {
+            throw new Error("The delegation did not produce a succeeded status and proof digest.");
+          }
+          fs.writeFileSync("mergeproof-pr-body.md", [
+            "## MergeProof delegated implementation",
+            "",
+            value.request,
+            "",
+            `- Verification: ${value.verify}`,
+            `- Initial head: ${value.initialHeadSha}`,
+            `- Model: ${value.result.proof.model}`,
+            `- Changed paths: ${(value.result.proof.changedPaths || []).join(", ") || "none"}`,
+            `- Proof digest: ${value.result.proof.digest}`,
+            "",
+            "This PR was opened only after bounded correction, verification, evidence re-review, and a proof artifact were produced. Review before merging."
+          ].join("\n"));
+          NODE
+          base_branch="${BASE_BRANCH_INPUT}"
+          if [[ -z "$base_branch" ]]; then
+            base_branch=$(gh repo view "$GITHUB_REPOSITORY" --json defaultBranchRef --jq '.defaultBranchRef.name')
+          fi
+          branch="mergeproof/delegate-${GITHUB_RUN_ID}"
+          git checkout -b "$branch"
+          git config user.name "MergeProof Delegation"
+          git config user.email "mergeproof-delegation@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply verified MergeProof delegated implementation"
+          gh auth setup-git
+          git push --set-upstream origin "$branch"
+          title=$(node -e 'const value=JSON.parse(require("fs").readFileSync("mergeproof-delegation.json","utf8")); const text=value.request.replace(/\s+/g," ").trim(); console.log(("MergeProof: "+text).slice(0,240));')
+          gh pr create --base "$base_branch" --head "$branch" --title "$title" --body-file mergeproof-pr-body.md

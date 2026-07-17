@@ -28,6 +28,7 @@ import { runChatTurn, type ChatTurnAction } from "./chat-turn";
 import { assertPermission } from "./permissions";
 import { loadPolicy } from "./policy";
 import { runPostMergeActions } from "./post-merge";
+import { cancelDelegation, readDelegation, readDelegationResult, startDelegation } from "./delegation";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -299,6 +300,57 @@ export function startGithubWebhookServer(options: GithubWebhookOptions): Server 
         respond(response, 200, result);
       } catch (error) {
         respond(response, 400, { error: error instanceof Error ? error.message : "Invalid remote session request" });
+      }
+      return;
+    }
+    if (request.method === "POST" && request.url === "/delegate") {
+      try {
+        const body = await readBody(request);
+        const signature = request.headers["x-mergeproof-signature"];
+        const timestamp = request.headers["x-mergeproof-timestamp"];
+        if (!options.remoteSessionSecret || typeof signature !== "string" || typeof timestamp !== "string" || !verifyRemoteSessionSignature(body, signature, timestamp, options.remoteSessionSecret)) {
+          respond(response, 401, { error: "Invalid remote delegation signature" });
+          return;
+        }
+        if (!options.repoPath) {
+          respond(response, 400, { error: "A repository checkout is required for remote delegation." });
+          return;
+        }
+        await assertPermission(options.repoPath, "remote");
+        const payload = JSON.parse(body) as { action?: unknown; request?: unknown; delegationId?: unknown; model?: unknown; provider?: unknown; agent?: unknown; verify?: unknown; maxIterations?: unknown; apply?: unknown };
+        const action = payload.action;
+        if (action !== "start" && action !== "status" && action !== "cancel") {
+          respond(response, 400, { error: "Remote delegation action must be start, status, or cancel." });
+          return;
+        }
+        if (action === "start") {
+          if (typeof payload.request !== "string" || !payload.request.trim() || payload.request.length > 12_000) {
+            respond(response, 400, { error: "request must be a non-empty string of at most 12,000 characters." });
+            return;
+          }
+          if (typeof payload.verify !== "string" || !(VERIFICATION_COMMANDS as readonly string[]).includes(payload.verify)) {
+            respond(response, 400, { error: `verify must be one of: ${VERIFICATION_COMMANDS.join(", ")}.` });
+            return;
+          }
+          const result = await startDelegation({ repoPath: options.repoPath, request: payload.request, verify: payload.verify as VerificationCommand, model: options.model ?? (typeof payload.model === "string" ? payload.model : undefined), provider: options.provider ?? (typeof payload.provider === "string" ? payload.provider : undefined), agent: typeof payload.agent === "string" ? payload.agent : undefined, maxIterations: typeof payload.maxIterations === "number" ? payload.maxIterations : undefined, apply: payload.apply === true }, true);
+          respond(response, 202, result);
+          return;
+        }
+        if (typeof payload.delegationId !== "string" || !payload.delegationId.trim()) {
+          respond(response, 400, { error: "delegationId is required for status and cancel." });
+          return;
+        }
+        if (action === "cancel") {
+          const result = await cancelDelegation(options.repoPath, payload.delegationId);
+          if (!result) { respond(response, 404, { error: "Delegation not found." }); return; }
+          respond(response, 200, result);
+          return;
+        }
+        const record = await readDelegation(options.repoPath, payload.delegationId);
+        if (!record) { respond(response, 404, { error: "Delegation not found." }); return; }
+        respond(response, 200, { ...record, result: await readDelegationResult(options.repoPath, record.id) });
+      } catch (error) {
+        respond(response, 400, { error: error instanceof Error ? error.message : "Invalid remote delegation request" });
       }
       return;
     }

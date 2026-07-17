@@ -12,6 +12,8 @@ dist
 .mergeproof/outcomes.jsonl
 .mergeproof/plan-history.jsonl
 .mergeproof/sessions
+.mergeproof/delegations
+.mergeproof/tasks
 .mergeproof/findings.jsonl
 apps/desktop/src-tauri/binaries
 .env*

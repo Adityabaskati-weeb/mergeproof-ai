@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseGithubCommentCommand, processGithubWebhookPayload, verifyGithubWebhookSignature, verifyRemoteSessionSignature } from "./webhook";
+import { remoteSessionHeaders } from "./remote";
+import { parseGithubCommentCommand, processGithubWebhookPayload, startGithubWebhookServer, verifyGithubWebhookSignature, verifyRemoteSessionSignature } from "./webhook";
 
 describe("GitHub webhook boundary", () => {
   it("verifies the GitHub sha256 signature", () => {
@@ -20,6 +21,23 @@ describe("GitHub webhook boundary", () => {
     expect(verifyRemoteSessionSignature(body, signature, timestamp, "remote-secret")).toBe(true);
     expect(verifyRemoteSessionSignature(body, signature, String(Number(timestamp) - 301), "remote-secret")).toBe(false);
     expect(verifyRemoteSessionSignature(body, "sha256=bad", timestamp, "remote-secret")).toBe(false);
+  });
+
+  it("rejects a signed remote delegation before starting a worker when verification is unsafe", async () => {
+    const server = startGithubWebhookServer({ remoteSessionSecret: "remote-secret", repoPath: process.cwd(), port: 0 });
+    try {
+      await new Promise<void>((resolve) => server.once("listening", () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Test server did not expose a TCP address.");
+      const body = JSON.stringify({ action: "start", request: "Add a test", verify: "npm run arbitrary-command" });
+      const timestamp = String(Math.floor(Date.now() / 1_000));
+      const headers = { ...remoteSessionHeaders(body, "remote-secret", timestamp), "x-mergeproof-timestamp": timestamp };
+      const response = await fetch(`http://127.0.0.1:${address.port}/delegate`, { method: "POST", headers, body });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: expect.stringContaining("verify must be one of") });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("ignores unrelated event types without invoking a model", async () => {

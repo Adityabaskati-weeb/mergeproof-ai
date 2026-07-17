@@ -63,7 +63,7 @@ import { initializeRepository, renderInitialization } from "../lib/init";
 import { readAuthStatus, readGithubOrganizations, renderAuthStatus, runGithubAuth } from "../lib/auth";
 import { runInteractiveReview } from "../lib/review-interactive";
 import { benchmarkReviews, renderBenchmarkMarkdown } from "../lib/benchmark";
-import { requestRemoteTurn, type RemoteAction } from "../lib/remote";
+import { requestRemoteDelegation, requestRemoteTurn, type RemoteAction, type RemoteDelegationAction } from "../lib/remote";
 import { renderSearchResults, searchWorkspace } from "../lib/search";
 import { discoverWorkspacePlugins, renderWorkspacePlugins } from "../lib/plugins";
 import { cancelTask, isTaskAction, listTasks, readTask, runTaskWorker, startTask, pruneTasks } from "../lib/tasks";
@@ -665,6 +665,18 @@ program.command("remote").description("Send a signed read-only turn to a MergePr
     else console.log(JSON.stringify(result, null, 2));
   } catch (error) {
     console.error(`MergeProof remote error: ${error instanceof Error ? error.message : "Remote session request failed."}`);
+    process.exitCode = 1;
+  }
+});
+
+program.command("remote-delegate").description("Send a signed delegated implementation request to a MergeProof remote server").argument("<action>", "start, status, or cancel").argument("<request-or-id>", "Implementation request for start, or delegation ID for status/cancel").requiredOption("--secret <secret>", "HMAC secret shared with the remote server", process.env.MERGEPROOF_REMOTE_SESSION_SECRET).option("--endpoint <url>", "Remote server base URL", process.env.MERGEPROOF_REMOTE_URL || "http://127.0.0.1:8787").option("--verify <command>", "Allowlisted verification command for start").option("--max-iterations <number>", "Maximum correction attempts", "3").option("--model <model>", "Model name").option("--provider <provider>", "Model provider").option("--agent <profile>", "Repository custom-agent profile").option("--apply", "Allow the remote worker to apply only a converged verified patch").option("--json", "Print machine-readable JSON").action(async (action, requestOrId, options) => {
+  try {
+    if (!( ["start", "status", "cancel"] as string[]).includes(action)) throw new Error("Remote delegation action must be start, status, or cancel.");
+    const result = await requestRemoteDelegation(action as RemoteDelegationAction, requestOrId, { secret: options.secret, endpoint: options.endpoint, verify: options.verify, model: options.model, provider: options.provider, agent: options.agent, maxIterations: Number(options.maxIterations), apply: options.apply });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(JSON.stringify(result, null, 2));
+  } catch (error) {
+    console.error(`MergeProof remote delegation error: ${error instanceof Error ? error.message : "Remote delegation request failed."}`);
     process.exitCode = 1;
   }
 });
