@@ -199,6 +199,7 @@ export async function readCoderabbitConfiguration(root: string): Promise<Coderab
       const reviews = section(lines, "reviews");
       const knowledge = section(lines, "knowledge_base");
       const finishingTouches = section(reviews, "finishing_touches");
+      const autoReview = section(reviews, "auto_review");
       const profileValue = findValue(reviews, "profile");
       const profile = profileValue === "quiet" || profileValue === "chill" || profileValue === "assertive" ? profileValue : undefined;
       const pathFilters = readList(reviews, "path_filters");
@@ -212,16 +213,34 @@ export async function readCoderabbitConfiguration(root: string): Promise<Coderab
       const recipes = customRecipes(finishingTouches);
       const requestChanges = findValue(reviews, "request_changes_workflow");
       const highLevelSummary = findValue(reviews, "high_level_summary");
+      const autoReviewEnabled = findValue(autoReview, "enabled");
+      const autoIncrementalReview = findValue(autoReview, "auto_incremental_review");
+      const autoPauseAfter = findValue(autoReview, "auto_pause_after_reviewed_commits");
+      const descriptionKeyword = findValue(autoReview, "description_keyword");
+      const ignoreTitleKeywords = readList(autoReview, "ignore_title_keywords");
+      const reviewLabels = readList(autoReview, "labels");
+      const drafts = findValue(reviews, "drafts");
+      const baseBranches = readList(reviews, "base_branches");
+      const ignoreUsernames = readList(reviews, "ignore_usernames");
       const policy: MergeProofPolicy = {
         ...(profile ? { profile } : {}),
         ...(pathFilters.length ? { pathFilters } : {}),
         ...(requestChanges ? { requestChangesWorkflow: booleanValue(requestChanges) } : {}),
         ...(highLevelSummary ? { highLevelSummary: booleanValue(highLevelSummary) } : {}),
+        ...(autoReviewEnabled ? { autoReview: booleanValue(autoReviewEnabled) } : {}),
+        ...(descriptionKeyword ? { autoReviewDescriptionKeyword: scalar(descriptionKeyword) } : {}),
+        ...(autoIncrementalReview ? { autoIncrementalReview: booleanValue(autoIncrementalReview) } : {}),
+        ...(autoPauseAfter && Number.isInteger(Number(autoPauseAfter)) && Number(autoPauseAfter) >= 0 ? { autoPauseAfterReviewedCommits: Number(autoPauseAfter) } : {}),
+        ...(ignoreTitleKeywords.length ? { ignoreTitleKeywords } : {}),
+        ...(reviewLabels.length ? { reviewLabels } : {}),
+        ...(drafts ? { includeDrafts: booleanValue(drafts) } : {}),
+        ...(baseBranches.length ? { baseBranches } : {}),
+        ...(ignoreUsernames.length ? { ignoreUsernames } : {}),
         ...(instructions.length ? { instructions: instructions.join("\n") } : {}),
         ...(customChecks.length ? { customChecks } : {}),
         compatibility: { source: "coderabbit", importedAt: new Date().toISOString() },
       };
-      const unsupported = ["auto_review", "chat", "early_access", "knowledge_base.web_search", "mcp", "code_generation"].filter((key) => content.includes(`${key}:`));
+      const unsupported = ["chat", "early_access", "knowledge_base.web_search", "mcp", "code_generation"].filter((key) => content.includes(`${key}:`));
       return { sourcePath: name, policy, recipes, warnings: ["Migration uses a bounded YAML subset; review the generated JSON before committing it."], unsupported };
     } catch (error) {
       if (error instanceof Error && error.message.includes("migration limit")) throw error;

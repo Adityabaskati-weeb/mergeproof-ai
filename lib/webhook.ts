@@ -26,6 +26,7 @@ import { runRecipe } from "./recipes";
 import { processDiscordInteraction, verifyDiscordRequestSignature } from "./discord-agent";
 import { runChatTurn, type ChatTurnAction } from "./chat-turn";
 import { assertPermission } from "./permissions";
+import { loadPolicy } from "./policy";
 
 const REVIEW_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
@@ -79,7 +80,7 @@ export function parseGithubCommentCommand(body: string | undefined): { command: 
 
 export async function processGithubWebhookPayload(payload: unknown, options: Pick<GithubWebhookOptions, "model" | "provider" | "repoPath" | "publishReview" | "log"> & { event?: string }): Promise<GithubWebhookResult> {
   if (!payload || typeof payload !== "object") return { accepted: false, reason: "invalid_payload" };
-  const value = payload as { action?: string; pull_request?: { html_url?: string; merged?: boolean; commits?: number }; issue?: { html_url?: string; pull_request?: unknown }; comment?: { body?: string } };
+  const value = payload as { action?: string; pull_request?: { html_url?: string; merged?: boolean; commits?: number; title?: string; body?: string; draft?: boolean; user?: { login?: string }; base?: { ref?: string }; labels?: Array<{ name?: string }> }; issue?: { html_url?: string; pull_request?: unknown }; comment?: { body?: string } };
   if (options.event === "issue_comment") {
     const parsedCommand = parseGithubCommentCommand(value.comment?.body);
     const command = parsedCommand?.command;
@@ -211,6 +212,23 @@ export async function processGithubWebhookPayload(payload: unknown, options: Pic
   const prUrl = value.pull_request?.html_url;
   if (!prUrl) return { accepted: false, reason: "missing_pull_request_url" };
   const stateRoot = options.repoPath || process.cwd();
+  const policy = await loadPolicy(stateRoot);
+  const title = value.pull_request?.title ?? "";
+  const body = value.pull_request?.body ?? "";
+  const author = value.pull_request?.user?.login ?? "";
+  const baseBranch = value.pull_request?.base?.ref ?? "";
+  const labels = new Set((value.pull_request?.labels ?? []).flatMap((label) => typeof label.name === "string" ? [label.name.toLowerCase()] : []));
+  if (policy.autoReview === false && !(policy.autoReviewDescriptionKeyword && body.toLowerCase().includes(policy.autoReviewDescriptionKeyword.toLowerCase()))) return { accepted: true, ignored: true, reason: "review_auto_disabled" };
+  if (value.pull_request?.draft && policy.includeDrafts !== true) return { accepted: true, ignored: true, reason: "review_draft_excluded" };
+  if (value.action === "synchronize" && policy.autoIncrementalReview === false) return { accepted: true, ignored: true, reason: "review_incremental_disabled" };
+  if (policy.ignoreTitleKeywords?.some((keyword) => keyword && title.toLowerCase().includes(keyword.toLowerCase()))) return { accepted: true, ignored: true, reason: "review_title_excluded" };
+  if (policy.ignoreUsernames?.some((username) => username.toLowerCase() === author.toLowerCase())) return { accepted: true, ignored: true, reason: "review_author_excluded" };
+  if (policy.baseBranches?.length && !policy.baseBranches.some((pattern) => { try { return new RegExp(pattern).test(baseBranch); } catch { return pattern === baseBranch; } })) return { accepted: true, ignored: true, reason: "review_base_branch_excluded" };
+  const positiveLabels = (policy.reviewLabels ?? []).filter((label) => !label.startsWith("!")).map((label) => label.toLowerCase());
+  const negativeLabels = (policy.reviewLabels ?? []).filter((label) => label.startsWith("!")).map((label) => label.slice(1).toLowerCase());
+  if (positiveLabels.length && !positiveLabels.some((label) => labels.has(label))) return { accepted: true, ignored: true, reason: "review_label_not_matched" };
+  if (negativeLabels.some((label) => labels.has(label))) return { accepted: true, ignored: true, reason: "review_label_excluded" };
+  if (policy.autoPauseAfterReviewedCommits !== undefined) await updateReviewState(stateRoot, { autoPauseAfterReviewedCommits: policy.autoPauseAfterReviewedCommits, reason: "Loaded automatic review policy." });
   const autoPause = await checkReviewAutoPause(stateRoot, prUrl, value.pull_request?.commits ?? 0);
   if (autoPause.suppressed) return { accepted: true, ignored: true, reason: `review_${autoPause.reason}` };
   const suppression = await reviewSuppression(stateRoot, prUrl);

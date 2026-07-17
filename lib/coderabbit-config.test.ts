@@ -20,6 +20,20 @@ describe("CodeRabbit configuration migration", () => {
         "        Verify API compatibility.",
         "        Require a focused test.",
         "  high_level_summary: false",
+        "  auto_review:",
+        "    enabled: false",
+        "    auto_incremental_review: true",
+        "    auto_pause_after_reviewed_commits: 3",
+        "    ignore_title_keywords:",
+        "      - wip",
+        "    labels:",
+        "      - ready-for-review",
+        "      - '!draft'",
+        "  drafts: false",
+        "  base_branches:",
+        "    - ^main$",
+        "  ignore_usernames:",
+        "    - bot-user",
         "  finishing_touches:",
         "    custom:",
         "      - name: api-contract",
@@ -41,7 +55,7 @@ describe("CodeRabbit configuration migration", () => {
         "        Every changed endpoint needs contract evidence.",
       ].join("\n"), "utf8");
       const preview = await readCoderabbitConfiguration(root);
-      expect(preview?.policy).toMatchObject({ profile: "assertive", pathFilters: ["src/**"], requestChangesWorkflow: true, highLevelSummary: false });
+      expect(preview?.policy).toMatchObject({ profile: "assertive", pathFilters: ["src/**"], requestChangesWorkflow: true, highLevelSummary: false, autoReview: false, autoIncrementalReview: true, autoPauseAfterReviewedCommits: 3, ignoreTitleKeywords: ["wip"], reviewLabels: ["ready-for-review", "!draft"], includeDrafts: false, baseBranches: ["^main$"], ignoreUsernames: ["bot-user"] });
       expect(preview?.policy.instructions).toContain("org/shared-contracts");
       expect(preview?.policy.instructions).toContain("Verify API compatibility.\nRequire a focused test.");
       expect(preview?.policy.customChecks?.[0].name).toContain("title");

@@ -13,6 +13,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Finding history | Bounded `.mergeproof/findings.jsonl` with `findings` filters for head, path, severity, disposition, explicit clear confirmation, and `findings ignore|restore`; disposition changes are a separate append-only ledger | Session and task history | `cr review findings` local review comments and ignore/restore workflow |
 | Agent handoff / fix verification | Yes: local natural-language implementation agent, ephemeral Git worktree, optional one-pass re-review, GitHub-issue-to-PR task agent, manual ephemeral GitHub Actions runner, GitHub/GitLab review-finding autofix, and GitHub stacked-PR handoff | Cloud-agent handoff | Agent handoff, Autofix, and autonomous fix/review cycles |
 | Automatic review trigger | GitHub Actions, signed webhook, and opt-in hourly scheduled review | Yes | Yes: GitHub, GitLab, Bitbucket, and Azure DevOps signed receivers plus Actions |
+| Automatic review policy | Imported CodeRabbit policy can gate review enablement, description keywords, drafts, incremental events, title keywords, authors, base branches, labels, and commit-count auto-pause before PR data/model work begins | Repository and enterprise policy controls | `auto_review` gates, filters, labels, drafts, and incremental-review settings |
 | Governed external automations | Signed `/automation/webhook` with event, nested-field, and URL matching; read-only review/plan/fix actions | Actions, MCP, and cloud-agent workflows | Scheduled, message-triggered, and custom webhook automations |
 | Full PR context | Files, commits, checks, discussion, Jira/Linear, local and explicitly linked repositories, opt-in read-only MCP tools, and labeled web search | Full changeset, repository, and MCP context | PR, issue, repository, knowledge base context |
 | Direct issue planning | GitHub, GitLab, Jira, and Linear issue URL to acceptance criteria, evidence plan, and citations; GitHub issues can also drive a guarded implementation patch | Issue and task workflows | Issue planning and task actions |
@@ -116,6 +117,7 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 42. Background task results are durable artifacts separate from logs: status, exit code, completion time, output size, and output digest remain machine-readable after the terminal exits.
 43. Configuration migration preserves behavior rather than just names: imported include/exclude globs constrain the evidence context and multiline path guidance survives into the model instruction contract.
 44. CodeRabbit finishing touches are portable: bounded custom recipes migrate into the same sandboxed, path-scoped, verification-aware recipe engine instead of becoming inert configuration.
+45. Automatic review policy is enforced at the webhook boundary: disabled, draft, incremental, title, author, base-branch, label, and commit-pause rules stop work before a model or publication side effect is attempted.
 
 ## Remaining Deliberate Gaps
 

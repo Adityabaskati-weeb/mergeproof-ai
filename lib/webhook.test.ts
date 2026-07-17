@@ -1,4 +1,7 @@
 import { createHmac } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseGithubCommentCommand, processGithubWebhookPayload, verifyGithubWebhookSignature, verifyRemoteSessionSignature } from "./webhook";
 
@@ -33,5 +36,21 @@ describe("GitHub webhook boundary", () => {
     expect(parseGithubCommentCommand("/mergeproof autofix stacked pr")).toEqual({ command: "autofix stacked pr", instruction: "" });
     expect(parseGithubCommentCommand("/mergeproof run api-contract")).toEqual({ command: "run", instruction: "api-contract" });
     expect(parseGithubCommentCommand("plain comment")).toBeUndefined();
+  });
+
+  it("enforces imported automatic review policy before fetching a PR", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mergeproof-webhook-"));
+    try {
+      await mkdir(join(root, ".mergeproof"), { recursive: true });
+      await writeFile(join(root, ".mergeproof", "config.json"), JSON.stringify({ autoReview: false, ignoreTitleKeywords: ["wip"], autoIncrementalReview: false }), "utf8");
+      const basePayload = { action: "opened", pull_request: { html_url: "https://github.com/acme/widget/pull/42", title: "WIP: draft", body: "", commits: 1 } };
+      await expect(processGithubWebhookPayload(basePayload, { event: "pull_request", repoPath: root })).resolves.toMatchObject({ ignored: true, reason: "review_auto_disabled" });
+      await writeFile(join(root, ".mergeproof", "config.json"), JSON.stringify({ autoReview: true, ignoreTitleKeywords: ["wip"] }), "utf8");
+      await expect(processGithubWebhookPayload(basePayload, { event: "pull_request", repoPath: root })).resolves.toMatchObject({ ignored: true, reason: "review_title_excluded" });
+      await writeFile(join(root, ".mergeproof", "config.json"), JSON.stringify({ autoReview: true, autoIncrementalReview: false }), "utf8");
+      await expect(processGithubWebhookPayload({ ...basePayload, action: "synchronize" }, { event: "pull_request", repoPath: root })).resolves.toMatchObject({ ignored: true, reason: "review_incremental_disabled" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
