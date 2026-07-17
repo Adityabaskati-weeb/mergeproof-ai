@@ -1,0 +1,24 @@
+{
+  "tools": [
+    {
+      "name": "ESLint",
+      "path": ".mergeproof/tool-results/eslint.sarif",
+      "format": "sarif"
+    },
+    {
+      "name": "Ruff",
+      "path": ".mergeproof/tool-results/ruff.sarif",
+      "format": "sarif"
+    },
+    {
+      "name": "Gitleaks",
+      "path": ".mergeproof/tool-results/gitleaks.sarif",
+      "format": "sarif"
+    },
+    {
+      "name": "Checkov",
+      "path": ".mergeproof/tool-results/checkov.sarif",
+      "format": "sarif"
+    }
+  ]
+}

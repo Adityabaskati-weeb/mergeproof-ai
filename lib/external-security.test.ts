@@ -27,4 +27,16 @@ describe("external security adapters", () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it("ingests configured SARIF artifacts without executing repository commands", async () => {
+    const root = await fs.mkdtemp(join(process.env.TEMP ?? ".", "mergeproof-sarif-tools-"));
+    try {
+      await fs.mkdir(join(root, ".mergeproof"), { recursive: true });
+      await fs.writeFile(join(root, ".mergeproof", "tools.json"), JSON.stringify({ tools: [{ name: "Ruff", path: ".mergeproof/ruff.sarif" }] }), "utf8");
+      await fs.writeFile(join(root, ".mergeproof", "ruff.sarif"), JSON.stringify({ runs: [{ tool: { driver: { name: "Ruff" } }, results: [{ ruleId: "F401", level: "warning", message: { text: "unused import" }, locations: [{ physicalLocation: { artifactLocation: { uri: "src/app.py" }, region: { startLine: 3 } } }] }] }] }), "utf8");
+      await expect(scanExternalSecurity({ repoPath: root, commitSha: "sha", sarifPaths: ["../outside.sarif"] })).resolves.toMatchObject({ tools: ["Ruff"], findings: [{ path: "src/app.py", line: 3 }], unavailable: ["outside.sarif (SARIF path must stay inside the repository)"] });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -5,13 +5,15 @@
       "name": "engineering-reviewers",
       "channelIds": ["C0123456789"],
       "userIds": ["U0123456789"],
-      "actions": ["review", "investigate", "walkthrough", "plan", "issue"]
+      "actions": ["review", "investigate", "walkthrough", "plan", "issue"],
+      "maxRequestsPerHour": 30
     },
     {
       "name": "trusted-autofix",
       "channelIds": ["C0123456789"],
       "userIds": ["U0123456789"],
-      "actions": ["autofix"]
+      "actions": ["autofix"],
+      "maxRequestsPerHour": 5
     }
   ]
 }

@@ -29,7 +29,7 @@ fn cli_args(
     remember: bool,
     re_review: bool,
 ) -> Result<Vec<String>, String> {
-    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
+    if !matches!(command, "analyze" | "consensus" | "walkthrough" | "erd" | "plan" | "work-plan" | "plan-history" | "security" | "bundle-verify" | "fix" | "simplify" | "tests" | "docstrings" | "review" | "agent" | "task" | "implement" | "recipe" | "autofix" | "conflicts" | "resolve" | "ask" | "report") {
         return Err(String::from("Unsupported MergeProof command."));
     }
     if command == "review" || command == "agent" {
@@ -150,6 +150,10 @@ fn cli_args(
     if command == "security" {
         let repo = repo_path.filter(|value| !value.trim().is_empty()).or_else(|| (!pr_url.trim().is_empty()).then_some(pr_url)).ok_or_else(|| String::from("Security scanning requires an explicit repository path."))?;
         return Ok(vec![command.to_string(), "--repo".to_string(), repo, "--json".to_string()]);
+    }
+    if command == "bundle-verify" {
+        if pr_url.trim().is_empty() { return Err(String::from("Review bundle verification requires a bundle JSON path.")); }
+        return Ok(vec!["bundle".to_string(), "verify".to_string(), pr_url, "--json".to_string()]);
     }
     if command == "conflicts" {
         let repo = if !pr_url.trim().is_empty() { pr_url } else { repo_path.unwrap_or_default() };

@@ -4,9 +4,10 @@ const { execFile } = require("node:child_process");
 function runMergeProof(command, url, cwd) {
   const configuredPath = vscode.workspace.getConfiguration("mergeproof").get("cliPath");
   const executable = configuredPath || (process.platform === "win32" ? "npm.cmd" : "npm");
+  const commandParts = command === "bundle-verify" ? ["bundle", "verify"] : [command];
   const repoArgs = command === "analyze" || command === "consensus" || command === "walkthrough" || command === "docstrings" || command === "fix" || command === "simplify" || command === "tests" || command === "autofix" || command === "task" || command === "work-plan" || command === "security" || command === "plan-history" ? ["--repo", cwd] : [];
   const positional = command === "security" || command === "plan-history" ? [] : [url];
-  const args = configuredPath ? [command, ...positional, "--json", ...repoArgs] : ["run", "cli", "--", command, ...positional, "--", "--json", ...repoArgs];
+  const args = configuredPath ? [...commandParts, ...positional, "--json", ...repoArgs] : ["run", "cli", "--", ...commandParts, ...positional, "--", "--json", ...repoArgs];
   return new Promise((resolve, reject) => execFile(executable, args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
     const jsonStart = stdout.indexOf("{");
     const json = jsonStart >= 0 ? stdout.slice(jsonStart).trim() : "";
@@ -126,6 +127,23 @@ async function inspectLocal(command) {
   }
 }
 
+async function verifyBundle() {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) return vscode.window.showErrorMessage("Open a workspace before verifying a MergeProof review capsule.");
+  const selected = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: "Verify review capsule", filters: { "MergeProof bundle": ["json"], "All files": ["*"] } });
+  if (!selected?.[0]) return;
+  const channel = vscode.window.createOutputChannel("MergeProof");
+  channel.show(true);
+  try {
+    const result = await runMergeProof("bundle-verify", selected[0].fsPath, folder);
+    channel.appendLine(JSON.stringify(result, null, 2));
+    vscode.window.showInformationMessage(`MergeProof review capsule: ${result.valid ? "valid" : "invalid"}`);
+  } catch (error) {
+    channel.appendLine(String(error));
+    vscode.window.showErrorMessage(`MergeProof review capsule verification failed: ${error.message}`);
+  }
+}
+
 function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.analyzePullRequest", () => analyze("analyze")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.consensus", () => analyze("consensus")));
@@ -137,6 +155,7 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generateWorkPlan", generateWorkPlan));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.securityScan", () => inspectLocal("security")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.planHistory", () => inspectLocal("plan-history")));
+  context.subscriptions.push(vscode.commands.registerCommand("mergeproof.verifyBundle", verifyBundle));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generateWalkthrough", () => analyze("walkthrough")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.resolveReviewThreads", () => analyze("resolve")));
   context.subscriptions.push(vscode.commands.registerCommand("mergeproof.generateDocstrings", () => analyze("docstrings")));

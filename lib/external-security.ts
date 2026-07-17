@@ -7,7 +7,7 @@ import type { SecurityFinding } from "./types";
 
 const MAX_OUTPUT_BYTES = 12 * 1024 * 1024;
 
-export type ExternalSecurityOptions = { repoPath: string; commitSha: string; semgrep?: boolean; npmAudit?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string };
+export type ExternalSecurityOptions = { repoPath: string; commitSha: string; semgrep?: boolean; npmAudit?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; sarifPaths?: string[] };
 export type ExternalSecurityReport = { findings: SecurityFinding[]; tools: string[]; unavailable: string[] };
 
 type SarifResult = {
@@ -110,6 +110,63 @@ export function parseSarifOutput(value: string, root: string, commitSha: string)
   }
 }
 
+type ToolConfig = { tools?: Array<{ name?: unknown; path?: unknown; format?: unknown }> };
+
+function safeSarifPath(root: string, value: string): string | undefined {
+  const candidate = resolve(root, value);
+  const comparisonCandidate = process.platform === "win32" ? candidate.toLowerCase() : candidate;
+  const comparisonRoot = process.platform === "win32" ? resolve(root).toLowerCase() : resolve(root);
+  const normalizedRoot = `${comparisonRoot}${process.platform === "win32" ? "\\" : "/"}`;
+  if (comparisonCandidate !== comparisonRoot && !comparisonCandidate.startsWith(normalizedRoot)) return undefined;
+  if (!/\.(?:sarif|json)$/i.test(candidate)) return undefined;
+  return candidate;
+}
+
+async function configuredSarifPaths(root: string): Promise<Array<{ name: string; path: string }>> {
+  try {
+    const value = JSON.parse(await fs.readFile(join(root, ".mergeproof", "tools.json"), "utf8")) as ToolConfig;
+    if (!Array.isArray(value.tools)) return [];
+    return value.tools.slice(0, 50).flatMap((tool, index) => {
+      if (typeof tool.path !== "string") return [];
+      const path = safeSarifPath(root, tool.path);
+      if (!path) return [];
+      return [{ name: typeof tool.name === "string" && tool.name.trim() ? tool.name.trim().slice(0, 100) : `tool-${index + 1}`, path }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function ingestSarifFiles(root: string, commitSha: string, paths: string[]): Promise<ExternalSecurityReport> {
+  const configured = await configuredSarifPaths(root);
+  const unavailable = paths.slice(0, 50).filter((value) => !safeSarifPath(root, value)).map((value) => `${basename(value) || value} (SARIF path must stay inside the repository)`);
+  const requested = [...configured, ...paths.slice(0, 50).flatMap((value, index) => {
+    const path = safeSarifPath(root, value);
+    return path ? [{ name: basename(path) || `sarif-${index + 1}`, path }] : [];
+  })];
+  const seen = new Set<string>();
+  const findings: SecurityFinding[] = [];
+  const tools: string[] = [];
+  for (const item of requested) {
+    if (seen.has(item.path)) continue;
+    seen.add(item.path);
+    const value = await fs.readFile(item.path, "utf8").catch(() => undefined);
+    if (value === undefined) {
+      unavailable.push(`${item.name} (missing SARIF)`);
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(value) as { runs?: unknown[] };
+      if (!Array.isArray(parsed.runs)) throw new Error("not SARIF");
+      tools.push(item.name);
+      findings.push(...parseSarifOutput(value, root, commitSha));
+    } catch {
+      unavailable.push(`${item.name} (invalid SARIF)`);
+    }
+  }
+  return { findings, tools, unavailable };
+}
+
 export async function scanExternalSecurity(options: ExternalSecurityOptions): Promise<ExternalSecurityReport> {
   const root = resolve(options.repoPath);
   const findings: SecurityFinding[] = [];
@@ -161,5 +218,9 @@ export async function scanExternalSecurity(options: ExternalSecurityOptions): Pr
     }
     await fs.rm(temporary, { recursive: true, force: true });
   }
-  return { findings: findings.filter((finding, index, values) => values.findIndex((candidate) => candidate.id === finding.id) === index), tools, unavailable };
+  const sarif = await ingestSarifFiles(root, options.commitSha, options.sarifPaths ?? []);
+  findings.push(...sarif.findings);
+  tools.push(...sarif.tools);
+  unavailable.push(...sarif.unavailable);
+  return { findings: findings.filter((finding, index, values) => values.findIndex((candidate) => candidate.id === finding.id) === index), tools: [...new Set(tools)], unavailable: [...new Set(unavailable)] };
 }

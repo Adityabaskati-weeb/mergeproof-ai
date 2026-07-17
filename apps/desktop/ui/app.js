@@ -23,13 +23,13 @@ const agentProfile = document.querySelector("#agent-profile");
 const relatedRepos = document.querySelector("#related-repos");
 
 function updateActionLabel() {
-  const labels = { analyze: "Analyze change", ask: "Ask repository", report: "Review report", security: "Repository security scan", "plan-history": "Inspect plan history", walkthrough: "Generate walkthrough", erd: "Generate schema impact", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", implement: "Implement local request", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", "work-plan": "Plan free-form request", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
+  const labels = { analyze: "Analyze change", ask: "Ask repository", report: "Review report", security: "Repository security scan", "bundle-verify": "Verify review capsule", "plan-history": "Inspect plan history", walkthrough: "Generate walkthrough", erd: "Generate schema impact", resolve: "Resolve review threads", docstrings: "Generate docstrings", consensus: "Run consensus gate", review: "Review local changes", conflicts: "Resolve merge conflicts", agent: "Sandbox fix and verify", task: "Implement GitHub issue", implement: "Implement local request", recipe: "Run finishing-touch recipe", autofix: "Review-thread autofix", plan: "Generate plan", "work-plan": "Plan free-form request", fix: "Suggest safe fix", simplify: "Simplify changed code", tests: "Generate tests" };
   const criteriaLabel = document.querySelector('label[for="criteria"]');
   button.innerHTML = `${labels[action.value]} <span>&rarr;</span>`;
   const local = ["review", "agent", "conflicts", "ask", "report", "security", "plan-history", "implement", "work-plan"].includes(action.value);
-  targetLabel.textContent = action.value === "ask" ? "Repository question" : action.value === "work-plan" ? "PRD, design, or work request" : local ? "Repository path" : action.value === "plan" ? "Change request or issue" : action.value === "task" ? "GitHub issue" : "GitHub pull request";
+  targetLabel.textContent = action.value === "ask" ? "Repository question" : action.value === "bundle-verify" ? "Review bundle JSON" : action.value === "work-plan" ? "PRD, design, or work request" : local ? "Repository path" : action.value === "plan" ? "Change request or issue" : action.value === "task" ? "GitHub issue" : "GitHub pull request";
   if (criteriaLabel) criteriaLabel.textContent = action.value === "recipe" ? "Recipe name" : "Criteria";
-  input.placeholder = action.value === "ask" ? "How does authentication flow through this repository?" : action.value === "implement" ? "Add rate limiting to the login endpoint" : action.value === "work-plan" ? "Add rate limiting to the public API" : local ? "C:\\path\\to\\repository" : action.value === "task" ? "https://github.com/owner/repo/issues/123" : "https://github.com/owner/repo/pull/123";
+  input.placeholder = action.value === "ask" ? "How does authentication flow through this repository?" : action.value === "bundle-verify" ? "C:\\path\\to\\review.bundle.json" : action.value === "implement" ? "Add rate limiting to the login endpoint" : action.value === "work-plan" ? "Add rate limiting to the public API" : local ? "C:\\path\\to\\repository" : action.value === "task" ? "https://github.com/owner/repo/issues/123" : "https://github.com/owner/repo/pull/123";
   apply.disabled = !["fix", "simplify", "conflicts", "resolve", "recipe", "implement"].includes(action.value);
   if (apply.disabled) apply.checked = false;
   criteria.disabled = action.value === "ask";
@@ -67,7 +67,7 @@ function escapeHtml(value) {
 }
 
 button.addEventListener("click", async () => {
-    const target = ["review", "agent", "conflicts", "security", "plan-history"].includes(action.value) ? (input.value.trim() || repo.value.trim()) : input.value.trim();
+    const target = ["review", "agent", "conflicts", "security", "plan-history", "bundle-verify"].includes(action.value) ? (input.value.trim() || repo.value.trim()) : input.value.trim();
   if (!target) return;
   button.disabled = true;
   button.textContent = "Working...";
@@ -87,6 +87,9 @@ button.addEventListener("click", async () => {
       result.innerHTML = `<h2>REVIEW REPORT</h2><p>${output.reviews.total} reviews &middot; ${output.reviews.targets} targets &middot; ${output.reviews.attested} attested</p><p>Decisions: ${decisions}</p><p>Outcomes: ${output.outcomes.total} &middot; ${output.outcomes.readyCalibration ? `${Math.round(output.outcomes.readyCalibration.rate * 100)}% ready calibration` : "not enough judged outcomes"}</p>`;
     } else if (action.value === "security") {
       result.innerHTML = `<h2>REPOSITORY SECURITY SCAN</h2><p>${output.findings.length} deterministic finding(s) &middot; sensitive files excluded</p><div class="evidence">${output.findings.map((finding) => `<div class="row security"><span>${escapeHtml(finding.title)}</span><code>${escapeHtml(finding.path)}:${escapeHtml(finding.line)}</code><span class="badge">${escapeHtml(finding.severity.toUpperCase())}</span></div>`).join("") || "No deterministic findings."}</div>`;
+    } else if (action.value === "bundle-verify") {
+      const errors = (output.citationErrors || []).map((error) => `<div class="row security"><span>${escapeHtml(error)}</span><span class="badge">INVALID</span></div>`).join("");
+      result.innerHTML = `<h2>REVIEW CAPSULE ${output.valid ? "VALID" : "INVALID"}</h2><p>Bundle digest: ${output.bundleDigestValid ? "valid" : "invalid"} &middot; Context digest: ${output.contextDigestValid ? "valid" : "invalid"} &middot; Analysis attestation: ${output.analysisAttestationValid ? "valid" : "invalid"}</p><div class="evidence">${errors || "All citations resolve to the capsule source manifest."}</div>`;
     } else if (action.value === "plan-history") {
       result.innerHTML = `<h2>PLAN HISTORY</h2><p>${output.length} recorded version(s)</p><div class="evidence">${output.map((entry) => `<div class="row"><span>${escapeHtml(entry.id)} v${entry.version}<br /><small>${escapeHtml(entry.request)}</small></span><code>${escapeHtml(entry.digest.slice(0, 12))}</code><span class="badge">${escapeHtml(entry.model)}</span></div>`).join("") || "No recorded plans."}</div>`;
     } else if (action.value === "ask") {

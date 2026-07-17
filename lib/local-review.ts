@@ -27,7 +27,7 @@ const MAX_DIFF_BYTES = 20 * 1024 * 1024;
 const MAX_UNTRACKED_BYTES = 250_000;
 
 export type WorkingTreeFile = PullRequestContext["files"][number];
-export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; hooks?: boolean };
+export type LocalReviewOptions = { repoPath?: string; provider?: string; criteria?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; directories?: string[]; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; hooks?: boolean };
 
 function runGit(root: string, args: string[]): string {
   try {
@@ -152,7 +152,7 @@ export async function buildWorkingTreeReviewContext(options: LocalReviewOptions 
   const privacyFindings = scanPullRequestPrivacy(context);
   const qualitySignals = scanSlopSignals(context);
   const suggestedReviewers = await suggestReviewers(repositoryRoot, changes.files.map((file) => file.path));
-  const externalSecurity = options.externalSecurity || options.codeqlDatabase ? await scanExternalSecurity({ repoPath: repositoryRoot, commitSha: reviewSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery }) : { findings: [], tools: [], unavailable: [] };
+  const externalSecurity = options.externalSecurity || options.codeqlDatabase || options.toolSarif?.length ? await scanExternalSecurity({ repoPath: repositoryRoot, commitSha: reviewSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, sarifPaths: options.toolSarif }) : { findings: [], tools: [], unavailable: [] };
   const securityFindings = [...baseSecurityFindings, ...privacyFindings, ...externalSecurity.findings];
   context.securityFindings = securityFindings;
   context.qualitySignals = qualitySignals;

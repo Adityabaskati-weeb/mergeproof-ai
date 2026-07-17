@@ -24,7 +24,7 @@ import { recordAuditEvent } from "./audit";
 import { buildWalkthrough } from "./walkthrough";
 import type { Analysis } from "./types";
 
-export type AnalyzeOptions = { provider?: string; repoPath?: string; relatedRepos?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; remember?: boolean; memoryRoot?: string; memoryLimit?: number; knowledgeLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; mcp?: boolean; webSearch?: boolean; hooks?: boolean };
+export type AnalyzeOptions = { provider?: string; repoPath?: string; relatedRepos?: string[]; retrievalTopK?: number; effort?: string; profile?: string; agent?: string; remember?: boolean; memoryRoot?: string; memoryLimit?: number; knowledgeLimit?: number; externalSecurity?: boolean; codeqlDatabase?: string; codeqlCreate?: boolean; codeqlLanguages?: string; codeqlQuery?: string; toolSarif?: string[]; mcp?: boolean; webSearch?: boolean; hooks?: boolean };
 
 export async function analyzePullRequest(prUrl: string, model?: string, options: AnalyzeOptions = {}): Promise<Analysis> {
   const started = Date.now();
@@ -50,7 +50,7 @@ export async function analyzePullRequest(prUrl: string, model?: string, options:
   const privacyFindings = scanPullRequestPrivacy(fetchedContext);
   const qualitySignals = scanSlopSignals(fetchedContext);
   const suggestedReviewers = await suggestReviewers(options.repoPath, fetchedContext.files.map((file) => file.path));
-  const externalSecurity = options.repoPath && (options.externalSecurity || options.codeqlDatabase) ? await scanExternalSecurity({ repoPath: options.repoPath, commitSha: fetchedContext.headSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery }) : { findings: [], tools: [], unavailable: [] };
+  const externalSecurity = options.repoPath && (options.externalSecurity || options.codeqlDatabase || options.toolSarif?.length) ? await scanExternalSecurity({ repoPath: options.repoPath, commitSha: fetchedContext.headSha, npmAudit: options.externalSecurity, semgrep: options.externalSecurity, codeqlDatabase: options.codeqlDatabase, codeqlCreate: options.codeqlCreate, codeqlLanguages: options.codeqlLanguages, codeqlQuery: options.codeqlQuery, sarifPaths: options.toolSarif }) : { findings: [], tools: [], unavailable: [] };
   const securityFindings = [...baseSecurityFindings, ...privacyFindings, ...externalSecurity.findings];
   const context = { ...fetchedContext, issues, repositoryEvidence: [...retrieval.chunks, ...relatedEvidence], sourceCommits, customInstructions: combineInstructions(policy.instructions, agentProfile), customChecks: policy.customChecks ?? [], reviewMemory, knowledge, reviewEffort: effort, reviewProfile: profile, securityFindings, qualitySignals, suggestedReviewers };
   issues.forEach((issue) => context.sources.add(issue.url));

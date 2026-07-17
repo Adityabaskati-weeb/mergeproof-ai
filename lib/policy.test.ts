@@ -47,4 +47,14 @@ describe("loadPolicy", () => {
     await fs.writeFile(join(root, ".mergeproof", "checks.json"), JSON.stringify([{ name: "API compatibility", instructions: "Require compatibility evidence." }, { name: "", instructions: "ignored" }]), "utf8");
     await expect(loadPolicy(root)).resolves.toMatchObject({ customChecks: [{ name: "API compatibility", instructions: "Require compatibility evidence." }] });
   });
+
+  it("inherits a bounded central policy and lets the repository override scalar values", async () => {
+    const root = await fs.mkdtemp(join(process.env.TEMP ?? ".", "mergeproof-policy-inheritance-"));
+    temporaryDirectories.push(root);
+    await fs.mkdir(join(root, ".mergeproof"), { recursive: true });
+    const central = join(root, "organization-policy.json");
+    await fs.writeFile(central, JSON.stringify({ model: "org-model", minCitationsPerCriterion: 2, customChecks: [{ name: "Central API", instructions: "Require API evidence." }] }), "utf8");
+    await fs.writeFile(join(root, ".mergeproof", "config.json"), JSON.stringify({ extends: "../organization-policy.json", model: "repo-model", customChecks: [{ name: "Local release", instructions: "Require release evidence." }] }), "utf8");
+    await expect(loadPolicy(root)).resolves.toMatchObject({ model: "repo-model", minCitationsPerCriterion: 2, customChecks: [{ name: "Central API" }, { name: "Local release" }] });
+  });
 });

@@ -2,7 +2,28 @@ import { promises as fs } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { CustomCheck, ReviewEffort, ReviewProfile } from "./types";
 
-export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; profile?: ReviewProfile; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string; customChecks?: CustomCheck[] };
+export type MergeProofPolicy = { provider?: string; model?: string; effort?: ReviewEffort; profile?: ReviewProfile; retrievalTopK?: number; minCitationsPerCriterion?: number; instructions?: string; customChecks?: CustomCheck[]; extends?: string | string[] };
+
+type PolicyFile = MergeProofPolicy & { extends?: string | string[] };
+
+async function readPolicyFile(path: string, stack: string[] = []): Promise<PolicyFile> {
+  const resolvedPath = resolve(path);
+  if (stack.includes(resolvedPath) || stack.length >= 3) return {};
+  try {
+    const value = JSON.parse(await fs.readFile(resolvedPath, "utf8")) as PolicyFile;
+    if (!value || typeof value !== "object") return {};
+    const parents = typeof value.extends === "string" ? [value.extends] : Array.isArray(value.extends) ? value.extends.filter((entry): entry is string => typeof entry === "string") : [];
+    const inherited = await Promise.all(parents.slice(0, 5).map((parent) => readPolicyFile(resolve(resolvePathDirectory(resolvedPath), parent), [...stack, resolvedPath])));
+    const mergedChecks = inherited.flatMap((policy) => policy.customChecks ?? []);
+    return { ...inherited.reduce<PolicyFile>((merged, policy) => ({ ...merged, ...policy }), {}), ...value, ...(mergedChecks.length || value.customChecks?.length ? { customChecks: [...mergedChecks, ...(value.customChecks ?? [])] } : {}), extends: value.extends };
+  } catch {
+    return {};
+  }
+}
+
+function resolvePathDirectory(path: string): string {
+  return path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
+}
 
 async function loadCustomChecks(repositoryRoot: string): Promise<CustomCheck[]> {
   try {
@@ -60,12 +81,11 @@ function appliesToPaths(content: string, changedPaths: string[]): boolean {
 export async function loadPolicy(root?: string, changedPaths: string[] = []): Promise<MergeProofPolicy> {
   if (!root) return {};
   const repositoryRoot = resolve(root);
-  let policy: MergeProofPolicy = {};
-  try {
-    policy = JSON.parse(await fs.readFile(join(repositoryRoot, ".mergeproof", "config.json"), "utf8")) as MergeProofPolicy;
-  } catch {
-    // Policy is optional; defaults keep the analyzer usable in any checkout.
-  }
+  const localPolicyPath = join(repositoryRoot, ".mergeproof", "config.json");
+  const centralPath = process.env.MERGEPROOF_CENTRAL_CONFIG?.trim();
+  const centralPolicy = centralPath ? await readPolicyFile(centralPath) : {};
+  const localPolicy = await readPolicyFile(localPolicyPath);
+  const policy: MergeProofPolicy = { ...centralPolicy, ...localPolicy, ...(centralPolicy.customChecks || localPolicy.customChecks ? { customChecks: [...(centralPolicy.customChecks ?? []), ...(localPolicy.customChecks ?? [])] } : {}) };
   const configuredChecks = await loadCustomChecks(repositoryRoot);
   const inlineChecks = Array.isArray(policy.customChecks) ? policy.customChecks : [];
   const customChecks = [...configuredChecks, ...inlineChecks]

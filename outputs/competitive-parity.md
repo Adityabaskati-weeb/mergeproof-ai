@@ -16,14 +16,15 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Direct issue planning | GitHub, GitLab, Jira, and Linear issue URL to acceptance criteria, evidence plan, and citations; GitHub issues can also drive a guarded implementation patch | Issue and task workflows | Issue planning and task actions |
 | Free-form product planning | `work-plan` accepts PRDs, designs, issue text, or plain requests; retrieves current checkout evidence and removes unsupported citations | Cloud-agent research and planning | Plans from PRDs, designs, issues, and free-form descriptions |
 | Suggested reviewers | Path-aware suggestions from CODEOWNERS and `.mergeproof/reviewers.json` | Suggested reviewers and team rules | Suggested reviewer rules |
-| Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files, and named custom-agent profiles | Custom instructions, custom agents, skills, MCP | Repository and path-based instructions |
+| Team instructions | `.mergeproof`, Copilot, AGENTS, CLAUDE, cursorrules files, named custom-agent profiles, and bounded central-policy inheritance | Custom instructions, custom agents, skills, MCP | Repository and path-based instructions plus central configuration |
 | Natural-language pre-merge checks | `.mergeproof/checks.json` checks become evidence-backed criteria and cannot silently approve without citations | Repository instructions and checks | Built-in and custom pre-merge checks |
 | Citation-backed decision | Exact head-SHA citations and source validation | Actionable suggestions | Review findings and summaries |
+| Offline review capsule | Portable snapshot of fetched change context, analysis, source manifest, exact head SHA, and SHA-256 digests; verifiable without a model or network | Hosted review history and cloud artifacts | Hosted review history and dashboards |
 | Durable memory | Local bounded review JSONL, explicit approved knowledge JSONL, plus bounded Slack thread reference state | Copilot Memory | Knowledge Base and learnings |
 | Local audit history | Bounded JSONL metadata trail with decision, model, head SHA, and attestation lookup | Enterprise audit logs | Workspace audit logs |
 | Review effort / scope | Low, medium, or high effort; local `--dir` scopes | Low/medium effort; IDE and repository scope | Directory-scoped CLI review |
 | Review profiles | Quiet, chill, and assertive profiles with publication filtering and an attested selected profile | Review customization and repository instructions | Quiet, chill, and assertive profiles |
-| Security gate | Deterministic changed-line gate plus `security` full-repository scanner and optional npm audit, Semgrep, and CodeQL database creation/SARIF adapters | Security risk review and GitHub security ecosystem | Security Agent and built-in checks |
+| Security gate | Deterministic changed-line gate plus `security` full-repository scanner, optional npm audit/Semgrep/CodeQL, and bounded SARIF ingestion for existing ESLint, Ruff, Gitleaks, Checkov, and other CI tools | Security risk review and GitHub security ecosystem | Security Agent and built-in checks |
 | Privacy / slop gate | Deterministic PII-pattern and placeholder/large-change signals, never removable by model output | Security and quality ecosystem | PII and slop detection |
 | Safe fixes | Unified-diff suggestion; explicit checked apply; unresolved-thread autofix in a detached worktree with optional verification, re-review, default-branch PR, or GitHub stacked PR | Suggested multi-line fixes and cloud-agent handoff | Autofix and agent handoff |
 | Simplify | Evidence-bounded behavior-preserving refactor patch with checked apply | Agent/code editing workflows | Simplify code command and walkthrough action |
@@ -31,7 +32,7 @@ This document keeps the product claim honest. The comparison is against GitHub C
 | Test generation | Test-only unified-diff suggestion | Agent/code generation workflows | Generate unit tests |
 | Documentation generation | Documentation-only patch suggestion bounded to changed non-test files | Agent/code generation workflows | Generate docstrings |
 | Issue creation | GitHub, GitLab, Jira, and Linear | GitHub task workflows | GitHub, GitLab, Jira, Linear |
-| Slack / Discord | Signed Slack slash commands, Events API mentions, thread follow-ups, default-deny channel/user/action scopes, and a signed Discord interaction endpoint reuse the same governed review, plan, issue, and guarded autofix actions | GitHub ecosystem integrations | Conversational agents, learning, automations, scopes, and PR actions |
+| Slack / Discord | Signed Slack slash commands, Events API mentions, thread follow-ups, default-deny channel/user/action scopes, durable hourly request budgets, and a signed Discord interaction endpoint reuse the same governed review, plan, issue, and guarded autofix actions | GitHub ecosystem integrations | Conversational agents, learning, automations, scopes, and PR actions |
 | Model choice | OpenAI, OpenAI-compatible including local endpoints, Anthropic | GitHub-managed model controls | Product-managed model controls |
 | Client surfaces | CLI, native Windows desktop, VS Code, Cursor plugin metadata/rule, JetBrains plugin source, CI, and installable agent skill | GitHub, IDE, CLI, cloud agent | Git platforms, IDE, CLI, Slack |
 | Consensus gate | Parallel provider/model reviews with per-criterion agreement; `ready` requires unanimous evidence | Agent/sub-agent orchestration | Agent workflows and review automation |
@@ -67,6 +68,9 @@ MergeProof's primary novelty is a **merge evidence ledger**, not another ungroun
 14. Free-form planning uses the same ledger boundary as review: a plan is not allowed to retain citations from a different checkout or commit, so planning and implementation start from the same verifiable evidence surface.
 15. Natural-language pre-merge checks are evaluated as normal evidence rows, so teams get a measurable abstention when a custom rule cannot be proven rather than an opaque pass/fail toggle.
 16. Follow-up issues are duplicate-safe and enriched with related issue links, available smart labels, and optional configured assignees without inventing labels that do not exist in the repository.
+17. Review capsules make a completed decision independently auditable after the provider or model is gone: the context, citations, exact head SHA, analysis attestation, and bundle digest travel together and can be checked offline.
+18. Existing CI security and quality tools can join the evidence ledger through bounded SARIF artifacts; MergeProof does not need shell access to reproduce or trust a tool result.
+19. Central policy inheritance keeps organization defaults reviewable as code while preserving repository-local overrides and the same bounded custom-check contract.
 
 ## Remaining Deliberate Gaps
 
