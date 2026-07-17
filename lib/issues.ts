@@ -1,4 +1,5 @@
 import { extractAcceptanceCriteria } from "./criteria";
+import { parseChangeRequestUrl } from "./change-request";
 import type { LinkedIssue } from "./types";
 
 function textFromAtlassian(value: unknown): string {
@@ -84,4 +85,24 @@ export async function createJiraIssue(summary: string, description: string): Pro
   if (!response.ok) throw new Error(`Jira issue creation failed with HTTP ${response.status}.`);
   const payload = await response.json() as { key?: string; self?: string };
   return payload.self ?? `${baseUrl}/browse/${payload.key ?? ""}`;
+}
+
+export async function createGitLabIssue(prUrl: string, summary: string, description: string): Promise<string> {
+  const target = parseChangeRequestUrl(prUrl);
+  if (target.provider !== "gitlab") throw new Error("GitLab issue creation requires a GitLab merge request URL.");
+  const token = process.env.GITLAB_TOKEN;
+  if (!token) throw new Error("GITLAB_TOKEN is required to create a GitLab issue.");
+  const parsed = new URL(target.ref.url);
+  const apiBase = (process.env.GITLAB_API_URL || `${parsed.origin}/api/v4`).replace(/\/$/, "");
+  const projectPath = `${target.ref.owner}/${target.ref.repo}`;
+  const response = await fetch(`${apiBase}/projects/${encodeURIComponent(projectPath)}/issues`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "PRIVATE-TOKEN": token },
+    body: JSON.stringify({ title: summary.slice(0, 255), description: description.slice(0, 100000) }),
+  });
+  if (!response.ok) throw new Error(`GitLab issue creation failed with HTTP ${response.status}.`);
+  const payload = await response.json() as { web_url?: string; url?: string };
+  const url = payload.web_url ?? payload.url;
+  if (!url) throw new Error("GitLab issue creation returned no issue URL.");
+  return url;
 }
