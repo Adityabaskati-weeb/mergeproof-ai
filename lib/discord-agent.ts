@@ -12,6 +12,8 @@ function discordPublicKey(value: string): ReturnType<typeof createPublicKey> {
 
 export function verifyDiscordRequestSignature(body: string, timestamp: string | undefined, signature: string | undefined, publicKey: string): boolean {
   if (!timestamp || !signature || !publicKey) return false;
+  const timestampMs = Number(timestamp) * 1_000;
+  if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60 * 1_000) return false;
   try {
     return verify(null, Buffer.from(`${timestamp}${body}`), discordPublicKey(publicKey), Buffer.from(signature, "hex"));
   } catch {

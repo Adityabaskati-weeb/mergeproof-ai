@@ -8,7 +8,7 @@ describe("Discord agent boundary", () => {
     const der = keys.publicKey.export({ format: "der", type: "spki" }) as Buffer;
     const publicKey = der.subarray(-32).toString("hex");
     const body = JSON.stringify({ type: 2 });
-    const timestamp = "123";
+    const timestamp = Math.floor(Date.now() / 1_000).toString();
     const signature = sign(null, Buffer.from(`${timestamp}${body}`), keys.privateKey).toString("hex");
     expect(verifyDiscordRequestSignature(body, timestamp, signature, publicKey)).toBe(true);
     expect(verifyDiscordRequestSignature(body, timestamp, `${signature.slice(0, -2)}00`, publicKey)).toBe(false);
